@@ -1,0 +1,10 @@
+.env
+*.code-workspace
+.vscode/
+README.txt
+canvas.py
+123.py
+test.py
+*.pyc
+**/__pycache__
+__pycache__/

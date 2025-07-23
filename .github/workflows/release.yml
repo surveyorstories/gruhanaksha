@@ -1,0 +1,76 @@
+name: Create Release
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    if: startsWith(github.event.head_commit.message, 'Release')
+    runs-on: ubuntu-latest
+    permissions: write-all
+    strategy:
+      matrix:
+        node-version: [20]
+
+    steps:
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Extract version from commit message
+        id: extract_version
+        run: |
+          version=$(echo "${{ github.event.head_commit.message }}" | grep -o 'v[0-9]\+\.[0-9]\+\.[0-9]\+')
+          if [ -z "$version" ]; then
+            echo "No version found in commit message"
+            exit 1
+          fi
+          echo "version=$version" >> $GITHUB_ENV
+
+      - name: Read release notes from file
+        id: read_release_notes
+        run: |
+          if [ ! -f release.md ]; then
+            echo "No release notes found"
+            exit 1
+          fi
+          RELEASE_NOTE=$(cat release.md)
+          echo "RELEASE_NOTE<<EOF" >> $GITHUB_ENV
+          echo "$RELEASE_NOTE" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+
+      - name: Compress repository
+        run: |
+          cd ..
+          zip -r gruhanaksha/release.zip gruhanaksha -x "gruhanaksha/.git*" -x "gruhanaksha/.git/*"  -x "gruhanaksha/*.html"  -x "gruhanaksha/.github/*" -x "gruhanaksha/release.zip"
+          cd gruhanaksha
+
+      - name: Create release
+        if: ${{ env.version != '' && env.RELEASE_NOTE != '' }}
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ env.version }}
+          release_name: "Gruhanaksha ${{ env.version }}"
+          body: ${{ env.RELEASE_NOTE }}
+          draft: false
+          prerelease: false
+
+      - name: Upload release assets
+        if: ${{ env.version != '' && env.RELEASE_NOTE != '' }}
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ../gruhanaksha/release.zip
+          asset_name: "Gruhanaksha-${{ env.version }}.zip"
+          asset_content_type: application/zip

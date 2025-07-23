@@ -1,0 +1,47 @@
+# This file contains metadata for your plugin.
+
+# This file should be included when you package your plugin.# Mandatory items:
+
+[general]
+name=Gruhanaksha
+qgisMinimumVersion=3.26
+description=Svamitva Deliverables plugin 
+version=1.0.0
+author=Surveyor Stories
+email=surveyorstories@gmail.com
+
+about=SVAMITVA stands for "Survey of Villages and Mapping with Improvised Technology in Village Areas." It's a Central Sector Scheme aimed at providing an integrated inhabited property ownership solution for rural India.
+
+tracker=https://github.com/surveyorstories/gruhanaksha/issues
+repository=https://github.com/surveyorstories/gruhanaksha
+# End of mandatory metadata
+
+# Recommended items:
+
+hasProcessingProvider=yes
+# Uncomment the following line and add your changelog:
+changelog= <a href=https://surveyorstories.github.io/gruhanakshaweb/releases>Visit Releases page </a>
+
+# Tags are comma separated with spaces allowed
+tags=svamitva,resurvey
+
+homepage=https://surveyorstories.github.io/gruhanakshaweb
+category=Analysis, vector, Raster
+icon=images/ppm.svg
+# experimental flag
+experimental=True
+
+# deprecated flag (applies to the whole plugin, not just a single version)
+deprecated=False
+
+# Since QGIS 3.8, a comma separated list of plugins to be installed
+# (or upgraded) can be specified.
+# Check the documentation for more information.
+# plugin_dependencies=
+
+Category of the plugin: Raster, Vector, Database or Web
+#category= Vector,Raster, 
+
+# If the plugin can run on QGIS Server.
+server=False
+
