@@ -61,7 +61,7 @@ class ToolWidget(QWidget):
         self.setWindowTitle("Tool Panel")
         self.setGeometry(220, 150, 230, 200)
         # self.setWindowFlags(Qt.Window)  # Make it a standalone window
-        self.setAttribute(Qt.WA_DeleteOnClose)  # Allow cleanup when closed
+        # self.setAttribute(Qt.WA_DeleteOnClose)  # Allow cleanup when closed
         self.resize(300, 100)
         self.function_completed = False
         self.setWindowIcon(QIcon(icon))
@@ -105,6 +105,10 @@ class ToolWidget(QWidget):
 
         group_box.setLayout(group_layout)
         main_layout.addWidget(group_box)
+
+    def closeEvent(self, event):
+        self.hide()
+        event.ignore()
 
     def adjuster_button_clicked(self):
         print("Button 3 clicked")

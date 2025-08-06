@@ -1,3 +1,5 @@
 ## Release notes
 
-- initial release
+## 1.0.1
+
+- New: Advanced Line

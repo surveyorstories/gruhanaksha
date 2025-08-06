@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+
 
 """
 /***************************************************************************
@@ -57,18 +57,15 @@ from .Gruhanaksha_provider import SvamitvaPPMProvider
 from PyQt5.QtCore import Qt
 from .master import MasterWidget
 from .tools import ToolWidget
+from .advanced_line import activate_tool
 
-# from .topo_layout_box import ToolSet, UpdateFieldValues
 cmd_folder = os.path.split(inspect.getfile(inspect.currentframe()))[0]
 
 if cmd_folder not in sys.path:
     sys.path.insert(0, cmd_folder)
 
 master = MasterWidget()
-tools = ToolWidget()
-
 qgis_main_window = iface.mainWindow()
-tools.setParent(qgis_main_window, Qt.Window)
 
 
 class SvamitvaPPMPlugin(object):
@@ -77,6 +74,8 @@ class SvamitvaPPMPlugin(object):
         self.provider = None
         self.iface = iface
         self.canvas = iface.mapCanvas()
+        self.tools = ToolWidget()
+        self.tools.setParent(iface.mainWindow(), Qt.Window)
 
     def initProcessing(self):
         """Init Processing provider for QGIS >= 3.8."""
@@ -94,6 +93,8 @@ class SvamitvaPPMPlugin(object):
         # Make sure this file exists
         icon_path = os.path.join(os.path.join(cmd_folder, 'images/ppm.svg'))
         icon = QIcon(icon_path)
+        icon_advancedicon = os.path.join(os.path.join(cmd_folder, 'images/advanced_line.svg'))
+        icon = QIcon(icon_path)
         self.action = QAction(icon, "PPM Generation", self.iface.mainWindow())
         self.dropdown_button = QAction(
             QIcon(icon), "Maps", self.iface.mainWindow())
@@ -108,6 +109,11 @@ class SvamitvaPPMPlugin(object):
         self.action_master.triggered.connect(self.master_data)
         self.iface.addPluginToMenu(
             u"&Gruhanaksha", self.action_master)
+        # advanced line 
+        self.action_advanced_line = QAction(QIcon(icon_advancedicon), 'Advanced Line',
+                                     self.iface.mainWindow())
+        self.action_advanced_line.triggered.connect(self.show_advanced_line)
+        self.toolbar.addAction(self.action_advanced_line)
 
         # Define tools with icon and label
         # Make sure this file exists
@@ -134,26 +140,33 @@ class SvamitvaPPMPlugin(object):
         self.toolbar.addAction(self.dropdown_button)
         self.toolbar.addAction(self.action_tools)
 
-    # def unload(self):
-    #     QgsApplication.processingRegistry().removeProvider(self.provider)
-
     def unload(self):
-        """Remove plugin from GUI and unregister provider"""
-        if self.provider:
-            QgsApplication.processingRegistry().removeProvider(self.provider)
-        if self.action:
-            self.iface.removePluginMenu("&Gruhanaksha", self.action)
-            if self.toolbar:
-                self.toolbar.removeAction(self.action)
-        if self.toolbar:
-            del self.toolbar
-        self.iface.removePluginMenu(
-            u"Gruhanaksha", self.action_master)
-        self.iface.unregisterMainWindowAction(self.action_master)
+        """Remove plugin from GUI and unregister provider."""
+        # Use hasattr to prevent errors if initGui failed partway through
 
-        self.iface.removePluginMenu(
-            u"Gruhanaksha", self.action_tools)
-        self.iface.unregisterMainWindowAction(self.action_tools)
+        # Unregister processing provider safely
+        if hasattr(self, 'provider') and self.provider:
+            try:
+                QgsApplication.processingRegistry().removeProvider(self.provider)
+            except RuntimeError:
+                # This can happen on QGIS shutdown if the provider is already deleted
+                pass
+
+        # Clean up all actions from menus
+        if hasattr(self, 'action'):
+            self.iface.removePluginMenu("&Gruhanaksha", self.action)
+        if hasattr(self, 'action_master'):
+            self.iface.removePluginMenu(u"&Gruhanaksha", self.action_master)
+
+        # Unregister all main window actions. This is good practice.
+        for action_name in ['action', 'action_master', 'action_advanced_line', 'action_tools', 'dropdown_button']:
+            if hasattr(self, action_name):
+                self.iface.unregisterMainWindowAction(getattr(self, action_name))
+
+        # Clean up toolbar. Qt's parent-child relationship will handle the C++ object destruction.
+        # We just need to delete our Python reference to it.
+        if hasattr(self, 'toolbar'):
+            del self.toolbar
 
     def run_svamitva_algorithm(self):
         """Trigger custom logic or Processing algorithm"""
@@ -167,11 +180,15 @@ class SvamitvaPPMPlugin(object):
 
     def show_tools(self):
         if QgsProject.instance().fileName():
-            # Always create a new ToolWidget instance to avoid using a deleted object
-
-            tools.show()
+            self.tools.show()
         else:
             asksaveProject()
+    def show_advanced_line(self):
+        if QgsProject.instance().fileName():
+            activate_tool()
+        else:
+            asksaveProject()
+
 
 
 def asksaveProject():
