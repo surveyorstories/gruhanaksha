@@ -29,7 +29,7 @@ from qgis.core import (QgsVectorLayer, QgsMapLayerProxyModel, QgsFeature,
 from typing import Optional, Dict
 from typing import Optional, Dict, List, Tuple
 from .fmb import TriangleWidget, PlotterWidget, BisectorWidget, CombinedMainWidget
-from .baseline import baseline_activator
+
 from .addon_functions import apply_categorized_symbology
 from .polygon_adjuster import activate_unified_tool
 
@@ -73,11 +73,7 @@ class ToolWidget(QWidget):
         group_layout = QHBoxLayout()
 
         # Buttons
-        self.baseline_button = QPushButton(
-            QIcon(os.path.join(cmd_folder, 'images/baseline2.svg')), 'DrawLine')
-        self.baseline_button.setToolTip("Open Baseline Tool")
-        self.baseline_button.setStyleSheet(
-            "background-color: #020507 ; color: white")
+
         self.plotter_button = QPushButton(
             QIcon(os.path.join(cmd_folder, 'images/plotter.svg')), 'Plotter')
         self.plotter_button.setToolTip("Open Plotter Tool")
@@ -90,13 +86,13 @@ class ToolWidget(QWidget):
             "background-color: #020507 ; color: white")
 
         # Connect button actions
-        self.baseline_button.clicked.connect(self.baseline_button_clicked)
+
         self.plotter_button.clicked.connect(self.combined_button_clicked)
         self.adjuster_button.clicked.connect(self.adjuster_button_clicked)
 
         # Horizontal layout with spacing
         group_layout.addStretch(1)
-        group_layout.addWidget(self.baseline_button)
+
         group_layout.addStretch(1)
         group_layout.addWidget(self.plotter_button)
         group_layout.addStretch(1)
@@ -113,14 +109,6 @@ class ToolWidget(QWidget):
     def adjuster_button_clicked(self):
         print("Button 3 clicked")
         activate_unified_tool()
-
-    def baseline_button_clicked(self):
-
-        try:
-            self.baseline_tool = baseline_activator()
-        except Exception as e:
-            iface.messageBar().pushMessage(
-                "Error", f"Failed to initialize Baseline: {str(e)}", level=2, duration=2)
 
     def combined_button_clicked(self):
         try:

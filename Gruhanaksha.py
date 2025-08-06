@@ -58,6 +58,7 @@ from PyQt5.QtCore import Qt
 from .master import MasterWidget
 from .tools import ToolWidget
 from .advanced_line import activate_tool
+from .atlas_export import show_atlas_export_dialog
 
 cmd_folder = os.path.split(inspect.getfile(inspect.currentframe()))[0]
 
@@ -86,14 +87,15 @@ class SvamitvaPPMPlugin(object):
         self.initProcessing()
 
         # Create the toolbar
-        self.toolbar = self.iface.addToolBar('Gruhanaksha')
+        self.toolbar = self.iface.addToolBar('Gruhanaksha Toolbar')
         self.toolbar.setObjectName('Gruhanaksha Toolbar')
 
         # Define action with icon and label
         # Make sure this file exists
         icon_path = os.path.join(os.path.join(cmd_folder, 'images/ppm.svg'))
         icon = QIcon(icon_path)
-        icon_advancedicon = os.path.join(os.path.join(cmd_folder, 'images/advanced_line.svg'))
+        icon_advancedicon = os.path.join(os.path.join(
+            cmd_folder, 'images/advanced_line.svg'))
         icon = QIcon(icon_path)
         self.action = QAction(icon, "PPM Generation", self.iface.mainWindow())
         self.dropdown_button = QAction(
@@ -109,9 +111,9 @@ class SvamitvaPPMPlugin(object):
         self.action_master.triggered.connect(self.master_data)
         self.iface.addPluginToMenu(
             u"&Gruhanaksha", self.action_master)
-        # advanced line 
+        # advanced line
         self.action_advanced_line = QAction(QIcon(icon_advancedicon), 'Advanced Line',
-                                     self.iface.mainWindow())
+                                            self.iface.mainWindow())
         self.action_advanced_line.triggered.connect(self.show_advanced_line)
         self.toolbar.addAction(self.action_advanced_line)
 
@@ -140,6 +142,14 @@ class SvamitvaPPMPlugin(object):
         self.toolbar.addAction(self.dropdown_button)
         self.toolbar.addAction(self.action_tools)
 
+        icon_atlasexport = os.path.join(
+            os.path.join(cmd_folder, 'images/export.svg'))
+        self.action_atlasexport = QAction(QIcon(icon_atlasexport), 'Atlas Export',
+                                          self.iface.mainWindow())
+        self.action_atlasexport.triggered.connect(self.show_atlasexport)
+        self.toolbar.addAction(self.action_atlasexport)
+        self.iface.addPluginToMenu("&Gruhanaksha", self.action_atlasexport)
+
     def unload(self):
         """Remove plugin from GUI and unregister provider."""
         # Use hasattr to prevent errors if initGui failed partway through
@@ -159,9 +169,10 @@ class SvamitvaPPMPlugin(object):
             self.iface.removePluginMenu(u"&Gruhanaksha", self.action_master)
 
         # Unregister all main window actions. This is good practice.
-        for action_name in ['action', 'action_master', 'action_advanced_line', 'action_tools', 'dropdown_button']:
+        for action_name in ['action', 'action_master', 'action_advanced_line', 'action_tools', 'dropdown_button', 'action_atlasexport']:
             if hasattr(self, action_name):
-                self.iface.unregisterMainWindowAction(getattr(self, action_name))
+                self.iface.unregisterMainWindowAction(
+                    getattr(self, action_name))
 
         # Clean up toolbar. Qt's parent-child relationship will handle the C++ object destruction.
         # We just need to delete our Python reference to it.
@@ -183,12 +194,18 @@ class SvamitvaPPMPlugin(object):
             self.tools.show()
         else:
             asksaveProject()
+
     def show_advanced_line(self):
         if QgsProject.instance().fileName():
             activate_tool()
         else:
             asksaveProject()
 
+    def show_atlasexport(self):
+        if QgsProject.instance().fileName():
+            show_atlas_export_dialog()
+        else:
+            asksaveProject()
 
 
 def asksaveProject():

@@ -6,7 +6,7 @@
 name=Gruhanaksha
 qgisMinimumVersion=3.26
 description=Svamitva Deliverables plugin 
-version=1.0.0
+version=1.0.1
 author=Surveyor Stories
 email=surveyorstories@gmail.com
 
