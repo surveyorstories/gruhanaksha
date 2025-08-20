@@ -1,0 +1,10 @@
+
+plugin_path = gruhanaksha
+github_organization_or_user = surveyorstories
+project_slug = gruhanaksha
+
+
+github_release_title = "Release {version}"
+github_release_body = "**New features and improvements in version {version}**\n\n{changelog}"
+
+

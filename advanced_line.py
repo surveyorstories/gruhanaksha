@@ -19,7 +19,7 @@ class CursorInfo(QWidget):
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setAttribute(Qt.WA_DeleteOnClose)
         self.setStyleSheet(
-            "QWidget{background:rgba(240,248,255,230);border:2px solid #2E86AB;border-radius:6px;padding:6px;font:bold 10pt Consolas;color:#1B4965}")
+            "QWidget{background:rgba(240,248,255,230);border:2px solid #2E86AB;border-radius:6px;padding:6px;font:bold 10pt Consolas;color:#3dfcff}")
 
         # Focus tracking
         self.cleanup_timer = QTimer(self)
@@ -102,7 +102,7 @@ class CursorInfo(QWidget):
         if not (self.text_lines and self.is_active):
             return
         painter = QPainter(self)
-        y = 20
+        y = 15
         for line in self.text_lines:
             painter.drawText(10, y, line)
             y += self.fontMetrics().height() + 2
@@ -279,8 +279,8 @@ class ProfessionalLineTool(QgsMapTool):
 
         # UI Components
         self.rubber_band = QgsRubberBand(canvas, QgsWkbTypes.LineGeometry)
-        self.rubber_band.setColor(QColor('grey'))
-        self.rubber_band.setWidth(1)
+        self.rubber_band.setColor(QColor("brown"))
+        self.rubber_band.setWidth(1.5)
         self.rubber_band.setLineStyle(Qt.DashLine)
 
         self.snap_marker = QgsVertexMarker(canvas)
@@ -505,6 +505,7 @@ class ProfessionalLineTool(QgsMapTool):
             Qt.Key_Enter: self._finish_line,
             Qt.Key_Return: self._finish_line,
             Qt.Key_U: self._undo_point,
+            Qt.Key_Backspace: self._undo_point,
             Qt.Key_S: self._toggle_snap,
             Qt.Key_C: self._close_line,
             Qt.Key_A: self._handle_angle_lock,
@@ -799,8 +800,12 @@ class ProfessionalLineTool(QgsMapTool):
     def _calc_preview_end(self):
         ref = self.points[-1] if len(self.points) > 1 else self.start_point
 
-        # Determine angle
-        if self.angle_lock['active']:
+        # Determine angle - FIXED: Clear angle lock when user inputs angle
+        if self.angle_mode and not self.angle_lock['active']:
+            # User specified angle - use it directly
+            final_angle = self.preview_angle
+        elif self.angle_lock['active']:
+            # Angle lock is active - calculate locked angle
             if len(self.points) > 1:
                 dx = self.points[-1].x() - self.points[-2].x()
                 dy = self.points[-1].y() - self.points[-2].y()
@@ -808,13 +813,45 @@ class ProfessionalLineTool(QgsMapTool):
             else:
                 base_angle = 0.0
             locked_delta = self.angle_lock['angles'][self.angle_lock['index']]
-            final_angle = (base_angle + locked_delta) % (2*math.pi)
-        elif self.angle_mode:
-            final_angle = self.preview_angle
-        else:  # length_mode
-            dx = self.current_point.x() - ref.x()
-            dy = self.current_point.y() - ref.y()
-            final_angle = math.atan2(dx, dy) if math.hypot(dx, dy) > 0 else 0.0
+
+            # For length mode with angle lock, we need to determine direction based on mouse
+            if self.length_mode and self.current_point:
+                dx_mouse = self.current_point.x() - ref.x()
+                dy_mouse = self.current_point.y() - ref.y()
+                mouse_angle = math.atan2(dx_mouse, dy_mouse)
+
+                if locked_delta == math.pi/2:  # 90° lock
+                    angle_positive = (base_angle + math.pi/2) % (2 * math.pi)
+                    angle_negative = (base_angle - math.pi/2) % (2 * math.pi)
+
+                    normalized_mouse = (mouse_angle + 2*math.pi) % (2*math.pi)
+                    diff_positive = abs(
+                        (normalized_mouse - angle_positive + math.pi) % (2 * math.pi) - math.pi)
+                    diff_negative = abs(
+                        (normalized_mouse - angle_negative + math.pi) % (2 * math.pi) - math.pi)
+
+                    final_angle = angle_positive if diff_positive < diff_negative else angle_negative
+                else:  # 180° lock
+                    angle_same = base_angle % (2 * math.pi)
+                    angle_opposite = (base_angle + math.pi) % (2 * math.pi)
+
+                    normalized_mouse = (mouse_angle + 2*math.pi) % (2*math.pi)
+                    diff_same = abs(
+                        (normalized_mouse - angle_same + math.pi) % (2 * math.pi) - math.pi)
+                    diff_opposite = abs(
+                        (normalized_mouse - angle_opposite + math.pi) % (2 * math.pi) - math.pi)
+
+                    final_angle = angle_same if diff_same < diff_opposite else angle_opposite
+            else:
+                final_angle = (base_angle + locked_delta) % (2*math.pi)
+        else:  # length_mode without angle lock
+            if self.current_point:
+                dx = self.current_point.x() - ref.x()
+                dy = self.current_point.y() - ref.y()
+                final_angle = math.atan2(
+                    dx, dy) if math.hypot(dx, dy) > 0 else 0.0
+            else:
+                final_angle = 0.0
 
         # Determine length (preview_length is always in meters)
         if self.length_mode:
@@ -895,26 +932,6 @@ class ProfessionalLineTool(QgsMapTool):
 
         return None
 
-    # def _get_snap_point(self, canvas_pos):
-    #     """Enhanced snapping that includes custom vertices"""
-    #     config = QgsProject.instance().snappingConfig()
-    #     snap_point = None
-
-    #     # First, try custom vertex snapping (always active for drawing vertices)
-    #     custom_snap = self._check_vertex_snap(canvas_pos)
-    #     if custom_snap:
-    #         return custom_snap
-
-    #     # Then try regular QGIS snapping if enabled
-    #     if config.enabled():
-    #         self.snapping.setConfig(config)
-    #         self.snapping.setMapSettings(self.canvas.mapSettings())
-    #         snap = self.snapping.snapToMap(self.toMapCoordinates(canvas_pos))
-    #         if snap.isValid():
-    #             return snap.point()
-
-    #     return None
-
     def _update_cursor_info(self, canvas_pos):
         config = QgsProject.instance().snappingConfig()
         snap_status = "ON" if config.enabled() else "OFF"
@@ -977,6 +994,12 @@ class ProfessionalLineTool(QgsMapTool):
             self.preview_angle = angle
             self.length_mode = not use_angle
             self.angle_mode = use_angle
+
+            # FIXED: Clear angle lock when user inputs angle
+            if use_angle:
+                self.angle_lock['active'] = False
+                show_msg("Angle lock cleared - using input angle")
+
             show_msg("Click to set start point")
             return
 
@@ -984,6 +1007,12 @@ class ProfessionalLineTool(QgsMapTool):
         self.preview_angle = angle
         self.length_mode = not use_angle
         self.angle_mode = use_angle
+
+        # FIXED: Clear angle lock when user inputs angle
+        if use_angle:
+            self.angle_lock['active'] = False
+            show_msg("Angle lock cleared - using input angle")
+
         show_msg("Move mouse and click to confirm")
 
     def _confirm_preview(self):
@@ -992,16 +1021,19 @@ class ProfessionalLineTool(QgsMapTool):
         end_point = self._calc_preview_end()
         dx, dy = end_point.x() - self.start_point.x(), end_point.y() - self.start_point.y()
         self.last_angle = math.atan2(dx, dy)
-        self.points.append(end_point)
 
-        if self._add_to_layer():
-            # Show length in current display units
-            length_meters = math.hypot(dx, dy)
-            length_display = length_meters / \
-                self.units[self.current_unit_key]['factor']
-            unit_suffix = self.units[self.current_unit_key]['suffix']
-            show_msg(
-                f"Line added! Length: {length_display:.3f}{unit_suffix}", 1)
+        # FIXED: Add point to current line instead of creating new feature
+        self.points.append(end_point)
+        self.markers.append(create_marker(self.canvas, end_point))
+        self.start_point = end_point  # Update start point for next segment
+
+        # Show length in current display units
+        length_meters = math.hypot(dx, dy)
+        length_display = length_meters / \
+            self.units[self.current_unit_key]['factor']
+        unit_suffix = self.units[self.current_unit_key]['suffix']
+        show_msg(f"Point added! Length: {length_display:.3f}{unit_suffix}", 1)
+
         self._cancel_preview()
 
     def _cancel_preview(self):

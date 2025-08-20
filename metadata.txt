@@ -23,13 +23,13 @@ hasProcessingProvider=yes
 changelog= <a href=https://surveyorstories.github.io/gruhanakshaweb/releases>Visit Releases page </a>
 
 # Tags are comma separated with spaces allowed
-tags=svamitva,resurvey
+tags=svamitva,resurvey,ppm
 
 homepage=https://surveyorstories.github.io/gruhanakshaweb
 category=Analysis, vector, Raster
 icon=images/ppm.svg
 # experimental flag
-experimental=True
+experimental=False
 
 # deprecated flag (applies to the whole plugin, not just a single version)
 deprecated=False
