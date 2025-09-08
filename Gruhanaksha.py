@@ -30,9 +30,7 @@ __copyright__ = '(C) 2025 by Surveyor Stories'
 
 __revision__ = '$Format:%H$'
 
-import os
-import sys
-import inspect
+
 from qgis.core import QgsProject
 
 import os.path
@@ -59,6 +57,7 @@ from .master import MasterWidget
 from .tools import ToolWidget
 from .advanced_line import activate_tool
 from .atlas_export import show_atlas_export_dialog
+
 
 cmd_folder = os.path.split(inspect.getfile(inspect.currentframe()))[0]
 
@@ -115,7 +114,7 @@ class SvamitvaPPMPlugin(object):
         self.action_advanced_line = QAction(QIcon(icon_advancedicon), 'Advanced Line',
                                             self.iface.mainWindow())
         self.action_advanced_line.triggered.connect(self.show_advanced_line)
-        self.toolbar.addAction(self.action_advanced_line)
+        
 
         # Define tools with icon and label
         # Make sure this file exists
@@ -139,16 +138,22 @@ class SvamitvaPPMPlugin(object):
 
         # Create a button in the toolbar to display the dropdown menu with an icon
         self.dropdown_button.setMenu(self.dropdown_menu)
-        self.toolbar.addAction(self.dropdown_button)
-        self.toolbar.addAction(self.action_tools)
+        
+        
 
         icon_atlasexport = os.path.join(
             os.path.join(cmd_folder, 'images/export.svg'))
         self.action_atlasexport = QAction(QIcon(icon_atlasexport), 'Atlas Export',
                                           self.iface.mainWindow())
         self.action_atlasexport.triggered.connect(self.show_atlasexport)
-        self.toolbar.addAction(self.action_atlasexport)
+        
         self.iface.addPluginToMenu("&Gruhanaksha", self.action_atlasexport)
+        
+        # Adding icons to the toolbar 
+        self.toolbar.addAction(self.action_tools)
+        self.toolbar.addAction(self.dropdown_button)
+        self.toolbar.addAction(self.action_advanced_line)
+        self.toolbar.addAction(self.action_atlasexport)
 
     def unload(self):
         """Remove plugin from GUI and unregister provider."""

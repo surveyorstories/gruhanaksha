@@ -62,7 +62,7 @@ class CursorInfo(QWidget):
         self.show()
         self.cleanup_timer.start(10000)
 
-    def updateInfo(self, length=None, angle=None, coordinates=None, mode="", canvas_pos=None, label="Length", unit_suffix="m"):
+    def updateInfo(self, length=None, angle=None, coordinates=None, mode="", canvas_pos=None, label="Length", unit_suffix="m", width=None, height=None):
         self.text_lines = []
         if length is not None:
             if length < 1:
@@ -75,6 +75,31 @@ class CursorInfo(QWidget):
                 else:
                     self.text_lines.append(
                         f"{label}: {length:.3f}{unit_suffix}")
+
+        # Add width and height for rectangles
+        if width is not None:
+            if width < 1:
+                self.text_lines.append(f"Width: {width:.4f}{unit_suffix}")
+            elif width < 1000:
+                self.text_lines.append(f"Width: {width:.3f}{unit_suffix}")
+            else:
+                if unit_suffix == "m":
+                    self.text_lines.append(f"Width: {width/1000:.4f}km")
+                else:
+                    self.text_lines.append(f"Width: {width:.3f}{unit_suffix}")
+
+        if height is not None:
+            if height < 1:
+                self.text_lines.append(f"Height: {height:.4f}{unit_suffix}")
+            elif height < 1000:
+                self.text_lines.append(f"Height: {height:.3f}{unit_suffix}")
+            else:
+                if unit_suffix == "m":
+                    self.text_lines.append(f"Height: {height/1000:.4f}km")
+                else:
+                    self.text_lines.append(
+                        f"Height: {height:.3f}{unit_suffix}")
+
         if angle is not None:
             self.text_lines.append(
                 f"Angle: {math.degrees(angle) % 360:.1f}° (N=0° CW)")
@@ -122,12 +147,15 @@ qgis_main_window = iface.mainWindow()
 
 
 class ParameterDialog(QDialog):
-    parametersEntered = pyqtSignal(float, float, bool)
+    # For lines: length, angle, use_length, use_angle
+    # For rectangles: width, height, use_width, use_height
+    parametersEntered = pyqtSignal(float, float, bool, bool)
 
     def __init__(self, units_dict, current_unit_key='m'):
         super().__init__()
         self.units = units_dict
         self.current_unit_key = current_unit_key
+        self.is_rectangle_mode = False
         self.setWindowTitle("Line Parameters")
         self.setModal(False)
 
@@ -144,39 +172,44 @@ class ParameterDialog(QDialog):
         unit_layout.addWidget(self.unit_combo)
         layout.addLayout(unit_layout)
 
-        # Length input
-        length_layout = QHBoxLayout()
-        self.length_input = QDoubleSpinBox()
-        self.length_input.setDecimals(4)
-        self.length_input.setRange(0.0001, 999999)
-        self.length_input.setValue(10.0)
-        self.update_length_suffix()
-        length_layout.addWidget(QLabel("Length:"))
-        length_layout.addWidget(self.length_input)
-        layout.addLayout(length_layout)
+        # First parameter input with checkbox (Length/Width)
+        first_layout = QHBoxLayout()
+        self.use_first_cb = QCheckBox("Use Length")
+        self.use_first_cb.setChecked(True)
+        self.first_input = QDoubleSpinBox()
+        self.first_input.setDecimals(4)
+        self.first_input.setRange(0.0001, 999999)
+        self.first_input.setValue(10.0)
+        self.update_first_suffix()
+        self.use_first_cb.toggled.connect(self.first_input.setEnabled)
+        first_layout.addWidget(self.use_first_cb)
+        first_layout.addWidget(self.first_input)
+        layout.addLayout(first_layout)
 
-        # Angle input
-        angle_layout = QHBoxLayout()
-        self.use_angle_cb = QCheckBox("Use Angle")
-        self.angle_input = QDoubleSpinBox()
-        self.angle_input.setDecimals(1)
-        self.angle_input.setRange(0.0, 359.9)
-        self.angle_input.setValue(0.0)
-        self.angle_input.setSuffix("° (N=0° CW)")
-        self.angle_input.setEnabled(False)
-        self.use_angle_cb.toggled.connect(self.angle_input.setEnabled)
-        angle_layout.addWidget(self.use_angle_cb)
-        angle_layout.addWidget(self.angle_input)
-        layout.addLayout(angle_layout)
+        # Second parameter input with checkbox (Angle/Height)
+        second_layout = QHBoxLayout()
+        self.use_second_cb = QCheckBox("Use Angle")
+        self.use_second_cb.setChecked(False)
+        self.second_input = QDoubleSpinBox()
+        self.second_input.setDecimals(1)
+        self.second_input.setRange(0.0, 359.9)
+        self.second_input.setValue(0.0)
+        self.second_input.setSuffix("° (N=0° CW)")
+        self.second_input.setEnabled(False)
+        self.use_second_cb.toggled.connect(self.second_input.setEnabled)
+        second_layout.addWidget(self.use_second_cb)
+        second_layout.addWidget(self.second_input)
+        layout.addLayout(second_layout)
 
-        # Quick angle buttons
-        self.grid = QGridLayout()
+        # Quick angle buttons (only visible in line mode)
+        self.angle_buttons_widget = QWidget()
+        self.grid = QGridLayout(self.angle_buttons_widget)
         for i, angle in enumerate([0, 45, 90, 135, 180, 225, 270, 315]):
             btn = QPushButton(f"{angle}°")
             btn.setFocusPolicy(Qt.NoFocus)
             btn.clicked.connect(lambda _, a=angle: self.set_quick_angle(a))
             self.grid.addWidget(btn, i // 4, i % 4)
-        layout.addLayout(self.grid)
+        layout.addWidget(self.angle_buttons_widget)
 
         # Buttons
         btn_layout = QHBoxLayout()
@@ -187,69 +220,136 @@ class ParameterDialog(QDialog):
         btn_layout.addWidget(QPushButton("Cancel", clicked=self.close))
         layout.addLayout(btn_layout)
 
+        # Validation warning label
+        self.warning_label = QLabel("")
+        self.warning_label.setStyleSheet("color: red; font-weight: bold;")
+        self.warning_label.hide()
+        layout.addWidget(self.warning_label)
+
+    def set_rectangle_mode(self, is_rectangle):
+        """Switch between line and rectangle parameter modes"""
+        self.is_rectangle_mode = is_rectangle
+
+        if is_rectangle:
+            self.setWindowTitle("Rectangle Parameters")
+            self.use_first_cb.setText("Use Width")
+            self.use_second_cb.setText("Use Height")
+            self.second_input.setSuffix("")
+            self.second_input.setRange(0.0001, 999999)
+            self.second_input.setDecimals(4)
+            self.update_second_suffix()
+            self.angle_buttons_widget.hide()
+        else:
+            self.setWindowTitle("Line Parameters")
+            self.use_first_cb.setText("Use Length")
+            self.use_second_cb.setText("Use Angle")
+            self.second_input.setSuffix("° (N=0° CW)")
+            self.second_input.setRange(0.0, 359.9)
+            self.second_input.setDecimals(1)
+            self.angle_buttons_widget.show()
+
     def on_unit_changed(self):
-        # Get the selected unit key
         selected_unit_key = self.unit_combo.currentData()
         if selected_unit_key and selected_unit_key != self.current_unit_key:
-            # Convert current length value to new unit
             old_factor = self.units[self.current_unit_key]['factor']
             new_factor = self.units[selected_unit_key]['factor']
 
-            # Convert: old_unit_value * old_factor = meters, meters / new_factor = new_unit_value
-            current_value = self.length_input.value()
+            # Convert first input
+            current_value = self.first_input.value()
             meters_value = current_value * old_factor
             new_value = meters_value / new_factor
+            self.first_input.setValue(new_value)
+
+            # Convert second input if it's a dimension (rectangle mode)
+            if self.is_rectangle_mode:
+                current_value = self.second_input.value()
+                meters_value = current_value * old_factor
+                new_value = meters_value / new_factor
+                self.second_input.setValue(new_value)
 
             self.current_unit_key = selected_unit_key
-            self.length_input.setValue(new_value)
-            self.update_length_suffix()
+            self.update_first_suffix()
+            if self.is_rectangle_mode:
+                self.update_second_suffix()
 
-    def update_length_suffix(self):
+    def update_first_suffix(self):
         suffix = f" {self.units[self.current_unit_key]['suffix']}"
-        self.length_input.setSuffix(suffix)
+        self.first_input.setSuffix(suffix)
 
-    def hide_angle_buttons(self):
-        for i in range(self.grid.count()):
-            widget = self.grid.itemAt(i).widget()
-            if widget:
-                widget.hide()
-
-    def show_angle_buttons(self):
-        for i in range(self.grid.count()):
-            widget = self.grid.itemAt(i).widget()
-            if widget:
-                widget.show()
+    def update_second_suffix(self):
+        if self.is_rectangle_mode:
+            suffix = f" {self.units[self.current_unit_key]['suffix']}"
+            self.second_input.setSuffix(suffix)
 
     def set_quick_angle(self, angle):
-        self.use_angle_cb.setChecked(True)
-        self.angle_input.setValue(angle)
+        if not self.is_rectangle_mode:
+            self.use_second_cb.setChecked(True)
+            self.second_input.setValue(angle)
 
     def accept_parameters(self):
-        if self.length_input.value() <= 0:
+        use_first = self.use_first_cb.isChecked()
+        use_second = self.use_second_cb.isChecked()
+
+        if not use_first and not use_second:
+            param_names = "Width or Height" if self.is_rectangle_mode else "Length or Angle"
+            self.warning_label.setText(f"Please select at least {param_names}")
+            self.warning_label.show()
             return
 
-        # Convert input length to meters for internal calculations
-        length_in_input_units = self.length_input.value()
-        length_in_meters = length_in_input_units * \
+        if use_first and self.first_input.value() <= 0:
+            param_name = "Width" if self.is_rectangle_mode else "Length"
+            self.warning_label.setText(f"{param_name} must be greater than 0")
+            self.warning_label.show()
+            return
+
+        if self.is_rectangle_mode and use_second and self.second_input.value() <= 0:
+            self.warning_label.setText("Height must be greater than 0")
+            self.warning_label.show()
+            return
+
+        self.warning_label.hide()
+
+        first_in_input_units = self.first_input.value()
+        first_in_meters = first_in_input_units * \
             self.units[self.current_unit_key]['factor']
 
+        if self.is_rectangle_mode:
+            second_in_input_units = self.second_input.value()
+            second_in_meters = second_in_input_units * \
+                self.units[self.current_unit_key]['factor']
+        else:
+            second_in_meters = math.radians(
+                self.second_input.value()) if use_second else 0
+
         self.parametersEntered.emit(
-            length_in_meters,  # Always emit length in meters
-            math.radians(self.angle_input.value()
-                         ) if self.use_angle_cb.isChecked() else 0,
-            self.use_angle_cb.isChecked()
+            first_in_meters,
+            second_in_meters,
+            use_first,
+            use_second
         )
         self.hide()
 
-    def show_dialog(self, cur_len_meters=10.0):
-        # Convert current length from meters to display unit
-        length_in_display_units = cur_len_meters / \
-            self.units[self.current_unit_key]['factor']
-        self.length_input.setValue(length_in_display_units)
-        self.use_angle_cb.setChecked(False)
+    def show_dialog(self, cur_len_meters=10.0, cur_width_meters=10.0):
+        if self.is_rectangle_mode:
+            width_in_display_units = cur_len_meters / \
+                self.units[self.current_unit_key]['factor']
+            height_in_display_units = cur_width_meters / \
+                self.units[self.current_unit_key]['factor']
+            self.first_input.setValue(width_in_display_units)
+            self.second_input.setValue(height_in_display_units)
+            self.use_first_cb.setChecked(True)
+            self.use_second_cb.setChecked(True)
+        else:
+            length_in_display_units = cur_len_meters / \
+                self.units[self.current_unit_key]['factor']
+            self.first_input.setValue(length_in_display_units)
+            self.use_first_cb.setChecked(True)
+            self.use_second_cb.setChecked(False)
+
+        self.warning_label.hide()
         self.show()
         QTimer.singleShot(50, lambda: (
-            self.length_input.setFocus(), self.length_input.lineEdit().selectAll()))
+            self.first_input.setFocus(), self.first_input.lineEdit().selectAll()))
 
     def closeEvent(self, event):
         self.hide()
@@ -322,7 +422,9 @@ class ProfessionalLineTool(QgsMapTool):
             # Update dialog's current unit
             self.dialog.current_unit_key = key
             self.dialog.unit_combo.setCurrentText(self.units[key]['name'])
-            self.dialog.update_length_suffix()
+            self.dialog.update_first_suffix()
+            if self.dialog.is_rectangle_mode:
+                self.dialog.update_second_suffix()
             show_msg(f"Unit set to: {self.units[key]['name']}", 1)
         else:
             show_msg(f"Unknown unit: {key}", 1, Qgis.Warning)
@@ -355,6 +457,15 @@ class ProfessionalLineTool(QgsMapTool):
         self.circle_center = None
         self.circle_radius = 0
 
+        # Rectangle mode props
+        self.rectangle_mode = False
+        self.rect_points = []  # Will store 1-3 points for rectangle construction
+        self.rect_width = 0
+        self.rect_height = 0
+        self.rect_width_mode = False
+        self.rect_height_mode = False
+        self.rect_angle_lock = True  # Start with angle lock ON for rectangles
+
     def activate(self):
         self.canvas.setCursor(Qt.CrossCursor)
 
@@ -362,39 +473,18 @@ class ProfessionalLineTool(QgsMapTool):
         if not self._valid_layer():
             return
 
+        point = self._get_snap_point(
+            event.pos()) or self.toMapCoordinates(event.pos())
+
         if self.circle_mode:
-            point = self._get_snap_point(
-                event.pos()) or self.toMapCoordinates(event.pos())
-            if self.circle_center is None:
-                self.circle_center = point
-                if self.circle_radius:  # If radius is already known, create immediately
-                    circle_geom = self._create_circle_geometry(
-                        self.circle_center, self.circle_radius)
-                    self._add_circle_to_layer(circle_geom)
-                    # Reset circle parameters after creating circle
-                    self.circle_center = None
-                    self.circle_radius = 0
-                    self.rubber_band.reset()
-                    show_msg("Circle added!", 1)
-                else:
-                    show_msg(
-                        "Circle center set. Move and click to set radius or press L.", 2)
-            else:
-                radius = math.hypot(
-                    point.x() - self.circle_center.x(), point.y() - self.circle_center.y())
-                circle_geom = self._create_circle_geometry(
-                    self.circle_center, radius)
-                self._add_circle_to_layer(circle_geom)
-                # Reset circle parameters after creating circle
-                self.circle_center = None
-                self.circle_radius = 0
-                self.rubber_band.reset()
-                show_msg("Circle added!", 2)
+            self._handle_circle_click(point, event.pos(), event)
+            return
+
+        if self.rectangle_mode:
+            self._handle_rectangle_click(point, event.pos(), event)
             return
 
         # Regular line mode handling
-        point = self._get_snap_point(
-            event.pos()) or self.toMapCoordinates(event.pos())
         if event.button() == Qt.LeftButton:
             if (self.length_mode or self.angle_mode) and not self.start_point:
                 self._start_line(point, event.pos())
@@ -408,32 +498,89 @@ class ProfessionalLineTool(QgsMapTool):
         elif event.button() == Qt.RightButton:
             self._handle_right_click()
 
+    def _handle_rectangle_click(self, point, canvas_pos, event):
+        """Handle rectangle drawing with 3-point method or parameter constraints"""
+        if event.button() == Qt.LeftButton:
+            if len(self.rect_points) == 0:
+                # First point
+                self.rect_points.append(point)
+                self.markers.append(create_marker(
+                    self.canvas, point, QColor(255, 165, 0)))
+                show_msg("Rectangle corner set. Click second corner.", 2)
+            elif len(self.rect_points) == 1:
+                # Second point - check if we should use parameter-driven mode
+                if self.rect_width_mode or self.rect_height_mode:
+                    # Parameter-driven rectangle - create immediately
+                    # Temporarily add second point
+                    self.rect_points.append(point)
+                    rect_geom = self._create_rectangle_from_params(point)
+                    if rect_geom:
+                        self._add_rectangle_to_layer(rect_geom)
+                        show_msg("Rectangle added!", 1)
+                    self._reset_rectangle()
+                else:
+                    # Freehand mode - add second point and wait for third
+                    self.rect_points.append(point)
+                    self.markers.append(create_marker(
+                        self.canvas, point, QColor(255, 255, 0)))
+                    show_msg(
+                        "Second corner set. Click third corner to complete rectangle.", 2)
+            elif len(self.rect_points) == 2:
+                # Third point - complete rectangle
+                if self.rect_width_mode or self.rect_height_mode:
+                    # If constraints were applied after placing 2 points, use parameter mode
+                    rect_geom = self._create_rectangle_from_constraints()
+                    if rect_geom:
+                        self._add_rectangle_to_layer(rect_geom)
+                        show_msg("Rectangle added!", 1)
+                else:
+                    # Normal 3-point completion
+                    self.rect_points.append(point)
+                    rect_geom = self._create_rectangle_from_points()
+                    if rect_geom:
+                        self._add_rectangle_to_layer(rect_geom)
+                        show_msg("Rectangle completed!", 1)
+                self._reset_rectangle()
+        elif event.button() == Qt.RightButton:
+            if self.rect_points:
+                self._reset_rectangle()
+                show_msg("Rectangle cancelled", 1)
+
+    def _handle_circle_click(self, point, canvas_pos, event):
+        """Handle circle drawing clicks"""
+        if self.circle_center is None:
+            self.circle_center = point
+            if self.circle_radius:  # If radius is already known, create immediately
+                circle_geom = self._create_circle_geometry(
+                    self.circle_center, self.circle_radius)
+                self._add_circle_to_layer(circle_geom)
+                # Reset circle parameters after creating circle
+                self.circle_center = None
+                self.circle_radius = 0
+                self.rubber_band.reset()
+                show_msg("Circle added!", 1)
+            else:
+                show_msg(
+                    "Circle center set. Move and click to set radius or press L.", 2)
+        else:
+            radius = math.hypot(
+                point.x() - self.circle_center.x(), point.y() - self.circle_center.y())
+            circle_geom = self._create_circle_geometry(
+                self.circle_center, radius)
+            self._add_circle_to_layer(circle_geom)
+            # Reset circle parameters after creating circle
+            self.circle_center = None
+            self.circle_radius = 0
+            self.rubber_band.reset()
+            show_msg("Circle added!", 2)
+
     def canvasMoveEvent(self, event):
         if self.circle_mode and self.circle_center:
-            point = self._get_snap_point(
-                event.pos()) or self.toMapCoordinates(event.pos())
-            radius = math.hypot(point.x() - self.circle_center.x(),
-                                point.y() - self.circle_center.y())
-            circle_pts = self._create_circle_geometry(
-                self.circle_center, radius, preview_only=True)
-            self.rubber_band.reset()
-            for pt in circle_pts:
-                self.rubber_band.addPoint(pt)
-            # Show radius in current units
-            radius_in_display_units = radius / \
-                self.units[self.current_unit_key]['factor']
-            unit_suffix = self.units[self.current_unit_key]['suffix']
+            self._handle_circle_move(event)
+            return
 
-            # But pass the radius in meters to updateInfo for internal consistency
-            self.cursor_info.updateInfo(
-                length=radius,
-                angle=None,
-                coordinates=point,
-                mode=f"Circle | Snap: {'ON' if QgsProject.instance().snappingConfig().enabled() else 'OFF'}",
-                canvas_pos=event.pos(),
-                label="Radius",
-                unit_suffix=unit_suffix
-            )
+        if self.rectangle_mode:
+            self._handle_rectangle_move(event)
             return
 
         # Handle snapping for line mode
@@ -461,37 +608,562 @@ class ProfessionalLineTool(QgsMapTool):
             self._update_drawing_preview()
         self._update_cursor_info(event.pos())
 
+    def _handle_rectangle_move(self, event):
+        """Handle mouse movement in rectangle mode"""
+        point = self._get_snap_point(
+            event.pos()) or self.toMapCoordinates(event.pos())
+        self.current_point = point
+
+        # Update snap marker
+        snap_point = self._get_snap_point(event.pos())
+        if snap_point:
+            self.snap_marker.setCenter(snap_point)
+            self.snap_marker.show()
+        else:
+            self.snap_marker.hide()
+
+        if self.rect_width_mode or self.rect_height_mode:
+            # Parameter-driven rectangle preview
+            if len(self.rect_points) == 1:
+                rect_pts = self._calculate_rectangle_preview(point)
+                if rect_pts:
+                    self.rubber_band.reset()
+                    for pt in rect_pts:
+                        self.rubber_band.addPoint(pt)
+                    self.rubber_band.addPoint(
+                        rect_pts[0])  # Close the rectangle
+            elif len(self.rect_points) == 2:
+                # Show constrained preview from existing 2 points
+                rect_pts = self._get_constrained_rectangle_preview()
+                if rect_pts:
+                    self.rubber_band.reset()
+                    for pt in rect_pts:
+                        self.rubber_band.addPoint(pt)
+                    self.rubber_band.addPoint(
+                        rect_pts[0])  # Close the rectangle
+        else:
+            # Freehand rectangle preview
+            if len(self.rect_points) == 1:
+                # Preview line from first point to current
+                self.rubber_band.reset()
+                self.rubber_band.addPoint(self.rect_points[0])
+                self.rubber_band.addPoint(point)
+            elif len(self.rect_points) == 2:
+                # Preview rectangle from 2 points
+                rect_pts = self._calculate_partial_rectangle_with_constraints(
+                    point)
+                if rect_pts:
+                    self.rubber_band.reset()
+                    for pt in rect_pts:
+                        self.rubber_band.addPoint(pt)
+                    self.rubber_band.addPoint(
+                        rect_pts[0])  # Close the rectangle
+
+        self._update_rectangle_cursor_info(event.pos())
+
+    def _handle_circle_move(self, event):
+        """Handle mouse movement in circle mode"""
+        point = self._get_snap_point(
+            event.pos()) or self.toMapCoordinates(event.pos())
+        radius = math.hypot(point.x() - self.circle_center.x(),
+                            point.y() - self.circle_center.y())
+        circle_pts = self._create_circle_geometry(
+            self.circle_center, radius, preview_only=True)
+        self.rubber_band.reset()
+        for pt in circle_pts:
+            self.rubber_band.addPoint(pt)
+        # Show radius in current units
+        radius_in_display_units = radius / \
+            self.units[self.current_unit_key]['factor']
+        unit_suffix = self.units[self.current_unit_key]['suffix']
+
+        # But pass the radius in meters to updateInfo for internal consistency
+        self.cursor_info.updateInfo(
+            length=radius,
+            angle=None,
+            coordinates=point,
+            mode=f"Circle | Snap: {'ON' if QgsProject.instance().snappingConfig().enabled() else 'OFF'}",
+            canvas_pos=event.pos(),
+            label="Radius",
+            unit_suffix=unit_suffix
+        )
+
+    def _calculate_rectangle_preview(self, current_point):
+        """Calculate rectangle points for parameter-driven mode"""
+        if not self.rect_points:
+            return None
+
+        corner1 = self.rect_points[0]
+
+        # Calculate direction from first corner to current point
+        dx = current_point.x() - corner1.x()
+        dy = current_point.y() - corner1.y()
+
+        if abs(dx) < 1e-10 and abs(dy) < 1e-10:
+            return None
+
+        # Normalize direction
+        dist = math.hypot(dx, dy)
+        if dist < 1e-10:
+            return None
+
+        dir_x = dx / dist
+        dir_y = dy / dist
+
+        # Perpendicular direction
+        perp_x = -dir_y
+        perp_y = dir_x
+
+        # Use specified width and height or current mouse position
+        width = self.rect_width if self.rect_width_mode else dist
+        height = self.rect_height if self.rect_height_mode else dist * \
+            0.5  # Default aspect ratio
+
+        # Calculate rectangle corners
+        corner2 = QgsPointXY(corner1.x() + width * dir_x,
+                             corner1.y() + width * dir_y)
+        corner3 = QgsPointXY(corner2.x() + height * perp_x,
+                             corner2.y() + height * perp_y)
+        corner4 = QgsPointXY(corner1.x() + height * perp_x,
+                             corner1.y() + height * perp_y)
+
+        return [corner1, corner2, corner3, corner4]
+
+    def _calculate_partial_rectangle_with_constraints(self, third_point):
+        """Calculate rectangle from 2 points + constraints, handling parameter mode"""
+        if len(self.rect_points) < 2:
+            return None
+
+        p1, p2 = self.rect_points[0], self.rect_points[1]
+
+        # If width/height constraints are active, use parameter-driven calculation
+        if self.rect_width_mode or self.rect_height_mode:
+            # Get the first edge vector (p1 to p2)
+            edge1_x = p2.x() - p1.x()
+            edge1_y = p2.y() - p1.y()
+            edge1_length = math.hypot(edge1_x, edge1_y)
+
+            if edge1_length < 1e-10:
+                return None
+
+            # Normalize first edge direction
+            dir_x = edge1_x / edge1_length
+            dir_y = edge1_y / edge1_length
+
+            # Perpendicular direction
+            perp_x = -dir_y
+            perp_y = dir_x
+
+            # Use constraints or current edge length
+            width = self.rect_width if self.rect_width_mode else edge1_length
+            height = self.rect_height if self.rect_height_mode else edge1_length * 0.6
+
+            # Recalculate p2 if width is constrained
+            if self.rect_width_mode:
+                p2 = QgsPointXY(p1.x() + width * dir_x, p1.y() + width * dir_y)
+
+            # Calculate other corners based on constraints
+            p3 = QgsPointXY(p2.x() + height * perp_x, p2.y() + height * perp_y)
+            p4 = QgsPointXY(p1.x() + height * perp_x, p1.y() + height * perp_y)
+
+            return [p1, p2, p3, p4]
+
+        # Regular freehand mode with angle lock
+        p3 = third_point
+
+        # Apply angle lock constraint if active for rectangles
+        if self.rect_angle_lock:
+            # Get the first edge vector (p1 to p2)
+            edge1_x = p2.x() - p1.x()
+            edge1_y = p2.y() - p1.y()
+            edge1_length = math.hypot(edge1_x, edge1_y)
+
+            if edge1_length > 1e-10:
+                # Normalize first edge
+                edge1_dir_x = edge1_x / edge1_length
+                edge1_dir_y = edge1_y / edge1_length
+
+                # Calculate perpendicular direction (90 degrees)
+                perp_dir_x = -edge1_dir_y
+                perp_dir_y = edge1_dir_x
+
+                # Get mouse direction from p1
+                mouse_dx = p3.x() - p1.x()
+                mouse_dy = p3.y() - p1.y()
+                mouse_dist = math.hypot(mouse_dx, mouse_dy)
+
+                if mouse_dist > 1e-10:
+                    # Project mouse direction onto the perpendicular
+                    proj_length = mouse_dx * perp_dir_x + mouse_dy * perp_dir_y
+
+                    # Constrain p3 to be perpendicular to the first edge
+                    p3 = QgsPointXY(
+                        p1.x() + proj_length * perp_dir_x,
+                        p1.y() + proj_length * perp_dir_y
+                    )
+
+        # Calculate the fourth corner to make a rectangle
+        # Vector from p1 to p2
+        v12_x = p2.x() - p1.x()
+        v12_y = p2.y() - p1.y()
+
+        # Vector from p1 to p3
+        v13_x = p3.x() - p1.x()
+        v13_y = p3.y() - p1.y()
+
+        # Fourth point is p2 + vector from p1 to p3
+        p4 = QgsPointXY(p2.x() + v13_x, p2.y() + v13_y)
+
+        return [p1, p2, p4, p3]
+
+    def _create_rectangle_from_points(self):
+        """Create rectangle geometry from 3 points with constraints and angle lock support"""
+        if len(self.rect_points) != 3:
+            return None
+
+        p1, p2, p3 = self.rect_points
+
+        # If width/height constraints are active, recalculate using constraints
+        if self.rect_width_mode or self.rect_height_mode:
+            return self._create_rectangle_from_params(p3)
+
+        # Apply angle lock constraint to p3 if it was active when p3 was placed
+        if self.rect_angle_lock:
+            # Get the first edge vector (p1 to p2)
+            edge1_x = p2.x() - p1.x()
+            edge1_y = p2.y() - p1.y()
+            edge1_length = math.hypot(edge1_x, edge1_y)
+
+            if edge1_length > 1e-10:
+                # Normalize first edge
+                edge1_dir_x = edge1_x / edge1_length
+                edge1_dir_y = edge1_y / edge1_length
+
+                # Calculate perpendicular direction (90 degrees)
+                perp_dir_x = -edge1_dir_y
+                perp_dir_y = edge1_dir_x
+
+                # Get original direction from p1 to p3
+                orig_dx = p3.x() - p1.x()
+                orig_dy = p3.y() - p1.y()
+
+                # Project onto perpendicular direction
+                proj_length = orig_dx * perp_dir_x + orig_dy * perp_dir_y
+
+                # Constrain p3 to be perpendicular
+                p3 = QgsPointXY(
+                    p1.x() + proj_length * perp_dir_x,
+                    p1.y() + proj_length * perp_dir_y
+                )
+
+        # Calculate fourth corner
+        v12_x = p2.x() - p1.x()
+        v12_y = p2.y() - p1.y()
+        v13_x = p3.x() - p1.x()
+        v13_y = p3.y() - p1.y()
+
+        p4 = QgsPointXY(p2.x() + v13_x, p2.y() + v13_y)
+
+        # Create closed polygon
+        rectangle_points = [p1, p2, p4, p3, p1]  # Close the polygon
+        return QgsGeometry.fromPolylineXY(rectangle_points)
+
+    def _get_constrained_rectangle_preview(self):
+        """Get constrained rectangle preview from 2 existing points"""
+        if len(self.rect_points) != 2:
+            return None
+
+        p1, p2 = self.rect_points[0], self.rect_points[1]
+
+        # Get the first edge vector (p1 to p2)
+        edge1_x = p2.x() - p1.x()
+        edge1_y = p2.y() - p1.y()
+        edge1_length = math.hypot(edge1_x, edge1_y)
+
+        if edge1_length < 1e-10:
+            return None
+
+        # Normalize first edge direction
+        dir_x = edge1_x / edge1_length
+        dir_y = edge1_y / edge1_length
+
+        # Perpendicular direction
+        perp_x = -dir_y
+        perp_y = dir_x
+
+        # Use constraints or existing edge length
+        width = self.rect_width if self.rect_width_mode else edge1_length
+        height = self.rect_height if self.rect_height_mode else edge1_length * 0.6
+
+        # Recalculate p2 if width is constrained
+        if self.rect_width_mode:
+            p2 = QgsPointXY(p1.x() + width * dir_x, p1.y() + width * dir_y)
+
+        # Calculate other corners based on constraints
+        p3 = QgsPointXY(p2.x() + height * perp_x, p2.y() + height * perp_y)
+        p4 = QgsPointXY(p1.x() + height * perp_x, p1.y() + height * perp_y)
+
+        return [p1, p2, p3, p4]
+
+    def _create_rectangle_from_constraints(self):
+        """Create rectangle from 2 existing points + current constraints"""
+        if len(self.rect_points) != 2:
+            return None
+
+        p1, p2 = self.rect_points[0], self.rect_points[1]
+
+        # Get the first edge vector (p1 to p2)
+        edge1_x = p2.x() - p1.x()
+        edge1_y = p2.y() - p1.y()
+        edge1_length = math.hypot(edge1_x, edge1_y)
+
+        if edge1_length < 1e-10:
+            return None
+
+        # Normalize first edge direction
+        dir_x = edge1_x / edge1_length
+        dir_y = edge1_y / edge1_length
+
+        # Perpendicular direction
+        perp_x = -dir_y
+        perp_y = dir_x
+
+        # Use constraints or existing edge length
+        width = self.rect_width if self.rect_width_mode else edge1_length
+        height = self.rect_height if self.rect_height_mode else edge1_length * 0.6
+
+        # Recalculate p2 if width is constrained
+        if self.rect_width_mode:
+            p2 = QgsPointXY(p1.x() + width * dir_x, p1.y() + width * dir_y)
+
+        # Calculate other corners based on constraints
+        p3 = QgsPointXY(p2.x() + height * perp_x, p2.y() + height * perp_y)
+        p4 = QgsPointXY(p1.x() + height * perp_x, p1.y() + height * perp_y)
+
+        # Create closed polygon
+        rectangle_points = [p1, p2, p3, p4, p1]
+        return QgsGeometry.fromPolylineXY(rectangle_points)
+
+    def _create_rectangle_from_params(self, second_point):
+        """Create rectangle from parameters and two corner points"""
+        if not self.rect_points:
+            return None
+
+        corner1 = self.rect_points[0]
+
+        # Calculate direction from first to second corner
+        dx = second_point.x() - corner1.x()
+        dy = second_point.y() - corner1.y()
+        dist = math.hypot(dx, dy)
+
+        if dist < 1e-10:
+            return None
+
+        dir_x = dx / dist
+        dir_y = dy / dist
+        perp_x = -dir_y
+        perp_y = dir_x
+
+        # Use specified dimensions or calculated values
+        if self.rect_width_mode and self.rect_height_mode:
+            # Both dimensions specified
+            width = self.rect_width
+            height = self.rect_height
+        elif self.rect_width_mode:
+            # Only width specified, use mouse distance for height
+            width = self.rect_width
+            # Calculate height from mouse position projection onto perpendicular
+            mouse_perp_proj = (second_point.x() - corner1.x()) * \
+                perp_x + (second_point.y() - corner1.y()) * perp_y
+            height = abs(mouse_perp_proj) or dist * 0.6
+        elif self.rect_height_mode:
+            # Only height specified, use mouse distance for width
+            height = self.rect_height
+            width = dist
+        else:
+            # No constraints - use mouse position
+            width = dist
+            height = dist * 0.6
+
+        # Calculate all corners
+        corner2 = QgsPointXY(corner1.x() + width * dir_x,
+                             corner1.y() + width * dir_y)
+        corner3 = QgsPointXY(corner2.x() + height * perp_x,
+                             corner2.y() + height * perp_y)
+        corner4 = QgsPointXY(corner1.x() + height * perp_x,
+                             corner1.y() + height * perp_y)
+
+        # Create closed polygon
+        rectangle_points = [corner1, corner2, corner3, corner4, corner1]
+        return QgsGeometry.fromPolylineXY(rectangle_points)
+
+    def _add_rectangle_to_layer(self, geometry):
+        """Add rectangle geometry to the current layer"""
+        layer = iface.activeLayer()
+        if not (layer and layer.isEditable()):
+            show_msg("Need editable line layer", 1, Qgis.Critical)
+            return False
+        feature = QgsFeature(layer.fields())
+        feature.setGeometry(geometry)
+        if layer.addFeature(feature):
+            layer.updateExtents()
+            layer.triggerRepaint()
+            self.canvas.refresh()
+            return True
+        return False
+
+    def _reset_rectangle(self):
+        """Reset rectangle drawing state"""
+        self.rect_points = []
+        self.rect_width_mode = False
+        self.rect_height_mode = False
+        self.rect_width = 0
+        self.rect_height = 0
+        self.rubber_band.reset()
+        # Hide rectangle-specific markers
+        for marker in self.markers:
+            if marker.color() in [QColor(255, 165, 0), QColor(255, 255, 0), QColor(0, 255, 255)]:
+                marker.hide()
+
+    def _update_rectangle_cursor_info(self, canvas_pos):
+        """Update cursor info for rectangle mode"""
+        config = QgsProject.instance().snappingConfig()
+        snap_status = "ON" if config.enabled() else "OFF"
+        unit_suffix = self.units[self.current_unit_key]['suffix']
+
+        # Calculate current dimensions if applicable
+        width = height = length = angle = None
+
+        if self.current_point and self.rect_points:
+            if self.rect_width_mode or self.rect_height_mode:
+                # Parameter-driven mode
+                if len(self.rect_points) == 1:
+                    corner1 = self.rect_points[0]
+                    dx = self.current_point.x() - corner1.x()
+                    dy = self.current_point.y() - corner1.y()
+                    dist = math.hypot(dx, dy)
+
+                    width_meters = self.rect_width if self.rect_width_mode else dist
+                    height_meters = self.rect_height if self.rect_height_mode else dist * 0.5
+
+                    width = width_meters / \
+                        self.units[self.current_unit_key]['factor']
+                    height = height_meters / \
+                        self.units[self.current_unit_key]['factor']
+                    angle = math.atan2(dx, dy)
+            else:
+                # Freehand mode
+                if len(self.rect_points) == 1:
+                    corner1 = self.rect_points[0]
+                    dx = self.current_point.x() - corner1.x()
+                    dy = self.current_point.y() - corner1.y()
+                    length = math.hypot(
+                        dx, dy) / self.units[self.current_unit_key]['factor']
+                    angle = math.atan2(dx, dy)
+                elif len(self.rect_points) == 2:
+                    # Show dimensions of partial rectangle
+                    p1, p2 = self.rect_points[0], self.rect_points[1]
+                    width_meters = math.hypot(p2.x() - p1.x(), p2.y() - p1.y())
+                    height_meters = math.hypot(
+                        self.current_point.x() - p1.x(), self.current_point.y() - p1.y())
+
+                    width = width_meters / \
+                        self.units[self.current_unit_key]['factor']
+                    height = height_meters / \
+                        self.units[self.current_unit_key]['factor']
+
+        # Build mode description
+        mode_parts = ["Rectangle"]
+        if self.rect_width_mode and self.rect_height_mode:
+            mode_parts.append("W&H Fixed")
+        elif self.rect_width_mode:
+            mode_parts.append("Width Fixed")
+        elif self.rect_height_mode:
+            mode_parts.append("Height Fixed")
+
+        # Add angle lock status for rectangles
+        # if self.rect_angle_lock and len(self.rect_points) >= 1:
+        #     mode_parts.append("90° Lock ON")
+        # elif len(self.rect_points) >= 1:
+        #     mode_parts.append("90° Lock OFF")
+
+        if len(self.rect_points) == 1:
+            mode_parts.append("Set 2nd corner")
+        elif len(self.rect_points) == 2:
+            lock_status = "ON" if self.rect_angle_lock else "OFF"
+            mode_parts.append(
+                f"A: Toggle 90° - {lock_status})")
+
+        mode = " | ".join(mode_parts)
+
+        self.cursor_info.updateInfo(
+            length=length, angle=angle, coordinates=self.current_point,
+            width=width, height=height,
+            mode=f"{mode} | Snap: {snap_status} | Unit: {self.units[self.current_unit_key]['name']}",
+            canvas_pos=QPointF(canvas_pos), unit_suffix=unit_suffix
+        )
+
+    def _cancel_constraints(self):
+        """Cancel any active length, angle, or rectangle constraints"""
+        if self.length_mode or self.angle_mode:
+            self.length_mode = False
+            self.angle_mode = False
+            self.preview_length = 0
+            self.preview_angle = 0
+
+            # Reset rubber band to normal drawing mode
+            if self.is_drawing:
+                self._update_drawing_preview()
+            else:
+                self.rubber_band.reset()
+
+            show_msg("Constraints cancelled - free drawing mode", 2)
+            return True
+        elif self.rect_width_mode or self.rect_height_mode:
+            self.rect_width_mode = False
+            self.rect_height_mode = False
+            self.rect_width = 0
+            self.rect_height = 0
+            show_msg("Rectangle constraints cancelled - freehand mode", 2)
+            return True
+        return False
+
     def keyPressEvent(self, event):
+        """Enhanced key handling with constraint cancellation and rectangle support"""
         if self.circle_mode and event.key() == Qt.Key_L:
-            # Disconnect any prior receiver to avoid multiple emissions
+            # Handle circle mode L key (existing code)
             try:
                 self.dialog.parametersEntered.disconnect()
             except Exception:
                 pass
             self.dialog.parametersEntered.connect(self._apply_circle_radius)
-
-            # Update dialog for circle mode
+            self.dialog.set_rectangle_mode(False)
             self.dialog.setWindowTitle("Circle Parameters")
-            self.dialog.length_input.setPrefix("Radius: ")
-
-            # Hide angle controls in circle mode
-            self.dialog.use_angle_cb.hide()
-            self.dialog.angle_input.hide()
-            self.dialog.hide_angle_buttons()  # Hide the quick angle buttons
-
-            # Show with current radius in display units
-            radius_in_display_units = self.circle_radius / \
-                self.units[self.current_unit_key]['factor'] if self.circle_radius else 10.0
+            self.dialog.first_input.setPrefix("Radius: ")
+            self.dialog.use_second_cb.hide()
+            self.dialog.second_input.hide()
+            self.dialog.angle_buttons_widget.hide()
             self.dialog.show_dialog(self.circle_radius or 10.0)
+            return
+        elif self.rectangle_mode and event.key() == Qt.Key_L:
+            # Handle rectangle mode L key
+            try:
+                self.dialog.parametersEntered.disconnect()
+            except Exception:
+                pass
+            self.dialog.parametersEntered.connect(self._apply_rectangle_params)
+            self.dialog.set_rectangle_mode(True)
+            self.dialog.show_dialog(
+                self.rect_width or 10.0, self.rect_height or 10.0)
             return
         else:
             # Restore dialog for line mode
+            self.dialog.set_rectangle_mode(False)
             self.dialog.setWindowTitle("Line Parameters")
-            self.dialog.length_input.setPrefix("")
-            self.dialog.use_angle_cb.show()
-            self.dialog.angle_input.show()
-            self.dialog.show_angle_buttons()
-            # Reconnect for line mode
+            self.dialog.first_input.setPrefix("")
+            self.dialog.use_second_cb.show()
+            self.dialog.second_input.show()
+            self.dialog.angle_buttons_widget.show()
             try:
                 self.dialog.parametersEntered.disconnect()
             except Exception:
@@ -499,21 +1171,77 @@ class ProfessionalLineTool(QgsMapTool):
             self.dialog.parametersEntered.connect(self.set_parameters)
 
         key_actions = {
-            Qt.Key_Escape: self._handle_escape,
-            Qt.Key_L: lambda: self.dialog.show_dialog(self._current_length()),
+            Qt.Key_Escape: self._handle_escape,  # Enhanced escape handling
+            Qt.Key_L: lambda: self._handle_parameter_dialog(),
             Qt.Key_O: self._toggle_ortho,
-            Qt.Key_Enter: self._finish_line,
-            Qt.Key_Return: self._finish_line,
+            Qt.Key_Enter: self._finish_current_operation,
+            Qt.Key_Return: self._finish_current_operation,
             Qt.Key_U: self._undo_point,
             Qt.Key_Backspace: self._undo_point,
             Qt.Key_S: self._toggle_snap,
             Qt.Key_C: self._close_line,
             Qt.Key_A: self._handle_angle_lock,
             Qt.Key_R: self._toggle_circle_mode,
+            Qt.Key_T: self._toggle_rectangle_mode,  # T for recTangle
             Qt.Key_Q: self._next_unit,
         }
         if event.key() in key_actions:
             key_actions[event.key()]()
+
+    def _handle_parameter_dialog(self):
+        """Handle L key press based on current mode"""
+        if self.rectangle_mode:
+            self.dialog.show_dialog(
+                self.rect_width or 10.0, self.rect_height or 10.0)
+        else:
+            self.dialog.show_dialog(self._current_length())
+
+    def _finish_current_operation(self):
+        """Finish current operation based on mode"""
+        if self.rectangle_mode:
+            if len(self.rect_points) >= 2:
+                # Try to complete rectangle with current mouse position
+                if self.current_point:
+                    if len(self.rect_points) == 2:
+                        self.rect_points.append(self.current_point)
+                    rect_geom = self._create_rectangle_from_points()
+                    if rect_geom:
+                        self._add_rectangle_to_layer(rect_geom)
+                        show_msg("Rectangle completed!", 1)
+                    self._reset_rectangle()
+        else:
+            self._finish_line()
+
+    def _toggle_rectangle_mode(self):
+        """Toggle rectangle drawing mode"""
+        self.rectangle_mode = not self.rectangle_mode
+        mode = "Rectangle" if self.rectangle_mode else "Line"
+        show_msg(f"Mode: {mode}", 2)
+
+        # Reset rectangle parameters when toggling modes
+        self._reset_rectangle()
+        self._safe_reset(rectangle_toggle=True)
+
+    def _apply_rectangle_params(self, width, height, use_width, use_height):
+        """Apply width and height parameters for rectangle creation"""
+        self.rect_width = width if use_width else 0
+        self.rect_height = height if use_height else 0
+        self.rect_width_mode = use_width
+        self.rect_height_mode = use_height
+
+        # Build mode description
+        mode_parts = []
+        if use_width and use_height:
+            mode_parts.append("Width & Height fixed")
+        elif use_width:
+            mode_parts.append("Width fixed")
+        elif use_height:
+            mode_parts.append("Height fixed")
+        else:
+            mode_parts.append("Freehand rectangle")
+
+        mode_desc = " | ".join(mode_parts)
+        show_msg(f"Rectangle mode: {mode_desc} | Click first corner")
 
     def _toggle_circle_mode(self):
         self.circle_mode = not self.circle_mode
@@ -526,23 +1254,43 @@ class ProfessionalLineTool(QgsMapTool):
         self._safe_reset(circle_toggle=True)
 
     def _handle_escape(self):
-        if self.length_mode or self.angle_mode:
-            self._cancel_preview()
-        else:
-            # Clear circle parameters when escaping
-            if self.circle_mode:
-                self.circle_center = None
-                self.circle_radius = 0
-                self.rubber_band.reset()
-                show_msg("Circle cancelled", 2)
-            else:
-                self._safe_reset()
-                show_msg("Cancelled", 2)
+        """Enhanced escape handling with hierarchical cancellation"""
+        # First priority: Cancel active constraints
+        if self._cancel_constraints():
+            return
+
+        # Second priority: Handle rectangle mode
+        if self.rectangle_mode:
+            if self.rect_points:
+                self._reset_rectangle()
+                show_msg("Rectangle cancelled", 2)
+            return
+
+        # Third priority: Handle circle mode
+        if self.circle_mode:
+            self.circle_center = None
+            self.circle_radius = 0
+            self.rubber_band.reset()
+            show_msg("Circle cancelled", 2)
+            return
+
+        # Fourth priority: Reset entire operation
+        self._safe_reset()
+        show_msg("Operation cancelled", 2)
 
     def _toggle_ortho(self):
         self.ortho_mode = not self.ortho_mode
 
     def _handle_angle_lock(self):
+        """Handle angle lock with different behavior for rectangles vs lines"""
+        if self.rectangle_mode:
+            # Simple toggle for rectangles
+            self.rect_angle_lock = not self.rect_angle_lock
+            status = "ON" if self.rect_angle_lock else "OFF"
+            show_msg(f"Rectangle 90° lock: {status}", 1)
+            return
+
+        # Original behavior for lines
         current_time = time.time()
         al = self.angle_lock
 
@@ -578,24 +1326,27 @@ class ProfessionalLineTool(QgsMapTool):
         self.rubber_band.addPoint(point)
         show_msg("Line started. Click next point or press L")
 
-    def _apply_circle_radius(self, radius, angle, use_angle):
+    def _apply_circle_radius(self, radius, angle, use_length, use_angle):
+        """Apply radius for circle creation (only uses radius parameter)"""
         self.circle_radius = radius  # radius is already in meters
-        # Restore dialog for line mode usability:
-        self.dialog.use_angle_cb.show()
-        self.dialog.angle_input.show()
+
+        # Restore dialog for line mode
+        self.dialog.set_rectangle_mode(False)
+        self.dialog.use_second_cb.show()
+        self.dialog.second_input.show()
         self.dialog.setWindowTitle("Line Parameters")
-        self.dialog.length_input.setPrefix("")
+        self.dialog.first_input.setPrefix("")
+
         if self.circle_center:
             circle_geom = self._create_circle_geometry(
                 self.circle_center, self.circle_radius)
             self._add_circle_to_layer(circle_geom)
-            # Reset circle parameters after creating circle
             self.circle_center = None
             self.circle_radius = 0
             self.rubber_band.reset()
             show_msg("Circle added!", 1)
         else:
-            show_msg("Click to set circle center.", 1)
+            show_msg("Click to set circle center", 1)
 
     def _add_circle_to_layer(self, geometry):
         layer = iface.activeLayer()
@@ -798,11 +1549,12 @@ class ProfessionalLineTool(QgsMapTool):
         self.rubber_band.addPoint(end_point)
 
     def _calc_preview_end(self):
+        """Calculate preview endpoint based on active constraints"""
         ref = self.points[-1] if len(self.points) > 1 else self.start_point
 
-        # Determine angle - FIXED: Clear angle lock when user inputs angle
+        # Determine angle based on current constraints and locks
         if self.angle_mode and not self.angle_lock['active']:
-            # User specified angle - use it directly
+            # User specified angle takes precedence
             final_angle = self.preview_angle
         elif self.angle_lock['active']:
             # Angle lock is active - calculate locked angle
@@ -812,10 +1564,11 @@ class ProfessionalLineTool(QgsMapTool):
                 base_angle = math.atan2(dx, dy)
             else:
                 base_angle = 0.0
+
             locked_delta = self.angle_lock['angles'][self.angle_lock['index']]
 
-            # For length mode with angle lock, we need to determine direction based on mouse
-            if self.length_mode and self.current_point:
+            # Determine direction based on mouse position for any mode with angle lock
+            if self.current_point:
                 dx_mouse = self.current_point.x() - ref.x()
                 dy_mouse = self.current_point.y() - ref.y()
                 mouse_angle = math.atan2(dx_mouse, dy_mouse)
@@ -823,28 +1576,25 @@ class ProfessionalLineTool(QgsMapTool):
                 if locked_delta == math.pi/2:  # 90° lock
                     angle_positive = (base_angle + math.pi/2) % (2 * math.pi)
                     angle_negative = (base_angle - math.pi/2) % (2 * math.pi)
-
                     normalized_mouse = (mouse_angle + 2*math.pi) % (2*math.pi)
                     diff_positive = abs(
                         (normalized_mouse - angle_positive + math.pi) % (2 * math.pi) - math.pi)
                     diff_negative = abs(
                         (normalized_mouse - angle_negative + math.pi) % (2 * math.pi) - math.pi)
-
                     final_angle = angle_positive if diff_positive < diff_negative else angle_negative
                 else:  # 180° lock
                     angle_same = base_angle % (2 * math.pi)
                     angle_opposite = (base_angle + math.pi) % (2 * math.pi)
-
                     normalized_mouse = (mouse_angle + 2*math.pi) % (2*math.pi)
                     diff_same = abs(
                         (normalized_mouse - angle_same + math.pi) % (2 * math.pi) - math.pi)
                     diff_opposite = abs(
                         (normalized_mouse - angle_opposite + math.pi) % (2 * math.pi) - math.pi)
-
                     final_angle = angle_same if diff_same < diff_opposite else angle_opposite
             else:
                 final_angle = (base_angle + locked_delta) % (2*math.pi)
-        else:  # length_mode without angle lock
+        else:
+            # No angle constraints - follow mouse direction
             if self.current_point:
                 dx = self.current_point.x() - ref.x()
                 dy = self.current_point.y() - ref.y()
@@ -853,12 +1603,19 @@ class ProfessionalLineTool(QgsMapTool):
             else:
                 final_angle = 0.0
 
-        # Determine length (preview_length is always in meters)
+        # Determine length based on constraints
         if self.length_mode:
+            # Use specified length
             length = self.preview_length
-        else:  # angle_mode
-            length = math.hypot(self.current_point.x() - ref.x(),
-                                self.current_point.y() - ref.y()) or 10.0
+        else:
+            # Follow mouse distance (for angle-only mode or free drawing)
+            if self.current_point:
+                length = math.hypot(
+                    self.current_point.x() - ref.x(),
+                    self.current_point.y() - ref.y()
+                ) or 10.0
+            else:
+                length = 10.0
 
         return QgsPointXY(
             ref.x() + length * math.sin(final_angle),
@@ -933,6 +1690,7 @@ class ProfessionalLineTool(QgsMapTool):
         return None
 
     def _update_cursor_info(self, canvas_pos):
+        """Update cursor info with enhanced constraint status display"""
         config = QgsProject.instance().snappingConfig()
         snap_status = "ON" if config.enabled() else "OFF"
 
@@ -954,33 +1712,48 @@ class ProfessionalLineTool(QgsMapTool):
                 dx = end_point.x() - ref_point.x()
                 dy = end_point.y() - ref_point.y()
                 length_meters = math.hypot(dx, dy)
-                # Convert to display units
                 length = length_meters / \
                     self.units[self.current_unit_key]['factor']
                 angle = math.atan2(dx, dy)
             else:
-                # Normal drawing mode, show current mouse distance
+                # Normal drawing mode
                 ref_point = self.points[-1] if self.is_drawing and len(
                     self.points) > 1 else self.start_point
                 dx = self.current_point.x() - ref_point.x()
                 dy = self.current_point.y() - ref_point.y()
                 length_meters = math.hypot(dx, dy)
-                # Convert to display units
                 length = length_meters / \
                     self.units[self.current_unit_key]['factor']
                 angle = math.atan2(dx, dy) if length_meters > 0 else 0
 
-        mode_map = {
-            (True, False): "Length Preview",
-            (False, True): "Angle Preview",
-            (False, False): "Ortho Mode" if self.ortho_mode else "Drawing" if self.is_drawing else f"Ready"
-        }
-        mode = mode_map.get((self.length_mode, self.angle_mode), "Ready")
+        # Build enhanced mode display
+        mode_parts = []
 
+        # Primary mode
+        if self.length_mode and self.angle_mode:
+            mode_parts.append("L&A Preview")
+        elif self.length_mode:
+            mode_parts.append("Length Preview")
+        elif self.angle_mode:
+            mode_parts.append("Angle Preview")
+        elif self.ortho_mode:
+            mode_parts.append("Ortho")
+        elif self.is_drawing:
+            mode_parts.append("Drawing")
+        else:
+            mode_parts.append("Ready")
+
+        # Angle lock status
         if self.angle_lock['active']:
             lock_deg = int(math.degrees(
                 self.angle_lock['angles'][self.angle_lock['index']]))
-            mode = f"Lock {lock_deg}° | {mode}"
+            mode_parts.append(f"Lock{lock_deg}°")
+
+        # Cancellation hint for constraints
+        if self.length_mode or self.angle_mode:
+            mode_parts.append("(Esc/RClick to cancel)")
+
+        mode = " | ".join(mode_parts)
 
         self.cursor_info.updateInfo(
             length=length, angle=angle, coordinates=self.current_point,
@@ -988,32 +1761,46 @@ class ProfessionalLineTool(QgsMapTool):
             canvas_pos=QPointF(canvas_pos), unit_suffix=unit_suffix
         )
 
-    def set_parameters(self, length_meters, angle, use_angle):
+    def set_parameters(self, length_meters, angle, use_length, use_angle):
+        """Handle parameter input with support for length-only, angle-only, or both"""
+
         if not self.start_point:
-            self.preview_length = length_meters  # Store in meters
-            self.preview_angle = angle
-            self.length_mode = not use_angle
+            self.preview_length = length_meters if use_length else 0
+            self.preview_angle = angle if use_angle else 0
+            self.length_mode = use_length
             self.angle_mode = use_angle
 
-            # FIXED: Clear angle lock when user inputs angle
+            # Clear angle lock when user inputs angle
             if use_angle:
                 self.angle_lock['active'] = False
                 show_msg("Angle lock cleared - using input angle")
 
-            show_msg("Click to set start point")
+            # Build mode description
+            mode_parts = []
+            if use_length and use_angle:
+                mode_parts.append("Length & Angle")
+            elif use_length:
+                mode_parts.append("Length only")
+            elif use_angle:
+                mode_parts.append("Angle only")
+
+            mode_desc = " | ".join(
+                mode_parts) if mode_parts else "Free drawing"
+            show_msg(f"Mode: {mode_desc} | Click to set start point")
             return
 
-        self.preview_length = length_meters  # Store in meters
-        self.preview_angle = angle
-        self.length_mode = not use_angle
+        # Set parameters for existing line
+        self.preview_length = length_meters if use_length else 0
+        self.preview_angle = angle if use_angle else 0
+        self.length_mode = use_length
         self.angle_mode = use_angle
 
-        # FIXED: Clear angle lock when user inputs angle
+        # Clear angle lock when user inputs angle
         if use_angle:
             self.angle_lock['active'] = False
             show_msg("Angle lock cleared - using input angle")
 
-        show_msg("Move mouse and click to confirm")
+        show_msg("Move mouse and click to confirm | Right-click or Esc to cancel")
 
     def _confirm_preview(self):
         if not self.start_point:
@@ -1091,7 +1878,18 @@ class ProfessionalLineTool(QgsMapTool):
             self._finish_line()
 
     def _undo_point(self):
-        if self.is_drawing and len(self.points) > 1:
+        if self.rectangle_mode and self.rect_points:
+            # Undo last rectangle point
+            self.rect_points.pop()
+            if self.markers:
+                marker = self.markers.pop()
+                if marker.color() in [QColor(255, 165, 0), QColor(255, 255, 0), QColor(0, 255, 255)]:
+                    marker.hide()
+            self.rubber_band.reset()
+            show_msg(
+                f"Rectangle point removed. {len(self.rect_points)} points remaining.", 1)
+        elif self.is_drawing and len(self.points) > 1:
+            # Undo last line point
             self.points.pop()
             if self.markers:
                 self.markers.pop().hide()
@@ -1112,12 +1910,19 @@ class ProfessionalLineTool(QgsMapTool):
         show_msg(f"Snap: {'ON' if config.enabled() else 'OFF'}", 2)
 
     def _handle_right_click(self):
-        if self.length_mode or self.angle_mode:
-            self._cancel_preview()
+        """Context-sensitive right-click behavior"""
+        # If constraints are active, cancel them first
+        if self.length_mode or self.angle_mode or self.rect_width_mode or self.rect_height_mode:
+            self._cancel_constraints()
+        # If in rectangle mode with points, finish rectangle
+        elif self.rectangle_mode and len(self.rect_points) >= 2:
+            self._finish_current_operation()
+        # If drawing a line, finish it
         elif self.is_drawing:
             self._finish_line()
+        # Otherwise, open parameter dialog
         else:
-            self.dialog.show_dialog(self._current_length())
+            self._handle_parameter_dialog()
 
     def _current_length(self):
         if self.start_point and self.current_point:
@@ -1133,7 +1938,7 @@ class ProfessionalLineTool(QgsMapTool):
             return False
         return True
 
-    def _safe_reset(self, circle_toggle=False):
+    def _safe_reset(self, circle_toggle=False, rectangle_toggle=False):
         if hasattr(self, 'cursor_info'):
             self.cursor_info.safe_hide()
         if hasattr(self, 'rubber_band'):
@@ -1166,6 +1971,14 @@ class ProfessionalLineTool(QgsMapTool):
             self.circle_mode = False
             self.circle_center = None
             self.circle_radius = 0
+        if not rectangle_toggle:
+            self.rectangle_mode = False
+            self.rect_points = []
+            self.rect_width = 0
+            self.rect_height = 0
+            self.rect_width_mode = False
+            self.rect_height_mode = False
+            self.rect_angle_lock = True  # Reset to default ON state
 
     def deactivate(self):
         self._safe_reset()
@@ -1182,7 +1995,7 @@ def activate_tool():
     canvas.setMapTool(tool)
     snap = "ON" if QgsProject.instance().snappingConfig().enabled() else "OFF"
     show_msg(
-        f"🖱️ Left: Add | Right: Finish | L: Params | O: Ortho | Q: Toggle Units | U: Undo | C: Close | S: Snap({snap}) | A: Angle Lock | R: Circle | Esc: Cancel", 2, Qgis.Success)
+        f"🖱️ Left: Add | Right: Finish | L: Params | O: Ortho | Q: Toggle Units | U: Undo | C: Close | S: Snap({snap}) | A: Angle Lock | R: Circle | T: Rectangle | Esc: Cancel", 2, Qgis.Success)
     return tool
 
 

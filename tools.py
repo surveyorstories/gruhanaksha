@@ -28,15 +28,15 @@ from qgis.core import (QgsVectorLayer, QgsMapLayerProxyModel, QgsFeature,
                        QgsMessageLog, QgsVectorDataProvider)
 from typing import Optional, Dict
 from typing import Optional, Dict, List, Tuple
-from .fmb import TriangleWidget, PlotterWidget, BisectorWidget, CombinedMainWidget
+from .fmb import TriangleWidget, PlotterWidget,  CombinedMainWidget
+from .freehand_adjuster import activate_vertex_tool
 
-from .addon_functions import apply_categorized_symbology
 from .polygon_adjuster import activate_unified_tool
 
 
 triangle_window = TriangleWidget()
 plotter_window = PlotterWidget()
-bisector_window = BisectorWidget()
+# bisector_window = BisectorWidget()
 combined_window = CombinedMainWidget()
 # adjuster_window = PolygonAdjusterWidget()
 
@@ -81,14 +81,21 @@ class ToolWidget(QWidget):
             "background-color: #020507 ; color: white")
         self.adjuster_button = QPushButton(
             QIcon(os.path.join(cmd_folder, 'images/aligner.svg')), 'Adjuster')
-        self.adjuster_button.setToolTip("Open Polygon Adjuster Tool")
+        self.adjuster_button.setToolTip("Open Adjuster Tool")
         self.adjuster_button.setStyleSheet(
             "background-color: #020507 ; color: white")
+        self.free_adjuster_button = QPushButton(
+            QIcon(os.path.join(cmd_folder, 'images/aligner.svg')), 'Free Adjuster')
+        self.free_adjuster_button.setToolTip("Open Free Adjuster Tool")
+        self.free_adjuster_button.setStyleSheet(
+            "background-color: #020507 ; color: white")
+        
 
         # Connect button actions
 
         self.plotter_button.clicked.connect(self.combined_button_clicked)
         self.adjuster_button.clicked.connect(self.adjuster_button_clicked)
+        self.free_adjuster_button.clicked.connect(self.free_adjuster_button_clicked)
 
         # Horizontal layout with spacing
         group_layout.addStretch(1)
@@ -97,6 +104,8 @@ class ToolWidget(QWidget):
         group_layout.addWidget(self.plotter_button)
         group_layout.addStretch(1)
         group_layout.addWidget(self.adjuster_button)
+        group_layout.addStretch(1)
+        group_layout.addWidget(self.free_adjuster_button)
         group_layout.addStretch(1)
 
         group_box.setLayout(group_layout)
@@ -107,206 +116,21 @@ class ToolWidget(QWidget):
         event.ignore()
 
     def adjuster_button_clicked(self):
-        print("Button 3 clicked")
         activate_unified_tool()
+
+    def free_adjuster_button_clicked(self):
+        activate_vertex_tool()
 
     def combined_button_clicked(self):
         try:
-            self.display_start_end_points()
-            if self.function_completed:
-                combined_window.show()
+
+            combined_window.show()
         except Exception as e:
             QMessageBox.critical(self, "Error", f"An error occurred: {e}")
 
     def bisector_button_clicked(self):
 
         try:
-            self.create_point_layer()
-            if self.function_completed:
-                bisector_window.show()
+            bisector_window.show()
         except Exception as e:
             QMessageBox.critical(self, "Error", f"An error occurred: {e}")
-
-    def display_start_end_points(self):
-        """Display the start and end points of the selected line feature."""
-        try:
-            layer = iface.activeLayer()
-            if layer is None or not isinstance(layer, QgsVectorLayer):
-                QMessageBox.critical(
-                    self, "Error", "Please select a valid vector Line layer.")
-                return
-
-            if layer.wkbType() not in [QgsWkbTypes.LineString, QgsWkbTypes.MultiLineString]:
-                QMessageBox.critical(
-                    self, "Error", "The active layer is not a line layer.")
-                return
-
-            selected_features = list(layer.selectedFeatures())
-            if len(selected_features) != 1:
-                QMessageBox.critical(
-                    self, "Error", "Please select exactly one line feature.")
-                return
-
-            feature = selected_features[0]
-            geom = feature.geometry()
-            if geom is None or geom.isNull():
-                QMessageBox.critical(
-                    self, "Error", "Selected feature has no geometry.")
-                return
-
-            # Handle MultiLineString by using the first and last points of all parts
-            if geom.isMultipart():
-                points = geom.asMultiPolyline()
-                # First point of the first part
-                start_point = QgsPointXY(points[0][0])
-                # Last point of the last part
-                end_point = QgsPointXY(points[-1][-1])
-            else:
-                points = geom.asPolyline()
-                if not points:
-                    QMessageBox.critical(self, "Error", "Geometry is empty.")
-                    return
-                start_point = QgsPointXY(points[0])  # First point
-                end_point = QgsPointXY(points[-1])  # Last point
-
-            # Create or fetch a point layer
-            layer_crs = layer.crs()
-            point_layer_name = "Start and End Points"
-            existing_layer = None
-            for lyr in QgsProject.instance().mapLayers().values():
-                if lyr.name() == point_layer_name and lyr.geometryType() == QgsWkbTypes.PointGeometry:
-                    existing_layer = lyr
-                    break
-
-            if existing_layer:
-                point_layer = existing_layer
-            else:
-                point_layer = QgsVectorLayer(
-                    f"Point?crs={layer_crs.toWkt()}", point_layer_name, "memory")
-                point_layer.dataProvider().addAttributes(
-                    [QgsField("Type", QVariant.String)])
-                point_layer.updateFields()
-                QgsProject.instance().addMapLayer(point_layer)
-
-            # Add start and end points with a 'Type' attribute
-            def add_point(point, point_type):
-                """Add a styled point feature."""
-                feature = QgsFeature()
-                feature.setGeometry(QgsGeometry.fromPointXY(point))
-                feature.setAttributes([point_type])
-                point_layer.dataProvider().addFeature(feature)
-
-            add_point(start_point, "Start Point")
-            add_point(end_point, "End Point")
-
-            # Apply Categorized Symbology to the point layer
-            # Define the categories with their properties
-            categories_info = [
-                {'name': 'Start Point', 'color': 'green', 'size': 3, 'opacity': 0.5},
-                {'name': 'End Point', 'color': 'red', 'size': 2, 'opacity': 0.5},
-                # {'name': 'Route', 'color': 'blue', 'line_width': 2, 'opacity': 0.7},
-                # {'name': 'Area', 'color': 'yellow', 'opacity': 0.5},
-                # Add more categories as needed
-            ]
-
-            # Assuming 'layer' is a QgsVectorLayer containing point, line, or polygon features
-            apply_categorized_symbology(point_layer, categories_info)
-
-            point_layer.triggerRepaint()
-
-            # Ensure the active layer doesn't change
-            iface.setActiveLayer(layer)
-            self.function_completed = True
-
-        except Exception as e:
-            QMessageBox.critical(self, "Unexpected Error",
-                                 f"An unexpected error occurred: {e}")
-
-    def create_point_layer(self):
-        """Create a point layer for displaying start and end points with categorized symbology."""
-        try:
-            layer = iface.activeLayer()
-            if layer is None or not isinstance(layer, QgsVectorLayer):
-                QMessageBox.critical(
-                    self, "Error", "Please select a valid vector Line layer.")
-                return
-
-            if layer.wkbType() not in [QgsWkbTypes.LineString, QgsWkbTypes.MultiLineString]:
-                QMessageBox.critical(
-                    self, "Error", "The active layer is not a line layer.")
-                return
-
-            selected_features = list(layer.selectedFeatures())
-            if len(selected_features) == 0:
-                QMessageBox.critical(
-                    self, "No feature selected", "Please select at least one line feature.")
-                return
-
-            # Create or fetch the point layer
-            point_layer_name = "Start and End Points"
-            existing_layer = None
-            for lyr in QgsProject.instance().mapLayers().values():
-                if lyr.name() == point_layer_name and lyr.geometryType() == QgsWkbTypes.PointGeometry:
-                    existing_layer = lyr
-                    break
-
-            if existing_layer:
-                point_layer = existing_layer
-            else:
-                layer_crs = layer.crs()
-                point_layer = QgsVectorLayer(
-                    f"Point?crs={layer_crs.toWkt()}", point_layer_name, "memory")
-                point_layer.dataProvider().addAttributes(
-                    [QgsField("Type", QVariant.String)])
-                point_layer.updateFields()
-                QgsProject.instance().addMapLayer(point_layer)
-
-            # Loop through all selected features and extract start and end points
-            def add_point(point, point_type):
-                """Add a styled point feature."""
-                feature = QgsFeature()
-                feature.setGeometry(QgsGeometry.fromPointXY(point))
-                feature.setAttributes([point_type])
-                point_layer.dataProvider().addFeature(feature)
-
-            for feature in selected_features:
-                geom = feature.geometry()
-                if geom is None or geom.isNull():
-                    continue  # Skip features with no valid geometry
-
-                # Extract start and end points of the line
-                if geom.isMultipart():
-                    points = geom.asMultiPolyline()
-                    start_point = QgsPointXY(points[0][0])
-                    end_point = QgsPointXY(points[-1][-1])
-                else:
-                    points = geom.asPolyline()
-                    if not points:
-                        continue  # Skip if the polyline is empty
-                    start_point = QgsPointXY(points[0])
-                    end_point = QgsPointXY(points[-1])
-
-                # Add points to the layer
-                add_point(start_point, "Start Point")
-                add_point(end_point, "End Point")
-
-            # Apply Categorized Symbology
-            # Define the categories with their properties
-            categories_info = [
-                {'name': 'Start Point', 'color': 'green', 'size': 3, 'opacity': 0.5},
-                {'name': 'End Point', 'color': 'red', 'size': 2, 'opacity': 0.5},
-                # {'name': 'Route', 'color': 'blue', 'line_width': 2, 'opacity': 0.7},
-                # {'name': 'Area', 'color': 'yellow', 'opacity': 0.5},
-                # Add more categories as needed
-            ]
-
-            # Assuming 'layer' is a QgsVectorLayer containing point, line, or polygon features
-            apply_categorized_symbology(point_layer, categories_info)
-
-            point_layer.triggerRepaint()
-            iface.setActiveLayer(layer)
-            self.function_completed = True
-
-        except Exception as e:
-            QMessageBox.critical(self, "Unexpected Error",
-                                 f"An unexpected error occurred: {e}")

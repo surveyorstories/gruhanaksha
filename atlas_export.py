@@ -56,6 +56,7 @@ class ExportSettings:
     include_metadata: bool = True
     create_subdirs: bool = False
     is_atlas_layout: bool = True
+    export_as_single_pdf: bool = False
 
     # Advanced options
     force_vector: bool = False
@@ -302,6 +303,10 @@ class AtlasExportWorker(QThread):
 
             export_settings = self._create_export_settings()
 
+            if self.settings.export_format == ExportFormat.PDF and self.settings.export_as_single_pdf:
+                self._export_atlas_as_single_pdf(atlas, QgsLayoutExporter(self.layout), export_settings)
+                return
+
             # Get pages to export (0-based)
             pages_to_export = self._get_pages_to_export(atlas)
             total_pages = len(pages_to_export)
@@ -360,42 +365,6 @@ class AtlasExportWorker(QThread):
             else:
                 self.export_finished.emit(
                     False, f"Export cancelled. {len(exported_files)} pages were exported before cancellation.")
-
-        except Exception as e:
-            self.export_finished.emit(False, f"Export failed: {str(e)}")
-
-    def _export_single_layout(self):
-        """Export a single non-atlas layout"""
-        try:
-            os.makedirs(self.settings.output_dir, exist_ok=True)
-
-            export_settings = self._create_export_settings()
-            exporter = QgsLayoutExporter(self.layout)
-
-            # Generate filename for single layout
-            filename = self.settings.filename_pattern
-            filename = filename.replace("{page}", "001")
-            filename = filename.replace("{index}", "0")
-            filename += f".{self.settings.export_format.value}"
-
-            filepath = os.path.join(self.settings.output_dir, filename)
-
-            self.progress_updated.emit(50, "Exporting layout...")
-
-            # Export the layout
-            result = self._export_page(exporter, filepath, export_settings)
-
-            if result == QgsLayoutExporter.Success:
-                self.page_exported.emit(1, filename)
-                self.progress_updated.emit(100, "Export complete")
-                if not self.cancelled:
-                    self.export_finished.emit(
-                        True, f"Successfully exported layout: {filename}")
-                else:
-                    self.export_finished.emit(False, "Export cancelled")
-            else:
-                self.export_finished.emit(
-                    False, f"Failed to export layout: {self._get_export_error(result)}")
 
         except Exception as e:
             self.export_finished.emit(False, f"Export failed: {str(e)}")
@@ -743,6 +712,10 @@ class EnhancedAtlasExportDialog(QDialog):
         self.format_combo.addItems(["PDF", "PNG", "JPG", "TIFF", "SVG"])
         self.format_combo.currentTextChanged.connect(self.on_format_changed)
         output_layout.addWidget(self.format_combo, 2, 1)
+
+        self.single_pdf_check = QCheckBox("Export as single PDF")
+        self.single_pdf_check.toggled.connect(self.on_single_pdf_toggled)
+        output_layout.addWidget(self.single_pdf_check, 3, 0, 1, 3)
 
         layout.addWidget(output_group)
 
@@ -1358,6 +1331,14 @@ class EnhancedAtlasExportDialog(QDialog):
         else:
             self.preview_label.setText("Could not generate preview image")
 
+    def on_single_pdf_toggled(self, checked):
+        is_pdf = self.format_combo.currentText().upper() == "PDF"
+        self.filename_edit.setEnabled(not (checked and is_pdf))
+        if checked and is_pdf:
+            self.filename_edit.setToolTip("Filename is automatically generated for single PDF export.")
+        else:
+            self._update_filename_tooltip(self.current_layout.atlas().coverageLayer() if self.is_atlas_layout else None)
+
     def on_format_changed(self, format_name: str):
         """Handle format change"""
         is_raster = format_name in ["PNG", "JPG", "TIFF"]
@@ -1365,6 +1346,11 @@ class EnhancedAtlasExportDialog(QDialog):
         self.quality_slider.setEnabled(format_name == "JPG")
         self.width_spin.setEnabled(is_raster)
         self.height_spin.setEnabled(is_raster)
+
+        is_pdf = format_name.upper() == "PDF"
+        self.single_pdf_check.setVisible(is_pdf and self.is_atlas_layout)
+        self.on_single_pdf_toggled(self.single_pdf_check.isChecked())
+
         self.update_preview_info()
 
     def browse_output_dir(self):
@@ -1533,7 +1519,7 @@ Output Settings:
 
         fmt = ExportFormat(self.format_combo.currentText().lower())
 
-        settings = ExportSettings(
+        return ExportSettings(
             output_dir=output_dir,
             filename_pattern=self.filename_edit.text(),
             export_format=fmt,
@@ -1546,6 +1532,7 @@ Output Settings:
             include_metadata=self.metadata_check.isChecked(),
             create_subdirs=self.subdir_check.isChecked(),
             is_atlas_layout=self.is_atlas_layout,
+            export_as_single_pdf=self.single_pdf_check.isChecked(),
             force_vector=self.force_vector_check.isChecked(),
             rasterize_whole=self.rasterize_check.isChecked(),
             text_render=self.text_export_combo.currentText(),
@@ -1553,7 +1540,6 @@ Output Settings:
             pdf_jpeg_quality=self.pdf_jpeg_quality.value(),
             png_tiff_compression=self.png_tiff_comp.value()
         )
-        return settings
 
     def start_export(self):
         """Start the export process"""
