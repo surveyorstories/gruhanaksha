@@ -81,7 +81,7 @@ class ToolWidget(QWidget):
             "background-color: #020507 ; color: white")
         self.adjuster_button = QPushButton(
             QIcon(os.path.join(cmd_folder, 'images/aligner.svg')), 'Adjuster')
-        self.adjuster_button.setToolTip("Open Polygon Adjuster Tool")
+        self.adjuster_button.setToolTip("Open Adjuster Tool")
         self.adjuster_button.setStyleSheet(
             "background-color: #020507 ; color: white")
 
