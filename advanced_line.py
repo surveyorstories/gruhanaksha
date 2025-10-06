@@ -14,10 +14,29 @@ class CursorInfo(QWidget):
         self.canvas = canvas
         self.text_lines = []
         self.is_active = True
-        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint |
-                            Qt.Tool | Qt.WindowDoesNotAcceptFocus)
-        self.setAttribute(Qt.WA_TranslucentBackground)
-        self.setAttribute(Qt.WA_DeleteOnClose)
+
+        # Qt5/Qt6 compatible window flags
+        if hasattr(Qt, 'WindowType'):
+            # Qt6
+            self.setWindowFlags(
+                Qt.WindowType.Tool |
+                Qt.WindowType.FramelessWindowHint |
+                Qt.WindowType.WindowStaysOnTopHint |
+                Qt.WindowType.WindowDoesNotAcceptFocus
+            )
+            self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+            self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        else:
+            # Qt5
+            self.setWindowFlags(
+                Qt.Tool |
+                Qt.FramelessWindowHint |
+                Qt.WindowStaysOnTopHint |
+                Qt.WindowDoesNotAcceptFocus
+            )
+            self.setAttribute(Qt.WA_TranslucentBackground)
+            self.setAttribute(Qt.WA_DeleteOnClose)
+
         self.setStyleSheet(
             "QWidget{background:rgba(240,248,255,230);border:2px solid #2E86AB;border-radius:6px;padding:6px;font:bold 10pt Consolas;color:#3dfcff}")
 
@@ -206,7 +225,7 @@ class ParameterDialog(QDialog):
         self.grid = QGridLayout(self.angle_buttons_widget)
         for i, angle in enumerate([0, 45, 90, 135, 180, 225, 270, 315]):
             btn = QPushButton(f"{angle}°")
-            btn.setFocusPolicy(Qt.NoFocus)
+            btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
             btn.clicked.connect(lambda _, a=angle: self.set_quick_angle(a))
             self.grid.addWidget(btn, i // 4, i % 4)
         layout.addWidget(self.angle_buttons_widget)
@@ -360,13 +379,13 @@ def create_marker(canvas, point, color=QColor(0, 255, 0)):
     marker = QgsVertexMarker(canvas)
     marker.setCenter(point)
     marker.setColor(color)
-    marker.setIconType(QgsVertexMarker.ICON_BOX)
+    marker.setIconType(QgsVertexMarker.IconType.ICON_BOX)
     marker.setIconSize(12)
     marker.setPenWidth(2)
     return marker
 
 
-def show_msg(msg, duration=2, level=Qgis.Info):
+def show_msg(msg, duration=2, level=Qgis.MessageLevel.Info):
     if iface and iface.messageBar():
         iface.messageBar().pushMessage("📐 Line Tool", msg, level=level, duration=duration)
 
@@ -378,13 +397,14 @@ class ProfessionalLineTool(QgsMapTool):
         self.reset_state()
 
         # UI Components
-        self.rubber_band = QgsRubberBand(canvas, QgsWkbTypes.LineGeometry)
+        self.rubber_band = QgsRubberBand(
+            canvas, QgsWkbTypes.GeometryType.LineGeometry)
         self.rubber_band.setColor(QColor("brown"))
         self.rubber_band.setWidth(1.5)
-        self.rubber_band.setLineStyle(Qt.DashLine)
+        self.rubber_band.setLineStyle(Qt.PenStyle.DashLine)
 
         self.snap_marker = QgsVertexMarker(canvas)
-        self.snap_marker.setIconType(QgsVertexMarker.ICON_BOX)
+        self.snap_marker.setIconType(QgsVertexMarker.IconType.ICON_BOX)
         self.snap_marker.setColor(QColor(255, 0, 255))
         self.snap_marker.setPenWidth(3)
         self.snap_marker.setIconSize(12)
@@ -412,7 +432,12 @@ class ProfessionalLineTool(QgsMapTool):
 
         # Create dialog with units support
         self.dialog = ParameterDialog(self.units, self.current_unit_key)
-        self.dialog.setParent(iface.mainWindow(), Qt.Window)
+        try:
+            # For Qt6
+            self.dialog.setParent(iface.mainWindow(), Qt.WindowType.Window)
+        except AttributeError:
+            # For Qt5
+            self.dialog.setParent(iface.mainWindow(), Qt.Window)
         self.dialog.parametersEntered.connect(self.set_parameters)
 
     def _set_current_unit(self, key):
@@ -427,7 +452,7 @@ class ProfessionalLineTool(QgsMapTool):
                 self.dialog.update_second_suffix()
             show_msg(f"Unit set to: {self.units[key]['name']}", 1)
         else:
-            show_msg(f"Unknown unit: {key}", 1, Qgis.Warning)
+            show_msg(f"Unknown unit: {key}", 1, Qgis.MessageLevel.Warning)
 
     def _next_unit(self):
         self.current_unit_index = (
@@ -467,7 +492,7 @@ class ProfessionalLineTool(QgsMapTool):
         self.rect_angle_lock = True  # Start with angle lock ON for rectangles
 
     def activate(self):
-        self.canvas.setCursor(Qt.CrossCursor)
+        self.canvas.setCursor(Qt.CursorShape.CrossCursor)
 
     def canvasPressEvent(self, event):
         if not self._valid_layer():
@@ -485,7 +510,7 @@ class ProfessionalLineTool(QgsMapTool):
             return
 
         # Regular line mode handling
-        if event.button() == Qt.LeftButton:
+        if event.button() == Qt.MouseButton.LeftButton:
             if (self.length_mode or self.angle_mode) and not self.start_point:
                 self._start_line(point, event.pos())
                 show_msg("Move mouse and click to confirm")
@@ -495,12 +520,12 @@ class ProfessionalLineTool(QgsMapTool):
                 self._start_line(point, event.pos())
             else:
                 self._add_point(point)
-        elif event.button() == Qt.RightButton:
+        elif event.button() == Qt.MouseButton.RightButton:
             self._handle_right_click()
 
     def _handle_rectangle_click(self, point, canvas_pos, event):
         """Handle rectangle drawing with 3-point method or parameter constraints"""
-        if event.button() == Qt.LeftButton:
+        if event.button() == Qt.MouseButton.LeftButton:
             if len(self.rect_points) == 0:
                 # First point
                 self.rect_points.append(point)
@@ -541,7 +566,7 @@ class ProfessionalLineTool(QgsMapTool):
                         self._add_rectangle_to_layer(rect_geom)
                         show_msg("Rectangle completed!", 1)
                 self._reset_rectangle()
-        elif event.button() == Qt.RightButton:
+        elif event.button() == Qt.MouseButton.RightButton:
             if self.rect_points:
                 self._reset_rectangle()
                 show_msg("Rectangle cancelled", 1)
@@ -1001,7 +1026,7 @@ class ProfessionalLineTool(QgsMapTool):
         """Add rectangle geometry to the current layer"""
         layer = iface.activeLayer()
         if not (layer and layer.isEditable()):
-            show_msg("Need editable line layer", 1, Qgis.Critical)
+            show_msg("Need editable line layer", 1, Qgis.MessageLevel.Critical)
             return False
         feature = QgsFeature(layer.fields())
         feature.setGeometry(geometry)
@@ -1130,7 +1155,7 @@ class ProfessionalLineTool(QgsMapTool):
 
     def keyPressEvent(self, event):
         """Enhanced key handling with constraint cancellation and rectangle support"""
-        if self.circle_mode and event.key() == Qt.Key_L:
+        if self.circle_mode and event.key() == Qt.Key.Key_L:
             # Handle circle mode L key (existing code)
             try:
                 self.dialog.parametersEntered.disconnect()
@@ -1145,7 +1170,7 @@ class ProfessionalLineTool(QgsMapTool):
             self.dialog.angle_buttons_widget.hide()
             self.dialog.show_dialog(self.circle_radius or 10.0)
             return
-        elif self.rectangle_mode and event.key() == Qt.Key_L:
+        elif self.rectangle_mode and event.key() == Qt.Key.Key_L:
             # Handle rectangle mode L key
             try:
                 self.dialog.parametersEntered.disconnect()
@@ -1171,19 +1196,19 @@ class ProfessionalLineTool(QgsMapTool):
             self.dialog.parametersEntered.connect(self.set_parameters)
 
         key_actions = {
-            Qt.Key_Escape: self._handle_escape,  # Enhanced escape handling
-            Qt.Key_L: lambda: self._handle_parameter_dialog(),
-            Qt.Key_O: self._toggle_ortho,
-            Qt.Key_Enter: self._finish_current_operation,
-            Qt.Key_Return: self._finish_current_operation,
-            Qt.Key_U: self._undo_point,
-            Qt.Key_Backspace: self._undo_point,
-            Qt.Key_S: self._toggle_snap,
-            Qt.Key_C: self._close_line,
-            Qt.Key_A: self._handle_angle_lock,
-            Qt.Key_R: self._toggle_circle_mode,
-            Qt.Key_T: self._toggle_rectangle_mode,  # T for recTangle
-            Qt.Key_Q: self._next_unit,
+            Qt.Key.Key_Escape: self._handle_escape,  # Enhanced escape handling
+            Qt.Key.Key_L: lambda: self._handle_parameter_dialog(),
+            Qt.Key.Key_O: self._toggle_ortho,
+            Qt.Key.Key_Enter: self._finish_current_operation,
+            Qt.Key.Key_Return: self._finish_current_operation,
+            Qt.Key.Key_U: self._undo_point,
+            Qt.Key.Key_Backspace: self._undo_point,
+            Qt.Key.Key_S: self._toggle_snap,
+            Qt.Key.Key_C: self._close_line,
+            Qt.Key.Key_A: self._handle_angle_lock,
+            Qt.Key.Key_R: self._toggle_circle_mode,
+            Qt.Key.Key_T: self._toggle_rectangle_mode,  # T for recTangle
+            Qt.Key.Key_Q: self._next_unit,
         }
         if event.key() in key_actions:
             key_actions[event.key()]()
@@ -1351,7 +1376,7 @@ class ProfessionalLineTool(QgsMapTool):
     def _add_circle_to_layer(self, geometry):
         layer = iface.activeLayer()
         if not (layer and layer.isEditable()):
-            show_msg("Need editable line layer", 1, Qgis.Critical)
+            show_msg("Need editable line layer", 1, Qgis.MessageLevel.Critical)
             return False
         feature = QgsFeature(layer.fields())
         feature.setGeometry(geometry)
@@ -1847,13 +1872,13 @@ class ProfessionalLineTool(QgsMapTool):
             show_msg(
                 f"Line completed. Length: {total_display:.3f}{unit_suffix}", 1)
         else:
-            show_msg("Failed to add line", 1, Qgis.Critical)
+            show_msg("Failed to add line", 1, Qgis.MessageLevel.Critical)
         self._safe_reset()
 
     def _add_to_layer(self):
         layer = iface.activeLayer()
-        if not (layer and layer.type() == QgsMapLayer.VectorLayer and
-                layer.geometryType() == QgsWkbTypes.LineGeometry and layer.isEditable()) or len(self.points) < 2:
+        if not (layer and layer.type() == QgsMapLayer.LayerType.VectorLayer and
+                layer.geometryType() == QgsWkbTypes.GeometryType.LineGeometry and layer.isEditable()) or len(self.points) < 2:
             return False
 
         geometry = QgsGeometry.fromPolylineXY(self.points)
@@ -1932,9 +1957,9 @@ class ProfessionalLineTool(QgsMapTool):
 
     def _valid_layer(self):
         layer = iface.activeLayer()
-        if not (layer and layer.type() == QgsMapLayer.VectorLayer and
-                layer.geometryType() == QgsWkbTypes.LineGeometry and layer.isEditable()):
-            show_msg("Need editable line layer", 1, Qgis.Critical)
+        if not (layer and layer.type() == QgsMapLayer.LayerType.VectorLayer and
+                layer.geometryType() == QgsWkbTypes.GeometryType.LineGeometry and layer.isEditable()):
+            show_msg("Need editable line layer", 1, Qgis.MessageLevel.Critical)
             return False
         return True
 
@@ -1995,7 +2020,7 @@ def activate_tool():
     canvas.setMapTool(tool)
     snap = "ON" if QgsProject.instance().snappingConfig().enabled() else "OFF"
     show_msg(
-        f"🖱️ Left: Add | Right: Finish | L: Params | O: Ortho | Q: Toggle Units | U: Undo | C: Close | S: Snap({snap}) | A: Angle Lock | R: Circle | T: Rectangle | Esc: Cancel", 2, Qgis.Success)
+        f"🖱️ Left: Add | Right: Finish | L: Params | O: Ortho | Q: Toggle Units | U: Undo | C: Close | S: Snap({snap}) | A: Angle Lock | R: Circle | T: Rectangle | Esc: Cancel", 2, Qgis.MessageLevel.Success)
     return tool
 
 

@@ -223,17 +223,17 @@ class SimplePreviewGenerator:
 
             exporter = QgsLayoutExporter(layout)
             size = QSize(800, 600)
-            image = QImage(size, QImage.Format_ARGB32)
-            image.fill(Qt.white)
+            image = QImage(size, QImage.Format.Format_ARGB32)
+            image.fill(Qt.GlobalColor.white)
 
             if is_atlas:
                 atlas = layout.atlas()
                 if not atlas.enabled() or not atlas.coverageLayer():
                     pm = QPixmap(size)
-                    pm.fill(Qt.white)
+                    pm.fill(Qt.GlobalColor.white)
                     painter = QPainter(pm)
                     painter.drawText(QRectF(0, 0, size.width(), size.height(
-                    )), Qt.AlignCenter, "Atlas not configured")
+                    )), Qt.AlignmentFlag.AlignCenter, "Atlas not configured")
                     painter.end()
                     return pm
 
@@ -249,7 +249,7 @@ class SimplePreviewGenerator:
                 painter.end()
                 atlas.endRender()
 
-                if result not in (None, QgsLayoutExporter.Success):
+                if result not in (None, QgsLayoutExporter.ExportResult.Success):
                     raise Exception(f"Render error code {result}")
 
             else:
@@ -257,18 +257,18 @@ class SimplePreviewGenerator:
                 result = exporter.renderPage(painter, 0)
                 painter.end()
 
-                if result not in (None, QgsLayoutExporter.Success):
+                if result not in (None, QgsLayoutExporter.ExportResult.Success):
                     raise Exception(f"Render error code {result}")
 
             return QPixmap.fromImage(image)
 
         except Exception as e:
             pm = QPixmap(800, 600)
-            pm.fill(Qt.white)
+            pm.fill(Qt.GlobalColor.white)
             painter = QPainter(pm)
             from qgis.PyQt.QtCore import QRectF
             painter.drawText(QRectF(0, 0, 800, 600),
-                             Qt.AlignCenter, f"Preview Error:\n{str(e)}")
+                             Qt.AlignmentFlag.AlignCenter, f"Preview Error:\n{str(e)}")
             painter.end()
             return pm
 
@@ -304,7 +304,8 @@ class AtlasExportWorker(QThread):
             export_settings = self._create_export_settings()
 
             if self.settings.export_format == ExportFormat.PDF and self.settings.export_as_single_pdf:
-                self._export_atlas_as_single_pdf(atlas, QgsLayoutExporter(self.layout), export_settings)
+                self._export_atlas_as_single_pdf(
+                    atlas, QgsLayoutExporter(self.layout), export_settings)
                 return
 
             # Get pages to export (0-based)
@@ -344,7 +345,7 @@ class AtlasExportWorker(QThread):
                     result = self._export_page(
                         exporter, filepath, export_settings)
 
-                    if result == QgsLayoutExporter.Success:
+                    if result == QgsLayoutExporter.ExportResult.Success:
                         exported_files.append(filepath)
                         self.page_exported.emit(page_index + 1, filename)
                     else:
@@ -523,13 +524,13 @@ class AtlasExportWorker(QThread):
     def _get_export_error(self, error_code):
         """Get human-readable error message from export result code"""
         error_messages = {
-            QgsLayoutExporter.Success: "Success",
-            QgsLayoutExporter.Canceled: "Export was canceled",
-            QgsLayoutExporter.MemoryError: "Not enough memory for export",
-            QgsLayoutExporter.FileError: "Could not write to file",
-            QgsLayoutExporter.PrintError: "Print error",
-            QgsLayoutExporter.SvgLayerError: "SVG layer error",
-            QgsLayoutExporter.IteratorError: "Iterator error"
+            QgsLayoutExporter.ExportResult.Success: "Success",
+            QgsLayoutExporter.ExportResult.Canceled: "Export was canceled",
+            QgsLayoutExporter.ExportResult.MemoryError: "Not enough memory for export",
+            QgsLayoutExporter.ExportResult.FileError: "Could not write to file",
+            QgsLayoutExporter.ExportResult.PrintError: "Print error",
+            QgsLayoutExporter.ExportResult.SvgLayerError: "SVG layer error",
+            QgsLayoutExporter.ExportResult.IteratorError: "Iterator error"
         }
         return error_messages.get(error_code, f"Unknown error (code: {error_code})")
 
@@ -556,14 +557,16 @@ class EnhancedAtlasExportDialog(QDialog):
         main_layout.setSpacing(8)
         main_layout.setContentsMargins(8, 8, 8, 8)
 
-        splitter = QSplitter(Qt.Horizontal)
+        splitter = QSplitter(Qt.Orientation.Horizontal)
         main_layout.addWidget(splitter)
 
         # Left panel with scroll area
         left_scroll = QScrollArea()
         left_scroll.setWidgetResizable(True)
-        left_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        left_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        left_scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        left_scroll.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         left_scroll.setMinimumWidth(400)
 
         left_panel = self.create_settings_panel()
@@ -573,8 +576,10 @@ class EnhancedAtlasExportDialog(QDialog):
         # Right panel with scroll area
         right_scroll = QScrollArea()
         right_scroll.setWidgetResizable(True)
-        right_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        right_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        right_scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        right_scroll.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         right_scroll.setMinimumWidth(300)
 
         right_panel = self.create_preview_panel()
@@ -596,7 +601,7 @@ class EnhancedAtlasExportDialog(QDialog):
         button_layout.setSpacing(8)
 
         self.preview_btn = QPushButton("Preview")
-        self.export_btn = QPushButton("Export")
+        self.export_btn = QPushButton("🖨️ Export")
         self.export_btn.setStyleSheet("background-color: black; color: white;")
         self.preview_btn.setStyleSheet(
             "background-color: brown; color: white;")
@@ -732,7 +737,7 @@ class EnhancedAtlasExportDialog(QDialog):
         quality_layout.addWidget(self.dpi_spin, 0, 1)
 
         quality_layout.addWidget(QLabel("JPG Quality:"), 0, 2)
-        self.quality_slider = QSlider(Qt.Horizontal)
+        self.quality_slider = QSlider(Qt.Orientation.Horizontal)
         self.quality_slider.setRange(1, 100)
         self.quality_slider.setValue(95)
         quality_layout.addWidget(self.quality_slider, 0, 3)
@@ -760,7 +765,7 @@ class EnhancedAtlasExportDialog(QDialog):
         self.png_tiff_comp_label = QLabel("PNG/TIFF compression:")
         quality_layout.addWidget(self.png_tiff_comp_label, 2, 0)
 
-        self.png_tiff_comp = QSlider(Qt.Horizontal)
+        self.png_tiff_comp = QSlider(Qt.Orientation.Horizontal)
         self.png_tiff_comp.setRange(0, 9)
         self.png_tiff_comp.setValue(6)
         quality_layout.addWidget(self.png_tiff_comp, 2, 1, 1, 3)
@@ -820,7 +825,7 @@ class EnhancedAtlasExportDialog(QDialog):
         self.pdf_jpeg_quality_label = QLabel("PDF JPEG quality:")
         advanced_layout.addWidget(self.pdf_jpeg_quality_label, 4, 0)
 
-        self.pdf_jpeg_quality = QSlider(Qt.Horizontal)
+        self.pdf_jpeg_quality = QSlider(Qt.Orientation.Horizontal)
         self.pdf_jpeg_quality.setRange(1, 100)
         self.pdf_jpeg_quality.setValue(90)
         advanced_layout.addWidget(self.pdf_jpeg_quality, 4, 1)
@@ -918,7 +923,7 @@ class EnhancedAtlasExportDialog(QDialog):
 
         # Preview image area - FIXED: Remove fixed minimum size and improve layout
         self.preview_label = QLabel("Select a layout")
-        self.preview_label.setAlignment(Qt.AlignCenter)
+        self.preview_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.preview_label.setMinimumHeight(200)
         self.preview_label.setStyleSheet(
             "border: 1px solid gray; background-color: white; padding: 5px;"
@@ -1231,10 +1236,10 @@ class EnhancedAtlasExportDialog(QDialog):
                         self, "Warning",
                         f"The coverage layer '{coverage_layer.name()}' appears to have no features.\n"
                         "Do you want to enable the atlas anyway?",
-                        QMessageBox.Yes | QMessageBox.No,
-                        QMessageBox.No
+                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                        QMessageBox.StandardButton.No
                     )
-                    if reply != QMessageBox.Yes:
+                    if reply != QMessageBox.StandardButton.Yes:
                         return
 
                 atlas.setEnabled(True)
@@ -1323,11 +1328,11 @@ class EnhancedAtlasExportDialog(QDialog):
             target_size = self.preview_label.size() - QSize(20, 20)
             scaled_pixmap = pixmap.scaled(
                 target_size,
-                Qt.KeepAspectRatio,
-                Qt.SmoothTransformation
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation
             )
             self.preview_label.setPixmap(scaled_pixmap)
-            self.preview_label.setAlignment(Qt.AlignCenter)
+            self.preview_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         else:
             self.preview_label.setText("Could not generate preview image")
 
@@ -1335,9 +1340,11 @@ class EnhancedAtlasExportDialog(QDialog):
         is_pdf = self.format_combo.currentText().upper() == "PDF"
         self.filename_edit.setEnabled(not (checked and is_pdf))
         if checked and is_pdf:
-            self.filename_edit.setToolTip("Filename is automatically generated for single PDF export.")
+            self.filename_edit.setToolTip(
+                "Filename is automatically generated for single PDF export.")
         else:
-            self._update_filename_tooltip(self.current_layout.atlas().coverageLayer() if self.is_atlas_layout else None)
+            self._update_filename_tooltip(self.current_layout.atlas(
+            ).coverageLayer() if self.is_atlas_layout else None)
 
     def on_format_changed(self, format_name: str):
         """Handle format change"""
@@ -1583,7 +1590,7 @@ Output Settings:
             self.progress_bar.setValue(0)
         else:
             self.export_btn.setEnabled(True)
-            self.export_btn.setText("Export")
+            self.export_btn.setText("🖨️ Export")
             self.cancel_btn.setVisible(False)
             self.cancel_btn.setEnabled(True)
             self.progress_bar.setVisible(False)

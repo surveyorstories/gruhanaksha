@@ -1,15 +1,14 @@
-from PyQt5.QtGui import QColor, QPen, QFont
-from PyQt5.QtWidgets import QGraphicsTextItem
-from PyQt5.QtWidgets import (
+from qgis.PyQt.QtGui import QColor, QPen, QFont
+from qgis.PyQt.QtWidgets import QGraphicsTextItem
+from qgis.PyQt.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QRadioButton,
     QLabel, QDoubleSpinBox, QMessageBox, QGraphicsTextItem, QComboBox, QGraphicsSimpleTextItem,
 )
-
 from qgis.utils import iface
-from PyQt5.QtGui import QColor, QCursor
-from PyQt5.QtCore import Qt
+from qgis.PyQt.QtGui import QColor, QCursor
+from qgis.PyQt.QtCore import Qt
 from qgis.core import (
-    QgsProject, QgsVectorLayer, QgsWkbTypes, QgsPointXY, QgsUnitTypes
+    QgsProject, QgsVectorLayer, QgsWkbTypes, QgsPointXY, QgsUnitTypes, Qgis, QgsRasterLayer
 )
 from qgis.gui import (
     QgsMapTool, QgsRubberBand, QgsVertexMarker
@@ -19,7 +18,7 @@ import math
 
 class BufferedTextItem(QGraphicsTextItem):
     def __init__(self, text, main_color=QColor(255, 0, 150), buffer_color=QColor('white'),
-                 buffer_width=3, font_family="calibri", font_size=9, font_weight=QFont.Bold):
+                 buffer_width=3, font_family="calibri", font_size=9, font_weight=QFont.Weight.Bold):
         super().__init__(text)
         self.main_color = main_color
         self.buffer_color = buffer_color
@@ -47,7 +46,7 @@ class BufferedTextItem(QGraphicsTextItem):
 
 
 class UnitConverter:
-    """Handles unit conversions for the geometry editing tool"""
+    """Handles unit conversions for the adjuster tool"""
 
     # Conversion factors to meters
     UNIT_TO_METERS = {
@@ -82,11 +81,11 @@ class UnitConverter:
         map_units = map_crs.mapUnits()
 
         # Convert from meters to map units
-        if map_units == QgsUnitTypes.DistanceMeters:
+        if map_units == QgsUnitTypes.DistanceUnit.DistanceMeters:
             return value_in_meters
-        elif map_units == QgsUnitTypes.DistanceFeet:
+        elif map_units == QgsUnitTypes.DistanceUnit.DistanceFeet:
             return value_in_meters / 0.3048
-        elif map_units == QgsUnitTypes.DistanceYards:
+        elif map_units == QgsUnitTypes.DistanceUnit.DistanceYards:
             return value_in_meters / 0.9144
         elif map_units == QgsUnitTypes.DistanceInches:
             return value_in_meters / 0.0254
@@ -101,11 +100,11 @@ class UnitConverter:
         map_units = map_crs.mapUnits()
 
         # Convert from map units to meters first
-        if map_units == QgsUnitTypes.DistanceMeters:
+        if map_units == QgsUnitTypes.DistanceUnit.DistanceMeters:
             value_in_meters = value
-        elif map_units == QgsUnitTypes.DistanceFeet:
+        elif map_units == QgsUnitTypes.DistanceUnit.DistanceFeet:
             value_in_meters = value * 0.3048
-        elif map_units == QgsUnitTypes.DistanceYards:
+        elif map_units == QgsUnitTypes.DistanceUnit.DistanceYards:
             value_in_meters = value * 0.9144
         elif map_units == QgsUnitTypes.DistanceInches:
             value_in_meters = value * 0.0254
@@ -122,16 +121,16 @@ class UnitConverter:
         map_units = map_crs.mapUnits()
 
         unit_names = {
-            QgsUnitTypes.DistanceMeters: 'm',
-            QgsUnitTypes.DistanceFeet: 'ft',
-            QgsUnitTypes.DistanceYards: 'yd',
-            QgsUnitTypes.DistanceKilometers: 'km',
-            QgsUnitTypes.DistanceMiles: 'mi',
-            QgsUnitTypes.DistanceMillimeters: 'mm',
-            QgsUnitTypes.DistanceCentimeters: 'cm',
+            QgsUnitTypes.DistanceUnit.DistanceMeters: 'm',
+            QgsUnitTypes.DistanceUnit.DistanceFeet: 'ft',
+            QgsUnitTypes.DistanceUnit.DistanceYards: 'yd',
+            QgsUnitTypes.DistanceUnit.DistanceKilometers: 'km',
+            QgsUnitTypes.DistanceUnit.DistanceMiles: 'mi',
+            QgsUnitTypes.DistanceUnit.DistanceMillimeters: 'mm',
+            QgsUnitTypes.DistanceUnit.DistanceCentimeters: 'cm',
             QgsUnitTypes.DistanceInches: 'in',
-            QgsUnitTypes.DistanceDegrees: '°',
-            QgsUnitTypes.DistanceUnknownUnit: 'units'
+            QgsUnitTypes.DistanceUnit.DistanceDegrees: '°',
+            QgsUnitTypes.DistanceUnit.DistanceUnknownUnit: 'units'
         }
 
         return unit_names.get(map_units, 'units')
@@ -261,7 +260,7 @@ class LengthInputDialog(QDialog):
 
     def keyPressEvent(self, event):
         """Handle Q key press to cycle through units"""
-        if event.key() == Qt.Key_Q:
+        if event.key() == Qt.Key.Key_Q:
             current_index = self.units_combo.currentIndex()
             next_index = (current_index + 1) % self.units_combo.count()
             self.units_combo.setCurrentIndex(next_index)
@@ -288,7 +287,7 @@ class UnifiedGeometryEditTool(QgsMapTool):
     def __init__(self, canvas):
         super().__init__(canvas)
         self.canvas = canvas
-        self.setCursor(QCursor(Qt.CrossCursor))
+        self.setCursor(QCursor(Qt.CursorShape.CrossCursor))
         self.snappingUtils = self.canvas.snappingUtils()
         self.setupVisuals()
 
@@ -297,49 +296,52 @@ class UnifiedGeometryEditTool(QgsMapTool):
         self.resetTool(first=True)
 
     def setupVisuals(self):
-        self.rubberBand = QgsRubberBand(self.canvas, QgsWkbTypes.LineGeometry)
+        self.rubberBand = QgsRubberBand(
+            self.canvas, QgsWkbTypes.GeometryType.LineGeometry)
         self.rubberBand.setColor(QColor(255, 0, 0, 180))
         self.rubberBand.setWidth(3)
-        self.rubberBand.setLineStyle(Qt.DashLine)
+        self.rubberBand.setLineStyle(Qt.PenStyle.DashLine)
 
-        self.previewBand = QgsRubberBand(self.canvas, QgsWkbTypes.LineGeometry)
+        self.previewBand = QgsRubberBand(
+            self.canvas, QgsWkbTypes.GeometryType.LineGeometry)
         self.previewBand.setColor(QColor(0, 150, 255, 120))
         self.previewBand.setWidth(2)
-        self.previewBand.setLineStyle(Qt.DotLine)
+        self.previewBand.setLineStyle(Qt.PenStyle.DotLine)
 
         self.featureBand = QgsRubberBand(
-            self.canvas, QgsWkbTypes.PolygonGeometry)
+            self.canvas, QgsWkbTypes.GeometryType.PolygonGeometry)
         self.featureBand.setColor(QColor(0, 0, 255, 40))
         self.featureBand.setWidth(2)
 
         # For line features
-        self.lineBand = QgsRubberBand(self.canvas, QgsWkbTypes.LineGeometry)
+        self.lineBand = QgsRubberBand(
+            self.canvas, QgsWkbTypes.GeometryType.LineGeometry)
         self.lineBand.setColor(QColor(0, 255, 0, 120))
         self.lineBand.setWidth(3)
 
         self.vertexMarker = QgsVertexMarker(self.canvas)
         self.vertexMarker.setColor(QColor(0, 255, 0))
         self.vertexMarker.setIconSize(12)
-        self.vertexMarker.setIconType(QgsVertexMarker.ICON_CIRCLE)
+        self.vertexMarker.setIconType(QgsVertexMarker.IconType.ICON_CIRCLE)
         self.vertexMarker.setPenWidth(3)
 
         self.hoverMarker = QgsVertexMarker(self.canvas)
         self.hoverMarker.setColor(QColor(255, 0, 0))
         self.hoverMarker.setIconSize(10)
-        self.hoverMarker.setIconType(QgsVertexMarker.ICON_CROSS)
+        self.hoverMarker.setIconType(QgsVertexMarker.IconType.ICON_CROSS)
         self.hoverMarker.setPenWidth(2)
         self.hoverMarker.hide()
 
         self.directionMarker = QgsVertexMarker(self.canvas)
         self.directionMarker.setColor(QColor(255, 100, 0))
         self.directionMarker.setIconSize(10)
-        self.directionMarker.setIconType(QgsVertexMarker.ICON_X)
+        self.directionMarker.setIconType(QgsVertexMarker.IconType.ICON_X)
         self.directionMarker.setPenWidth(3)
         self.directionMarker.hide()
 
     def keyPressEvent(self, event):
         """Handle keyboard events - Q key to cycle through display units"""
-        if event.key() == Qt.Key_Q:
+        if event.key() == Qt.Key.Key_Q:
             # Cycle through units
             current_index = UnitConverter.UNIT_CYCLE_ORDER.index(
                 self.current_display_unit)
@@ -362,7 +364,7 @@ class UnifiedGeometryEditTool(QgsMapTool):
             super().keyPressEvent(event)
 
     def canvasPressEvent(self, event):
-        if event.button() == Qt.LeftButton:
+        if event.button() == Qt.MouseButton.LeftButton:
             if self.state == "SELECT_FEATURE":
                 self.handleFeatureSelection(event)
             elif self.state == "SELECT_VERTEX":
@@ -371,7 +373,7 @@ class UnifiedGeometryEditTool(QgsMapTool):
                 self.showLengthPanel()
             elif self.state == "SELECT_DIRECTION":
                 self.handleDirectionSelection(event)
-        elif event.button() == Qt.RightButton:
+        elif event.button() == Qt.MouseButton.RightButton:
             self.resetTool()
 
     def handleFeatureSelection(self, event):
@@ -381,7 +383,7 @@ class UnifiedGeometryEditTool(QgsMapTool):
         layers = [
             lyr for lyr in QgsProject.instance().mapLayers().values()
             if isinstance(lyr, QgsVectorLayer)
-            and QgsWkbTypes.geometryType(lyr.wkbType()) in [QgsWkbTypes.PolygonGeometry, QgsWkbTypes.LineGeometry]
+            and QgsWkbTypes.geometryType(lyr.wkbType()) in [QgsWkbTypes.GeometryType.PolygonGeometry, QgsWkbTypes.GeometryType.LineGeometry]
         ]
 
         # Prioritize active layer
@@ -399,7 +401,7 @@ class UnifiedGeometryEditTool(QgsMapTool):
                     continue
 
                 # For polygons, check contains
-                if QgsWkbTypes.geometryType(layer.wkbType()) == QgsWkbTypes.PolygonGeometry:
+                if QgsWkbTypes.geometryType(layer.wkbType()) == QgsWkbTypes.GeometryType.PolygonGeometry:
                     if f.geometry().contains(point):
                         if not layer.isEditable():
                             iface.messageBar().pushMessage(
@@ -414,7 +416,7 @@ class UnifiedGeometryEditTool(QgsMapTool):
                         break
 
                 # For lines, check distance
-                elif QgsWkbTypes.geometryType(layer.wkbType()) == QgsWkbTypes.LineGeometry:
+                elif QgsWkbTypes.geometryType(layer.wkbType()) == QgsWkbTypes.GeometryType.LineGeometry:
                     from qgis.core import QgsGeometry
                     point_geom = QgsGeometry.fromPointXY(point)
                     distance = f.geometry().distance(point_geom)
@@ -436,13 +438,14 @@ class UnifiedGeometryEditTool(QgsMapTool):
         if found:
             # Display the selected feature
             if self.geometryType == "polygon":
-                self.featureBand.reset(QgsWkbTypes.PolygonGeometry)
+                self.featureBand.reset(
+                    QgsWkbTypes.GeometryType.PolygonGeometry)
                 self.featureBand.setToGeometry(
                     self.selectedFeature.geometry(), self.selectedLayer)
                 self.featureBand.show()
                 self.lineBand.hide()
             else:  # line
-                self.lineBand.reset(QgsWkbTypes.LineGeometry)
+                self.lineBand.reset(QgsWkbTypes.GeometryType.LineGeometry)
                 self.lineBand.setToGeometry(
                     self.selectedFeature.geometry(), self.selectedLayer)
                 self.lineBand.show()
@@ -491,7 +494,7 @@ class UnifiedGeometryEditTool(QgsMapTool):
 
     def showLengthPanel(self):
         dlg = LengthInputDialog(current_unit=self.current_display_unit)
-        if dlg.exec_():
+        if dlg.exec():
             self.mode, length_map_units, original_length, selected_unit = dlg.get_values()
 
             # Update current display unit to match selected unit
@@ -563,7 +566,7 @@ class UnifiedGeometryEditTool(QgsMapTool):
         self.confirmVertexMove(new_point, self.moveDistance, angle_degrees)
 
     def showMovementPreview(self, new_point):
-        self.rubberBand.reset(QgsWkbTypes.LineGeometry)
+        self.rubberBand.reset(QgsWkbTypes.GeometryType.LineGeometry)
         self.rubberBand.addPoint(self.selectedVertex, False)
         self.rubberBand.addPoint(new_point, True)
         self.rubberBand.show()
@@ -575,9 +578,9 @@ class UnifiedGeometryEditTool(QgsMapTool):
         reply = QMessageBox.question(
             None, "Confirm Vertex Move",
             f"Move vertex {self.originalLength:+.3f} {unit_display} ({distance:+.3f} map units) at {angle:.2f}° from original?",
-            QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.Yes
         )
-        if reply == QMessageBox.Yes:
+        if reply == QMessageBox.StandardButton.Yes:
             self.moveVertexTopologically(new_point)
         else:
             self.resetTool()
@@ -594,7 +597,7 @@ class UnifiedGeometryEditTool(QgsMapTool):
         layers = [
             lyr for lyr in QgsProject.instance().mapLayers().values()
             if isinstance(lyr, QgsVectorLayer)
-            and QgsWkbTypes.geometryType(lyr.wkbType()) in [QgsWkbTypes.PolygonGeometry, QgsWkbTypes.LineGeometry]
+            and QgsWkbTypes.geometryType(lyr.wkbType()) in [QgsWkbTypes.GeometryType.PolygonGeometry, QgsWkbTypes.GeometryType.LineGeometry]
             and lyr.isEditable()
         ]
 
@@ -763,12 +766,12 @@ class UnifiedGeometryEditTool(QgsMapTool):
             moving_vertex_index, new_moving_point, current_length, target_length)
 
     def showSegmentLengthPreview(self, start_pt, new_end_pt, current_length, target_length, current_end_pt):
-        self.rubberBand.reset(QgsWkbTypes.LineGeometry)
+        self.rubberBand.reset(QgsWkbTypes.GeometryType.LineGeometry)
         self.rubberBand.addPoint(start_pt, False)
         self.rubberBand.addPoint(new_end_pt, True)
         self.rubberBand.show()
 
-        self.previewBand.reset(QgsWkbTypes.LineGeometry)
+        self.previewBand.reset(QgsWkbTypes.GeometryType.LineGeometry)
         self.previewBand.addPoint(start_pt, False)
         self.previewBand.addPoint(current_end_pt, True)
         self.previewBand.show()
@@ -790,9 +793,9 @@ class UnifiedGeometryEditTool(QgsMapTool):
             None, f"Confirm {segment_text.title()} Length Change",
             f"Change {segment_text} length from {current_length_display:.3f} to {self.originalLength:.3f} {unit_display}?\n"
             f"(Map units: {current_length:.3f} to {target_length:.3f})",
-            QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.Yes
         )
-        if reply == QMessageBox.Yes:
+        if reply == QMessageBox.StandardButton.Yes:
             self.moveSegmentVertexTopologically(vertex_index, new_point)
         else:
             self.resetTool()
@@ -956,7 +959,7 @@ class UnifiedGeometryEditTool(QgsMapTool):
                 main_color=QColor(255, 255, 255),
                 buffer_color=QColor('black'),
                 buffer_width=3,
-                font_weight=QFont.Normal
+                font_weight=QFont.Weight.Normal
             )
             label.setPos(scene_pt.x() - label.boundingRect().width()/2,
                          scene_pt.y() - label.boundingRect().height()/2)
@@ -1002,7 +1005,7 @@ class UnifiedGeometryEditTool(QgsMapTool):
             else:
                 direction_point = point
                 self.directionMarker.hide()
-            self.previewBand.reset(QgsWkbTypes.LineGeometry)
+            self.previewBand.reset(QgsWkbTypes.GeometryType.LineGeometry)
             self.previewBand.addPoint(self.selectedVertex, False)
             self.previewBand.addPoint(direction_point, True)
             self.previewBand.show()
@@ -1017,7 +1020,7 @@ class UnifiedGeometryEditTool(QgsMapTool):
             txt_item.setPos(scene_pt.x() - txt_item.boundingRect().width() / 2,
                             scene_pt.y() - txt_item.boundingRect().height() / 2)
 
-    def resetTool(self, first=False):
+    def resetTool(self, first=False, silent=False):
         if self.rubberBand:
             self.rubberBand.hide()
         if self.previewBand:
@@ -1044,12 +1047,13 @@ class UnifiedGeometryEditTool(QgsMapTool):
         self.originalLength = None
         self.selectedUnit = None
         self.state = "SELECT_FEATURE"
-        self.setCursor(QCursor(Qt.CrossCursor))
+        self.setCursor(QCursor(Qt.CursorShape.CrossCursor))
 
-        if not first:
+        if not first and not silent:
             iface.messageBar().pushMessage(
-                "Geometry Edit Tool",
+                "Adjuster Tool",
                 "Ready. Press Q to change units. Right-click to reset.",
+                level=Qgis.MessageLevel.Info,
                 duration=2
             )
 
@@ -1064,23 +1068,79 @@ class UnifiedGeometryEditTool(QgsMapTool):
             pass
 
     def deactivate(self):
-        self.resetTool()
+
+        self.resetTool(silent=True)
         QgsMapTool.deactivate(self)
-        print("Unified Geometry Editing Tool deactivated")
+        print("Adjuster Tool deactivated")
 
 
 # Activate the tool (run this in your QGIS Python console)
 def activate_unified_tool():
     global unified_edit_tool
+
+    # Check active layer first
+    layer = iface.activeLayer()
+
+    # Check if no layer is selected
+    if not layer:
+        iface.messageBar().pushMessage(
+            "Error",
+            "No layer selected",
+            level=Qgis.MessageLevel.Warning,
+            duration=2
+        )
+        return
+
+    # Check if it's a raster layer
+    if isinstance(layer, QgsRasterLayer):
+        iface.messageBar().pushMessage(
+            "Error",
+            "Raster layers not supported",
+            level=Qgis.MessageLevel.Warning,
+            duration=2
+        )
+        return
+
+    # Check if it's a vector layer
+    if not isinstance(layer, QgsVectorLayer):
+        iface.messageBar().pushMessage(
+            "Error",
+            "Select a vector layer",
+            level=Qgis.MessageLevel.Warning,
+            duration=2
+        )
+        return
+
+    # Check if it's a point layer (reject it)
+    if layer.geometryType() == QgsWkbTypes.GeometryType.PointGeometry:
+        iface.messageBar().pushMessage(
+            "Error",
+            "Point layers not supported. Select a line or polygon layer.",
+            level=Qgis.MessageLevel.Warning,
+            duration=2
+        )
+        return
+
+    # Check if it's a line or polygon layer
+    if layer.geometryType() not in (QgsWkbTypes.GeometryType.PolygonGeometry, QgsWkbTypes.GeometryType.LineGeometry):
+        iface.messageBar().pushMessage(
+            "Error",
+            "Line or polygon layer required",
+            level=Qgis.MessageLevel.Warning,
+            duration=2
+        )
+        return
+
+    # All checks passed - activate the tool
     canvas = iface.mapCanvas()
     unified_edit_tool = UnifiedGeometryEditTool(canvas)
     canvas.setMapTool(unified_edit_tool)
     iface.messageBar().pushMessage(
-        "Enhanced Geometry Edit Tool Activated",
+        "Adjuster Tool",
         "Click polygon or line, then click a vertex. Press Q to cycle units. Supports multiple units!",
+        level=Qgis.MessageLevel.Info,
         duration=3
     )
-
 # Optional deactivate function
 
 

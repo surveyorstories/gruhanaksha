@@ -10,7 +10,7 @@ from qgis.PyQt.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
 
 from qgis.core import (QgsVectorLayer, QgsRasterLayer, QgsGeometry, QgsPointXY, QgsWkbTypes,
                        QgsProject, QgsDistanceArea, QgsFeatureRequest, QgsRectangle,
-                       QgsPointLocator, QgsVectorLayerEditUtils)
+                       QgsPointLocator, QgsVectorLayerEditUtils, Qgis)
 
 from qgis.gui import (QgsMapTool, QgsRubberBand,
                       QgsVertexMarker, QgsSnapIndicator)
@@ -53,7 +53,7 @@ def convert_length(value, from_unit, to_unit):
 
 class BufferedTextItem(QGraphicsTextItem):
     def __init__(self, text, main_color=QColor(255, 0, 150), buffer_color=QColor('white'),
-                 buffer_width=3, font_family="calibri", font_size=9, font_weight=QFont.Bold):
+                 buffer_width=3, font_family="calibri", font_size=9, font_weight=QFont.Weight.Bold):
         super().__init__(text)
         self.main_color = main_color
         self.buffer_color = buffer_color
@@ -299,7 +299,7 @@ class LengthInputDialog(QDialog):
     def _show_preview(self, vertices):
         rb = self.map_tool.preview_rubber_band
         rb.reset()
-        if self.map_tool.layer.geometryType() == QgsWkbTypes.PolygonGeometry:
+        if self.map_tool.layer.geometryType() == QgsWkbTypes.GeometryType.PolygonGeometry:
             for v in vertices + [vertices[0]]:
                 rb.addPoint(v)
             rb.closePoints()
@@ -368,11 +368,11 @@ class VertexTool(QgsMapTool):
 
     def _init_rubber_bands(self):
         self.vertex_rubber_band = QgsRubberBand(
-            self.canvas, QgsWkbTypes.PointGeometry)
+            self.canvas, QgsWkbTypes.GeometryType.PointGeometry)
         self.vertex_rubber_band.setColor(QColor(255, 0, 0, 180))
         self.vertex_rubber_band.setWidth(3)
         self.preview_rubber_band = QgsRubberBand(
-            self.canvas, QgsWkbTypes.LineGeometry)
+            self.canvas, QgsWkbTypes.GeometryType.LineGeometry)
         self.preview_rubber_band.setColor(QColor(255, 0, 0, 120))
         self.preview_rubber_band.setWidth(2)
 
@@ -382,11 +382,12 @@ class VertexTool(QgsMapTool):
                 self.canvas.mapSettings().destinationCrs(),
                 QgsProject.instance().transformContext())
         except Exception as e:
-            iface.messageBar().pushMessage("CRS Error", str(e), level=1, duration=1)
+            iface.messageBar().pushMessage("CRS Error", str(
+                e), level=Qgis.MessageLevel.Warning, duration=1)
 
     def activate(self):
         super().activate()
-        self.canvas.setCursor(Qt.CrossCursor)
+        self.canvas.setCursor(Qt.CursorShape.CrossCursor)
         iface.currentLayerChanged.connect(self._on_layer_changed)
         self.canvas.mapCanvasRefreshed.connect(self._on_canvas_refresh)
         if not self._check_layer():
@@ -395,7 +396,7 @@ class VertexTool(QgsMapTool):
         ) and QgsProject.instance().snappingConfig().enabled()
         topo_msg = "enabled (with snapping)" if topo_enabled else "disabled (enable snapping and topological editing in QGIS settings)"
         iface.messageBar().pushMessage("Vertex Tool",
-                                       f"Click feature → drag vertex or Ctrl+click for length dialog ({topo_msg})", level=0, duration=1)
+                                       f"Click feature → drag vertex or Ctrl+click for length dialog ({topo_msg}), Press Q to Toggle units", level=Qgis.MessageLevel.Info, duration=1)
 
     def deactivate(self):
         try:
@@ -403,28 +404,30 @@ class VertexTool(QgsMapTool):
             self.canvas.mapCanvasRefreshed.disconnect(self._on_canvas_refresh)
         except:
             pass
-        self._reset()
+        self._reset(silent=True)
         super().deactivate()
 
     def _check_layer(self):
         layer = iface.activeLayer()
         if not layer:
-            iface.messageBar().pushMessage("Error", "No layer selected", level=1, duration=1)
+            iface.messageBar().pushMessage("Error", "No layer selected",
+                                           level=Qgis.MessageLevel.Warning, duration=1)
             return False
         if isinstance(layer, QgsRasterLayer):
             iface.messageBar().pushMessage(
-                "Error", "Raster layers not supported", level=1, duration=1)
+                "Error", "Raster layers not supported", level=Qgis.MessageLevel.Warning, duration=1)
             return False
         if not isinstance(layer, QgsVectorLayer):
-            iface.messageBar().pushMessage("Error", "Select a vector layer", level=1, duration=1)
+            iface.messageBar().pushMessage("Error", "Select a vector layer",
+                                           level=Qgis.MessageLevel.Warning, duration=1)
             return False
-        if layer.geometryType() == QgsWkbTypes.PointGeometry:
+        if layer.geometryType() == QgsWkbTypes.GeometryType.PointGeometry:
             iface.messageBar().pushMessage(
-                "Error", "Point layers not supported", level=1, duration=1)
+                "Error", "Point layers not supported", level=Qgis.MessageLevel.Warning, duration=1)
             return False
-        if layer.geometryType() not in (QgsWkbTypes.PolygonGeometry, QgsWkbTypes.LineGeometry):
+        if layer.geometryType() not in (QgsWkbTypes.GeometryType.PolygonGeometry, QgsWkbTypes.GeometryType.LineGeometry):
             iface.messageBar().pushMessage(
-                "Error", "Line or polygon layer required", level=1, duration=1)
+                "Error", "Line or polygon layer required", level=Qgis.MessageLevel.Warning, duration=1)
             return False
         if layer != self.layer:
             self._reset()
@@ -443,7 +446,7 @@ class VertexTool(QgsMapTool):
     def canvasPressEvent(self, event):
         if not self._check_layer():
             return
-        if event.button() == Qt.LeftButton:
+        if event.button() == Qt.MouseButton.LeftButton:
             point = self._snap_point(event.pos())
             if not self.feature:
                 self._select_feature(point)
@@ -452,11 +455,11 @@ class VertexTool(QgsMapTool):
                 if vertex_idx >= 0:
                     self.selected_vertex = vertex_idx
                     self._highlight_vertex(vertex_idx)
-                    if event.modifiers() & Qt.ControlModifier:
+                    if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
                         self._show_length_dialog(vertex_idx)
                     else:
                         self.dragging = True
-        elif event.button() == Qt.RightButton:
+        elif event.button() == Qt.MouseButton.RightButton:
             self._reset()
 
     def canvasMoveEvent(self, event):
@@ -465,7 +468,7 @@ class VertexTool(QgsMapTool):
             self._preview_vertex_move(self.selected_vertex, point)
 
     def canvasReleaseEvent(self, event):
-        if event.button() == Qt.LeftButton and self.dragging:
+        if event.button() == Qt.MouseButton.LeftButton and self.dragging:
             self.dragging = False
             if self.selected_vertex >= 0:
                 point = self._snap_point(event.pos())
@@ -473,12 +476,12 @@ class VertexTool(QgsMapTool):
             self.snap_indicator.setMatch(QgsPointLocator.Match())
 
     def keyPressEvent(self, event):
-        if event.key() == Qt.Key_Escape:
+        if event.key() == Qt.Key.Key_Escape:
             if self.dragging:
                 self._cancel_drag()
             else:
                 self._reset()
-        elif event.key() == Qt.Key_Q:
+        elif event.key() == Qt.Key.Key_Q:
             self._cycle_units()
 
     def _cycle_units(self):
@@ -490,7 +493,7 @@ class VertexTool(QgsMapTool):
         iface.messageBar().pushMessage(
             "Units Changed",
             f"Current unit: {unit_name}",
-            level=0,
+            level=Qgis.MessageLevel.Info,
             duration=1
         )
         if self.feature:
@@ -520,7 +523,7 @@ class VertexTool(QgsMapTool):
             marker.setCenter(vertex)
             marker.setColor(QColor(255, 0, 0))
             marker.setIconSize(8)
-            marker.setIconType(QgsVertexMarker.ICON_CIRCLE)
+            marker.setIconType(QgsVertexMarker.IconType.ICON_CIRCLE)
             marker.setPenWidth(2)
             self.vertex_markers.append(marker)
 
@@ -529,7 +532,7 @@ class VertexTool(QgsMapTool):
         vertices = self.get_vertices()
         if len(vertices) < 2:
             return
-        is_polygon = self.layer.geometryType() == QgsWkbTypes.PolygonGeometry
+        is_polygon = self.layer.geometryType() == QgsWkbTypes.GeometryType.PolygonGeometry
         segments = len(vertices) if is_polygon else len(vertices) - 1
         unit_info = UNITS[self.current_unit]
         for i in range(segments):
@@ -552,7 +555,7 @@ class VertexTool(QgsMapTool):
                 main_color=QColor(255, 255, 255),
                 buffer_color=QColor('black'),
                 buffer_width=3,
-                font_weight=QFont.Normal             # halo thickness
+                font_weight=QFont.Weight.Normal             # halo thickness
             )
 
             label.setPos(canvas_point.x() - label.boundingRect().width() / 2,
@@ -566,7 +569,7 @@ class VertexTool(QgsMapTool):
         vertices = []
         geom_type = self.layer.geometryType()
         try:
-            if geom_type == QgsWkbTypes.PolygonGeometry:
+            if geom_type == QgsWkbTypes.GeometryType.PolygonGeometry:
                 if self.geometry.isMultipart():
                     for part in self.geometry.asMultiPolygon():
                         for ring in part:
@@ -604,7 +607,7 @@ class VertexTool(QgsMapTool):
         if not vertices or vertex_idx >= len(vertices):
             return []
         sides = []
-        is_line = self.layer.geometryType() == QgsWkbTypes.LineGeometry
+        is_line = self.layer.geometryType() == QgsWkbTypes.GeometryType.LineGeometry
         if is_line:
             if vertex_idx > 0:
                 prev_idx = vertex_idx - 1
@@ -653,7 +656,7 @@ class VertexTool(QgsMapTool):
             return
         dialog = LengthInputDialog(
             vertex_idx, sides, self, self.current_unit, iface.mainWindow())
-        if dialog.exec_() == QDialog.Accepted:
+        if dialog.exec() == QDialog.DialogCode.Accepted:
             self._apply_length_changes(vertex_idx, sides, dialog.new_lengths)
 
     def _apply_length_changes(self, vertex_idx, sides, new_lengths):
@@ -667,12 +670,13 @@ class VertexTool(QgsMapTool):
                     vertices, vertex_idx, sides, new_lengths)
             if new_vertices:
                 self._move_vertex(vertex_idx, new_vertices[vertex_idx])
-                # iface.messageBar().pushMessage("Success", "Length changes applied", level=0, duration=1)
+                # iface.messageBar().pushMessage("Success", "Length changes applied", level=Qgis.MessageLevel.Info, duration=1)
             else:
                 iface.messageBar().pushMessage(
-                    "Error", "Could not apply changes", level=1, duration=1)
+                    "Error", "Could not apply changes", level=Qgis.MessageLevel.Warning, duration=1)
         except Exception as e:
-            iface.messageBar().pushMessage("Error", str(e), level=1, duration=1)
+            iface.messageBar().pushMessage("Error", str(
+                e), level=Qgis.MessageLevel.Warning, duration=1)
 
     def _adjust_single_side(self, vertices, vertex_idx, side, new_length):
         """Adjust a single side by moving the vertex to achieve the specified length.
@@ -706,7 +710,7 @@ class VertexTool(QgsMapTool):
             return new_vertices
         except Exception as e:
             iface.messageBar().pushMessage(
-                "Error", f"Single side adjustment failed: {str(e)}", level=1, duration=1)
+                "Error", f"Single side adjustment failed: {str(e)}", level=Qgis.MessageLevel.Warning, duration=1)
             return None
 
     def _adjust_two_sides(self, vertices, vertex_idx, sides, new_lengths):
@@ -758,7 +762,7 @@ class VertexTool(QgsMapTool):
             return new_vertices
         except Exception as e:
             iface.messageBar().pushMessage(
-                "Error", f"Two-side adjustment failed: {str(e)}", level=1, duration=1)
+                "Error", f"Two-side adjustment failed: {str(e)}", level=Qgis.MessageLevel.Warning, duration=1)
             return None
 
     def _preview_vertex_move(self, vertex_idx, new_position):
@@ -767,7 +771,7 @@ class VertexTool(QgsMapTool):
             preview_vertices = vertices.copy()
             preview_vertices[vertex_idx] = new_position
             self.preview_rubber_band.reset()
-            is_polygon = self.layer.geometryType() == QgsWkbTypes.PolygonGeometry
+            is_polygon = self.layer.geometryType() == QgsWkbTypes.GeometryType.PolygonGeometry
             if is_polygon:
                 for vertex in preview_vertices + [preview_vertices[0]]:
                     self.preview_rubber_band.addPoint(vertex)
@@ -781,7 +785,8 @@ class VertexTool(QgsMapTool):
 
     def _move_vertex(self, vertex_idx, new_position):
         if not self.layer or not self.layer.isEditable():
-            iface.messageBar().pushMessage("Error", "Layer is not editable", level=1, duration=1)
+            iface.messageBar().pushMessage("Error", "Layer is not editable",
+                                           level=Qgis.MessageLevel.Warning, duration=1)
             return
         self.layer.beginEditCommand("Move Vertex")
         try:
@@ -819,11 +824,11 @@ class VertexTool(QgsMapTool):
                                 affected_features.append(feature.id())
                             else:
                                 iface.messageBar().pushMessage("Warning",
-                                                               f"Failed to update shared vertex in feature {feature.id()}", level=1, duration=1)
+                                                               f"Failed to update shared vertex in feature {feature.id()}", level=Qgis.MessageLevel.Warning, duration=1)
                 # iface.messageBar().pushMessage(
                 #     "Topological Edit",
                 #     f"Updated {len(affected_features)} feature(s)",
-                #     level=0, duration=1
+                #     level=Qgis.MessageLevel.Info, duration=1
                 # )
             if affected_features:
                 self.layer.endEditCommand()
@@ -833,7 +838,7 @@ class VertexTool(QgsMapTool):
                         self.layer.updateFeature(updated_feature)
                     else:
                         iface.messageBar().pushMessage("Warning",
-                                                       f"Failed to refresh feature {fid}", level=1, duration=1)
+                                                       f"Failed to refresh feature {fid}", level=Qgis.MessageLevel.Warning, duration=1)
                 self.feature = self.layer.getFeature(self.feature.id())
                 self.geometry = self.feature.geometry()
                 self._show_vertices()
@@ -846,7 +851,7 @@ class VertexTool(QgsMapTool):
         except Exception as e:
             self.layer.destroyEditCommand()
             iface.messageBar().pushMessage(
-                "Error", f"Vertex move failed: {str(e)}", level=1, duration=1)
+                "Error", f"Vertex move failed: {str(e)}", level=Qgis.MessageLevel.Warning, duration=1)
 
     def _get_feature_vertices(self, feature):
         """Get unique vertices for a specific feature.
@@ -864,7 +869,7 @@ class VertexTool(QgsMapTool):
         try:
             geom_type = self.layer.geometryType()
             seen_vertices = set()
-            if geom_type == QgsWkbTypes.PolygonGeometry:
+            if geom_type == QgsWkbTypes.GeometryType.PolygonGeometry:
                 if geometry.isMultipart():
                     for part in geometry.asMultiPolygon():
                         for ring in part:
@@ -900,14 +905,14 @@ class VertexTool(QgsMapTool):
                             seen_vertices.add(vertex_tuple)
         except Exception as e:
             iface.messageBar().pushMessage(
-                "Warning", f"Failed to extract vertices: {str(e)}", level=1, duration=1)
+                "Warning", f"Failed to extract vertices: {str(e)}", level=Qgis.MessageLevel.Warning, duration=1)
         return vertices
 
     def _update_length_labels(self, preview_vertices=None):
         vertices = preview_vertices if preview_vertices else self.get_vertices()
         if not vertices or len(vertices) < 2 or not self.length_labels:
             return
-        is_polygon = self.layer.geometryType() == QgsWkbTypes.PolygonGeometry
+        is_polygon = self.layer.geometryType() == QgsWkbTypes.GeometryType.PolygonGeometry
         segments = len(vertices) if is_polygon else len(vertices) - 1
         unit_info = UNITS[self.current_unit]
         segment_data = []
@@ -946,7 +951,7 @@ class VertexTool(QgsMapTool):
             self.canvas.scene().removeItem(label)
         self.length_labels.clear()
 
-    def _reset(self):
+    def _reset(self, first=False, silent=False):
         if self.dragging:
             self._cancel_drag()
         self._clear_vertex_markers()
@@ -961,6 +966,14 @@ class VertexTool(QgsMapTool):
         self.selected_vertex = -1
         self.dragging = False
 
+        # if not first and not silent:
+        #     iface.messageBar().pushMessage(
+        #         "Tool",
+        #         "Ready. Press Q to change units. Right-click to reset.",
+        #         level=Qgis.MessageLevel.Info,
+        #         duration=2
+        #     )
+
 
 def activate_vertex_tool():
     """
@@ -973,22 +986,25 @@ def activate_vertex_tool():
     """
     layer = iface.activeLayer()
     if not layer:
-        iface.messageBar().pushMessage("Error", "No layer selected", level=1, duration=1)
+        iface.messageBar().pushMessage("Error", "No layer selected",
+                                       level=Qgis.MessageLevel.Warning, duration=1)
         return None
     if isinstance(layer, QgsRasterLayer):
         iface.messageBar().pushMessage(
-            "Error", "Raster layers not supported", level=1, duration=1)
+            "Error", "Raster layers not supported", level=Qgis.MessageLevel.Warning, duration=1)
         return None
     if not isinstance(layer, QgsVectorLayer):
-        iface.messageBar().pushMessage("Error", "Select a vector layer", level=1, duration=1)
+        iface.messageBar().pushMessage("Error", "Select a vector layer",
+                                       level=Qgis.MessageLevel.Warning, duration=1)
         return None
-    if layer.geometryType() == QgsWkbTypes.PointGeometry:
+    if layer.geometryType() == QgsWkbTypes.GeometryType.PointGeometry:
         iface.messageBar().pushMessage(
-            "Error", "Point layers not supported", level=1, duration=1)
+            "Error",
+            "Point layers not supported. Select a line or polygon layer.", level=Qgis.MessageLevel.Warning, duration=1)
         return None
-    if layer.geometryType() not in (QgsWkbTypes.PolygonGeometry, QgsWkbTypes.LineGeometry):
+    if layer.geometryType() not in (QgsWkbTypes.GeometryType.PolygonGeometry, QgsWkbTypes.GeometryType.LineGeometry):
         iface.messageBar().pushMessage(
-            "Error", "Line or polygon layer required", level=1, duration=1)
+            "Error", "Line or polygon layer required", level=Qgis.MessageLevel.Warning, duration=1)
         return None
     canvas = iface.mapCanvas()
     tool = VertexTool(canvas)
@@ -999,7 +1015,7 @@ def activate_vertex_tool():
     # iface.messageBar().pushMessage(
     #     "Vertex Tool",
     #     f"Unit: {tool.current_unit.replace('_', ' ').title()} - Topo: {status} (Q=units)",
-    #     level=0,
+    #     level=Qgis.MessageLevel.Info,
     #     duration=1
     # )
     return tool

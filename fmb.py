@@ -3,14 +3,17 @@ from qgis.PyQt.QtCore import QTimer, Qt
 from qgis.PyQt.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                                  QPushButton, QDoubleSpinBox, QComboBox,
                                  QTabWidget, QMessageBox, QFileDialog)
-from qgis.PyQt.QtGui import QColor, QIcon
-from qgis.gui import QgsRubberBand, QgsVertexMarker
+from qgis.PyQt.QtGui import QColor, QIcon, QCursor
+from qgis.gui import QgsRubberBand, QgsVertexMarker, QgsMapTool
 from qgis.core import (QgsWkbTypes, QgsPointXY, QgsGeometry,
                        QgsVectorLayer, QgsField, QgsFeature, QgsProject,
                        QgsMarkerSymbol, QgsRendererCategory, QgsCategorizedSymbolRenderer,
                        QgsVectorFileWriter)
 from qgis.utils import iface
-from PyQt5.QtCore import QVariant
+from qgis.PyQt.QtCore import QVariant
+
+# make top level widget
+from .addon_functions import TOOL_WINDOW_FLAGS, STAY_ON_TOP_FLAG
 
 
 def save_temp_layer(parent, layer):
@@ -48,7 +51,7 @@ def save_temp_layer(parent, layer):
                 layer, file_path, QgsProject.instance().transformContext(), options
             )
 
-            if error[0] == QgsVectorFileWriter.NoError:
+            if error[0] == QgsVectorFileWriter.WriterError.NoError:
                 QMessageBox.information(
                     parent, "Save Successful", f"Layer saved successfully at {file_path}!"
                 )
@@ -169,12 +172,13 @@ class LineEndpointManager:
 
         self.start_point_marker = QgsVertexMarker(self.map_canvas)
         self.start_point_marker.setCenter(point)
-        self.start_point_marker.setColor(QColor(0, 255, 0))  # Bright Green
+        self.start_point_marker.setColor(QColor(0, 0, 0))  # Bright Green
         self.start_point_marker.setFillColor(
             QColor(0, 255, 0, 200))  # Filled green
-        self.start_point_marker.setIconSize(15)
-        self.start_point_marker.setIconType(QgsVertexMarker.ICON_CIRCLE)
-        self.start_point_marker.setPenWidth(3)
+        self.start_point_marker.setIconSize(9)
+        self.start_point_marker.setIconType(
+            QgsVertexMarker.IconType.ICON_CIRCLE)
+        self.start_point_marker.setPenWidth(1)
 
     def create_end_marker(self, point):
         """Create a filled red end point marker"""
@@ -183,12 +187,12 @@ class LineEndpointManager:
 
         self.end_point_marker = QgsVertexMarker(self.map_canvas)
         self.end_point_marker.setCenter(point)
-        self.end_point_marker.setColor(QColor(255, 0, 0))  # Bright Red
+        self.end_point_marker.setColor(QColor(0, 0, 0))  # Bright Red
         self.end_point_marker.setFillColor(
             QColor(255, 0, 0, 200))  # Filled red
-        self.end_point_marker.setIconSize(15)
-        self.end_point_marker.setIconType(QgsVertexMarker.ICON_CIRCLE)
-        self.end_point_marker.setPenWidth(3)
+        self.end_point_marker.setIconSize(9)
+        self.end_point_marker.setIconType(QgsVertexMarker.IconType.ICON_CIRCLE)
+        self.end_point_marker.setPenWidth(1)
 
     def on_layer_changed(self, layer):
         """Handle layer change to update start/end points display"""
@@ -208,7 +212,7 @@ class LineEndpointManager:
         # Clear display first
         self.clear_display()
 
-        if layer and hasattr(layer, 'wkbType') and layer.wkbType() in [QgsWkbTypes.LineString, QgsWkbTypes.MultiLineString]:
+        if layer and hasattr(layer, 'wkbType') and layer.wkbType() in [QgsWkbTypes.Type.LineString, QgsWkbTypes.Type.MultiLineString]:
             try:
                 layer.selectionChanged.connect(self.update_display)
                 self.update_display()
@@ -226,7 +230,7 @@ class LineEndpointManager:
         if not self.current_layer or not hasattr(self.current_layer, 'wkbType'):
             return
 
-        if self.current_layer.wkbType() not in [QgsWkbTypes.LineString, QgsWkbTypes.MultiLineString]:
+        if self.current_layer.wkbType() not in [QgsWkbTypes.Type.LineString, QgsWkbTypes.Type.MultiLineString]:
             return
 
         try:
@@ -305,6 +309,120 @@ class LineEndpointManager:
             print(f"Error refreshing canvas during cleanup: {e}")
 
 
+class TrianglePointTool(QgsMapTool):
+    """Map tool for clicking two points on the canvas"""
+
+    def __init__(self, canvas, triangle_widget):
+        super().__init__(canvas)
+        self.canvas = canvas
+        self.triangle_widget = triangle_widget
+        self.points = []
+        self.markers = []
+        self.temp_line = QgsRubberBand(
+            canvas, QgsWkbTypes.GeometryType.LineGeometry)
+        self.temp_line.setColor(QColor(0, 255, 0, 150))
+        self.temp_line.setWidth(2)
+        self.setCursor(Qt.CursorShape.CrossCursor)
+
+        # Get snapping utils from canvas
+        self.snapping_utils = canvas.snappingUtils()
+
+        # Create snap marker
+        self.snap_marker = QgsVertexMarker(self.canvas)
+        self.snap_marker.setIconType(QgsVertexMarker.ICON_CROSS)
+        self.snap_marker.setColor(QColor(255, 0, 255))
+        self.snap_marker.setPenWidth(3)
+        self.snap_marker.setIconSize(12)
+        self.snap_marker.hide()
+
+    def canvasMoveEvent(self, event):
+        """Show snap marker when hovering over snap points"""
+        match = self.snapping_utils.snapToMap(event.pos())
+
+        if match.isValid():
+            # Show snap marker at snapped location
+            self.snap_marker.setCenter(match.point())
+            self.snap_marker.show()
+        else:
+            # Hide snap marker when not snapping
+            self.snap_marker.hide()
+
+    def canvasPressEvent(self, event):
+        """Handle mouse click on canvas"""
+        # Get point with snapping
+        match = self.snapping_utils.snapToMap(event.pos())
+
+        if match.isValid():
+            # Use snapped point
+            point = match.point()
+        else:
+            # Use clicked point without snapping
+            point = self.toMapCoordinates(event.pos())
+
+        if len(self.points) < 2:
+            self.points.append(point)
+
+            # Create marker for clicked point
+            marker = QgsVertexMarker(self.canvas)
+            marker.setCenter(point)
+
+            # First point: Green, Second point: Red
+            if len(self.points) == 1:
+                marker.setColor(QColor(0, 255, 0))  # Green for first point
+                marker.setFillColor(QColor(0, 255, 0, 200))
+            else:
+                marker.setColor(QColor(255, 0, 0))  # Red for second point
+                marker.setFillColor(QColor(255, 0, 0, 200))
+
+            marker.setIconSize(12)
+            marker.setIconType(QgsVertexMarker.IconType.ICON_CIRCLE)
+            marker.setPenWidth(2)
+            self.markers.append(marker)
+
+            if len(self.points) == 1:
+                self.triangle_widget.status_label.setText("Click second point")
+            elif len(self.points) == 2:
+                # Draw temporary line between points
+                self.temp_line.reset()
+                self.temp_line.addPoint(self.points[0], False)
+                self.temp_line.addPoint(self.points[1], True)
+
+                self.triangle_widget.status_label.setText(
+                    "Two points selected. Ready to draw triangle.")
+                self.triangle_widget.set_points(self.points[0], self.points[1])
+
+                # Hide snap marker after second point
+                self.snap_marker.hide()
+
+    def activate(self):
+        """Called when tool is activated"""
+        super().activate()
+        self.canvas.setCursor(Qt.CursorShape.CrossCursor)
+
+    def deactivate(self):
+        """Clean up when tool is deactivated"""
+        # Hide snap marker
+        if hasattr(self, 'snap_marker'):
+            self.snap_marker.hide()
+        super().deactivate()
+
+    def clear(self):
+        """Clear all points and markers"""
+        self.points = []
+
+        # Remove markers
+        for marker in self.markers:
+            self.canvas.scene().removeItem(marker)
+        self.markers = []
+
+        # Clear temporary line
+        self.temp_line.reset()
+
+        # Hide snap marker
+        if hasattr(self, 'snap_marker'):
+            self.snap_marker.hide()
+
+
 class TriangleWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -312,12 +430,16 @@ class TriangleWidget(QWidget):
         self.setGeometry(50, 200, 200, 200)
         self.setMinimumWidth(220)
 
-        # Initialize endpoint manager but don't activate it yet
-        self.endpoint_manager = LineEndpointManager()
+        # Points for triangle base
+        self.start_point = None
+        self.end_point = None
+
+        # Initialize map tool for point selection
+        self.point_tool = TrianglePointTool(iface.mapCanvas(), self)
 
         # Initialize rubber band for triangle preview
         self.triangle_rubber_band = QgsRubberBand(
-            iface.mapCanvas(), QgsWkbTypes.LineGeometry)
+            iface.mapCanvas(), QgsWkbTypes.GeometryType.LineGeometry)
         self.triangle_rubber_band.setColor(QColor(255, 0, 0, 150))
         self.triangle_rubber_band.setWidth(3)
 
@@ -325,6 +447,21 @@ class TriangleWidget(QWidget):
         self.preview_timer = QTimer()
         self.preview_timer.timeout.connect(self.update_triangle_preview)
         self.preview_timer.setSingleShot(True)
+
+        # Status Label
+        self.status_label = QLabel("Click 'Select Points' to start")
+        self.status_label.setWordWrap(True)
+        self.status_label.setStyleSheet(
+            "QLabel { color: blue; font-weight: bold; }")
+
+        # Select Points Button
+        self.select_points_button = QPushButton("Select Points")
+        self.select_points_button.clicked.connect(self.start_point_selection)
+
+        # Clear Points Button
+        self.clear_points_button = QPushButton("Clear Points")
+        self.clear_points_button.clicked.connect(self.clear_points)
+        self.clear_points_button.setEnabled(False)
 
         # Length Inputs
         self.start_length_input = QDoubleSpinBox()
@@ -356,9 +493,17 @@ class TriangleWidget(QWidget):
         # Draw Button
         self.draw_button = QPushButton("Draw Triangle")
         self.draw_button.clicked.connect(self.draw_triangle)
+        self.draw_button.setEnabled(False)
 
         # Layout
         layout = QVBoxLayout()
+        layout.addWidget(self.status_label)
+
+        button_layout = QHBoxLayout()
+        button_layout.addWidget(self.select_points_button)
+        button_layout.addWidget(self.clear_points_button)
+        layout.addLayout(button_layout)
+
         layout.addWidget(QLabel("Start Length:"))
         layout.addWidget(self.start_length_input)
         layout.addWidget(QLabel("End Length:"))
@@ -368,49 +513,75 @@ class TriangleWidget(QWidget):
         layout.addWidget(QLabel("Units:"))
         layout.addWidget(self.unit_combo)
         layout.addWidget(self.draw_button)
-        layout.setAlignment(Qt.AlignTop)
+        layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         self.setLayout(layout)
 
         self.triangle_drawn = False
 
+    def start_point_selection(self):
+        """Activate the point selection tool"""
+        self.clear_points()
+        self.status_label.setText("Click first point on canvas")
+        iface.mapCanvas().setMapTool(self.point_tool)
+        self.select_points_button.setEnabled(False)
+        self.select_points_button.setText("Selecting...")
+        # Keep the widget on top and visible
+        self.activateWindow()
+        self.raise_()
+
+    def set_points(self, start_point, end_point):
+        """Set the start and end points for the triangle base"""
+        self.start_point = start_point
+        self.end_point = end_point
+        self.draw_button.setEnabled(True)
+        self.clear_points_button.setEnabled(True)
+        self.select_points_button.setEnabled(True)
+        self.select_points_button.setText("Select Points")
+        self.schedule_preview_update()
+        # Ensure widget stays visible
+        self.activateWindow()
+        self.raise_()
+
+    def clear_points(self):
+        """Clear selected points and reset"""
+        self.start_point = None
+        self.end_point = None
+        self.point_tool.clear()
+        self.triangle_rubber_band.reset()
+        self.draw_button.setEnabled(False)
+        self.clear_points_button.setEnabled(False)
+        self.select_points_button.setEnabled(True)
+        self.select_points_button.setText("Select Points")
+        self.status_label.setText("Click 'Select Points' to start")
+        # Deactivate tool if active
+        if iface.mapCanvas().mapTool() == self.point_tool:
+            iface.mapCanvas().unsetMapTool(self.point_tool)
+
     def activate(self):
-        """Activate the triangle widget and its endpoint manager"""
-        if self.endpoint_manager:
-            self.endpoint_manager.activate()
+        """Activate the triangle widget"""
+        pass
 
     def deactivate(self):
-        """Deactivate the triangle widget and its endpoint manager"""
-        if self.endpoint_manager:
-            self.endpoint_manager.deactivate()
+        """Deactivate the triangle widget"""
+        # Make sure to unset the map tool if it's active
+        if iface.mapCanvas().mapTool() == self.point_tool:
+            iface.mapCanvas().unsetMapTool(self.point_tool)
 
     def schedule_preview_update(self):
         """Schedule preview update with a small delay to avoid excessive updates"""
-        if not self.endpoint_manager.is_active:
+        if self.start_point is None or self.end_point is None:
             return
         self.preview_timer.stop()
         self.preview_timer.start(200)
 
     def update_triangle_preview(self):
         """Update the rubber band preview of triangle formation"""
-        if not self.endpoint_manager.is_active:
-            return
-
         self.triangle_rubber_band.reset()
 
+        if self.start_point is None or self.end_point is None:
+            return
+
         try:
-            layer = iface.activeLayer()
-            if not layer or layer.wkbType() not in [QgsWkbTypes.LineString, QgsWkbTypes.MultiLineString]:
-                return
-
-            selected_features = list(layer.selectedFeatures())
-            if len(selected_features) != 1:
-                return
-
-            feature = selected_features[0]
-            geom = feature.geometry()
-            if geom is None or geom.isNull():
-                return
-
             # Get input values
             start_length = self.convert_length(self.start_length_input.value())
             end_length = self.convert_length(self.end_length_input.value())
@@ -418,22 +589,16 @@ class TriangleWidget(QWidget):
             if start_length <= 0 or end_length <= 0:
                 return
 
-            # Extract start and end points
-            start_point, end_point = self.endpoint_manager.get_line_endpoints(
-                geom)
-            if not start_point or not end_point:
-                return
-
             # Calculate triangle apex
             apex_point = self.calculate_triangle_apex(
-                start_point, end_point, start_length, end_length)
+                self.start_point, self.end_point, start_length, end_length)
             if apex_point:
                 # Draw preview triangle
-                self.triangle_rubber_band.addPoint(start_point, False)
+                self.triangle_rubber_band.addPoint(self.start_point, False)
                 self.triangle_rubber_band.addPoint(apex_point, False)
-                self.triangle_rubber_band.addPoint(end_point, False)
+                self.triangle_rubber_band.addPoint(self.end_point, False)
                 self.triangle_rubber_band.addPoint(
-                    start_point, True)  # Close and update
+                    self.start_point, True)  # Close and update
 
         except Exception as e:
             print(f"Triangle preview error: {e}")
@@ -494,38 +659,18 @@ class TriangleWidget(QWidget):
             return length
 
     def draw_triangle(self):
-        """Draw a triangle using the selected line as the base and orientation."""
+        """Draw a triangle using the clicked points as the base."""
         try:
+            if self.start_point is None or self.end_point is None:
+                QMessageBox.critical(
+                    self, "Error", "Please select two points first.")
+                return
+
+            # Get the active layer for CRS reference
             layer = iface.activeLayer()
             if layer is None:
                 QMessageBox.critical(
-                    self, "Error", "Please select a line layer.")
-                return
-
-            if layer.wkbType() not in [QgsWkbTypes.LineString, QgsWkbTypes.MultiLineString]:
-                QMessageBox.critical(
-                    self, "Error", "The active layer is not a line layer.")
-                return
-
-            selected_features = list(layer.selectedFeatures())
-            if len(selected_features) != 1:
-                QMessageBox.critical(
-                    self, "Error", "Please select exactly one line feature.")
-                return
-
-            feature = selected_features[0]
-            geom = feature.geometry()
-            if geom is None or geom.isNull():
-                QMessageBox.critical(
-                    self, "Error", "Selected feature has no geometry.")
-                return
-
-            # Extract start and end points of the base line
-            start_point, end_point = self.endpoint_manager.get_line_endpoints(
-                geom)
-            if not start_point or not end_point:
-                QMessageBox.critical(
-                    self, "Error", "Could not extract line endpoints.")
+                    self, "Error", "No active layer to determine CRS.")
                 return
 
             # Input lengths
@@ -534,7 +679,7 @@ class TriangleWidget(QWidget):
 
             # Calculate apex point
             apex_point = self.calculate_triangle_apex(
-                start_point, end_point, start_length, end_length)
+                self.start_point, self.end_point, start_length, end_length)
             if not apex_point:
                 QMessageBox.critical(
                     self, "Error", "Invalid side lengths. Triangle cannot be formed.")
@@ -544,7 +689,7 @@ class TriangleWidget(QWidget):
             line_layer_name = "Triangle Lines"
             line_layer = None
             for lyr in QgsProject.instance().mapLayers().values():
-                if lyr.name() == line_layer_name and lyr.geometryType() == QgsWkbTypes.LineGeometry:
+                if lyr.name() == line_layer_name and lyr.geometryType() == QgsWkbTypes.GeometryType.LineGeometry:
                     line_layer = lyr
                     break
 
@@ -566,9 +711,9 @@ class TriangleWidget(QWidget):
                 line_layer.dataProvider().addFeature(feature)
 
             # Draw the three sides of the triangle
-            add_line(start_point, apex_point, "Start Side")
-            add_line(end_point, apex_point, "End Side")
-            add_line(start_point, end_point, "Base Line")
+            add_line(self.start_point, apex_point, "Start Side")
+            add_line(self.end_point, apex_point, "End Side")
+            add_line(self.start_point, self.end_point, "Base Line")
 
             line_layer.triggerRepaint()
             iface.setActiveLayer(layer)
@@ -580,16 +725,25 @@ class TriangleWidget(QWidget):
                 self, "Success", "Triangle drawn successfully!")
             self.triangle_drawn = True
 
+            # Clear points after drawing
+            self.clear_points()
+
         except Exception as e:
             QMessageBox.critical(self, "Unexpected Error",
                                  f"An unexpected error occurred: {e}")
+            import traceback
+            traceback.print_exc()
 
     def cleanup(self):
         """Clean up rubber bands and disconnect signals"""
         try:
-            # Clean up endpoint manager
-            if hasattr(self, 'endpoint_manager'):
-                self.endpoint_manager.cleanup()
+            # Unset map tool if active
+            if iface.mapCanvas().mapTool() == self.point_tool:
+                iface.mapCanvas().unsetMapTool(self.point_tool)
+
+            # Clear point tool
+            if hasattr(self, 'point_tool'):
+                self.point_tool.clear()
 
             # Clear triangle rubber band
             if hasattr(self, 'triangle_rubber_band'):
@@ -649,7 +803,7 @@ class PlotterWidget(QWidget):
         layout.addWidget(QLabel("Offset Length:"))
         layout.addWidget(self.offset_input)
         layout.addWidget(self.plot_button)
-        layout.setAlignment(Qt.AlignTop)
+        layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         self.setLayout(layout)
 
         self.points_drawn = False
@@ -685,7 +839,7 @@ class PlotterWidget(QWidget):
                 QMessageBox.critical(self, "Error", "Please select a layer.")
                 return
 
-            if layer.wkbType() not in [QgsWkbTypes.LineString, QgsWkbTypes.MultiLineString]:
+            if layer.wkbType() not in [QgsWkbTypes.Type.LineString, QgsWkbTypes.Type.MultiLineString]:
                 QMessageBox.critical(
                     self, "Error", "The selected layer is not a line layer.")
                 return
@@ -718,7 +872,7 @@ class PlotterWidget(QWidget):
             point_layer_name = "Plotted Points"
             existing_layer = None
             for lyr in QgsProject.instance().mapLayers().values():
-                if lyr.name() == point_layer_name and lyr.geometryType() == QgsWkbTypes.PointGeometry:
+                if lyr.name() == point_layer_name and lyr.geometryType() == QgsWkbTypes.GeometryType.PointGeometry:
                     existing_layer = lyr
                     break
 
@@ -919,6 +1073,8 @@ class PlotterWidget(QWidget):
         except Exception as e:
             QMessageBox.critical(self, "Unexpected Error",
                                  f"An unexpected error occurred: {e}")
+            import traceback
+            traceback.print_exc()
 
     def cleanup(self):
         """Clean up rubber bands and disconnect signals"""
@@ -930,11 +1086,13 @@ class PlotterWidget(QWidget):
 
 
 class CombinedMainWidget(QWidget):
-    def __init__(self, parent=None):
+    def __init__(self, parent=iface.mainWindow()):
         super().__init__(parent)
         self.setWindowTitle('Plotter')
-        self.setGeometry(900, 250, 340, 200)
-        # Uncomment if you have the icon: self.setWindowIcon(QIcon(plotter_icon))
+        self.setGeometry(900, 250, 250, 350)
+        # Keep window on top and always visible
+
+        self.setWindowFlags(TOOL_WINDOW_FLAGS)
 
         # Create the tab widget
         self.tab_widget = QTabWidget()
@@ -1000,7 +1158,7 @@ class CombinedMainWidget(QWidget):
                 # Find the plotted points layer
                 point_layer = None
                 for lyr in QgsProject.instance().mapLayers().values():
-                    if lyr.name() == "Plotted Points" and lyr.geometryType() == QgsWkbTypes.PointGeometry:
+                    if lyr.name() == "Plotted Points" and lyr.geometryType() == QgsWkbTypes.GeometryType.PointGeometry:
                         point_layer = lyr
                         break
 
@@ -1008,17 +1166,17 @@ class CombinedMainWidget(QWidget):
                     reply = QMessageBox.question(
                         self, 'Save Plotted Points',
                         "Do you want to save the Plotted Points Layer before closing?",
-                        QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel,
-                        QMessageBox.Cancel
+                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No | QMessageBox.StandardButton.Cancel,
+                        QMessageBox.StandardButton.Cancel
                     )
 
-                    if reply == QMessageBox.Yes:
+                    if reply == QMessageBox.StandardButton.Yes:
                         saved = save_temp_layer(self, point_layer)
                         if not saved:
                             # If save failed or was cancelled, don't close
                             event.ignore()
                             return
-                    elif reply == QMessageBox.Cancel:
+                    elif reply == QMessageBox.StandardButton.Cancel:
                         event.ignore()
                         return
                     # If No, continue with closing

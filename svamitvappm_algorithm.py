@@ -7,19 +7,19 @@ With QGIS : 32815
 
 from .addon_functions import districtlist, districttuple, rule_based_symbology, apply_polygon_labels, delete_small_parcels, toggle_layervisibility, apply_custom_symbol, load_template_and_setup_atlas_with_text, delete_short_lines
 from qgis.core import (
-    QgsSymbol, QgsRuleBasedRenderer, QgsStyle, QgsWkbTypes,
+
     QgsProcessing, QgsProcessingAlgorithm, QgsProcessingMultiStepFeedback,
     QgsProcessingParameterVectorLayer, QgsProcessingParameterField, QgsExpressionContextUtils,
-    QgsProcessingParameterString, QgsProcessingParameterFeatureSink,
+    QgsProcessingParameterString,
     QgsProcessingException, QgsProject, QgsVectorLayer, QgsProcessingParameterEnum,
-    QgsPalLayerSettings, QgsVectorLayerSimpleLabeling
+
 )
-from qgis.PyQt.QtGui import QColor
+
 import processing
-from PyQt5.QtGui import QFont
+
 import os
 import inspect
-from qgis.core import QgsPalLayerSettings, QgsVectorLayerSimpleLabeling
+
 # Get the path to the current project folder
 from qgis.utils import iface
 from qgis.PyQt.QtGui import QIcon
@@ -27,7 +27,14 @@ from qgis.PyQt.QtWidgets import (
     QAction
 )
 project = QgsProject.instance()
-project_folder = project.readPath("./")
+project_path = project.fileName()
+
+if project_path:
+    # Project is saved — get its directory
+    project_folder = os.path.dirname(project_path)
+else:
+    # Project not saved — fallback to QGIS default working directory
+    project_folder = QgsProject.instance().homePath() or os.path.expanduser("~")
 assets_folder = os.path.dirname(__file__)+"/assets"
 save_action = iface.mainWindow().findChild(QAction, 'mActionSaveProject')
 
@@ -42,7 +49,7 @@ class SvamitvaPPMAlgorithm(QgsProcessingAlgorithm):
         return icon
 
     def flags(self):
-        return super().flags() | QgsProcessingAlgorithm.FlagNoThreading
+        return super().flags() | QgsProcessingAlgorithm.Flag.FlagNoThreading
 
     def initAlgorithm(self, config=None):
         if QgsExpressionContextUtils.globalScope().variable('district_eng'):
@@ -52,17 +59,17 @@ class SvamitvaPPMAlgorithm(QgsProcessingAlgorithm):
         else:
             dname = None
         self.addParameter(QgsProcessingParameterVectorLayer('choose_plot_shapefile',
-                          'Choose <b>Plot Area</b> Shapefile ', types=[QgsProcessing.TypeVectorPolygon], defaultValue=None))
+                          'Choose <b>Plot Area</b> Shapefile ', types=[QgsProcessing.SourceType.TypeVectorPolygon], defaultValue=None))
 
         self.addParameter(QgsProcessingParameterField('property_parcel_number', 'Choose <b>Property Parcel Number</b>',
-                          type=QgsProcessingParameterField.Any, parentLayerParameterName='choose_plot_shapefile', allowMultiple=False, defaultValue='prop_id'))
+                          type=QgsProcessingParameterField.DataType.Any, parentLayerParameterName='choose_plot_shapefile', allowMultiple=False, defaultValue='prop_id'))
         self.addParameter(QgsProcessingParameterField('plot_area_in_square_yards', 'Choose <b> Plot Area in Square Yards </b>',
-                          type=QgsProcessingParameterField.Any, parentLayerParameterName='choose_plot_shapefile', allowMultiple=False, defaultValue='AREA_SQYRD'))
+                          type=QgsProcessingParameterField.DataType.Any, parentLayerParameterName='choose_plot_shapefile', allowMultiple=False, defaultValue='AREA_SQYRD'))
         self.addParameter(QgsProcessingParameterField('plot_area_in_square_metres', 'Choose <b> Plot Area in Square Metres </b>',
-                          type=QgsProcessingParameterField.Any, parentLayerParameterName='choose_plot_shapefile', allowMultiple=False, defaultValue='SHAPE_Area'))
+                          type=QgsProcessingParameterField.DataType.Any, parentLayerParameterName='choose_plot_shapefile', allowMultiple=False, defaultValue='SHAPE_Area'))
 
         self.addParameter(QgsProcessingParameterVectorLayer('choose_plinth_shapefile',
-                          'Choose <b>Builtup (Plinth) Area </b> Shapefile', types=[QgsProcessing.TypeVectorPolygon], defaultValue=None))
+                          'Choose <b>Builtup (Plinth) Area </b> Shapefile', types=[QgsProcessing.SourceType.TypeVectorPolygon], defaultValue=None))
         self.addParameter(QgsProcessingParameterEnum('district_name_eng', 'Choose Your <b>District</b>',
                           options=districtlist(), allowMultiple=False, usesStaticStrings=False, defaultValue=dname))
         self.addParameter(QgsProcessingParameterString(

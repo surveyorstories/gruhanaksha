@@ -46,13 +46,14 @@ import os
 import sys
 import inspect
 from qgis.utils import iface
-from qgis.PyQt.QtWidgets import QAction, QMenu
+from qgis.PyQt.QtWidgets import QAction, QMenu, QLabel
+from .autosaveandbackup import BackupPlugin, ComprehensiveProjectBackupWidget
 from qgis.PyQt.QtGui import QIcon
 import processing
 
 from qgis.core import QgsProcessingAlgorithm, QgsApplication, Qgis
 from .Gruhanaksha_provider import SvamitvaPPMProvider
-from PyQt5.QtCore import Qt
+from qgis.PyQt.QtCore import Qt
 from .master import MasterWidget
 from .tools import ToolWidget
 from .advanced_line import activate_tool
@@ -75,7 +76,9 @@ class SvamitvaPPMPlugin(object):
         self.iface = iface
         self.canvas = iface.mapCanvas()
         self.tools = ToolWidget()
-        self.tools.setParent(iface.mainWindow(), Qt.Window)
+        self.backup_plugin = None
+        self.backup_widget_instance = None
+        # self.tools.setParent(iface.mainWindow(), Qt.WindowType.Window)
 
     def initProcessing(self):
         """Init Processing provider for QGIS >= 3.8."""
@@ -114,7 +117,6 @@ class SvamitvaPPMPlugin(object):
         self.action_advanced_line = QAction(QIcon(icon_advancedicon), 'Advanced Line',
                                             self.iface.mainWindow())
         self.action_advanced_line.triggered.connect(self.show_advanced_line)
-        
 
         # Define tools with icon and label
         # Make sure this file exists
@@ -138,22 +140,33 @@ class SvamitvaPPMPlugin(object):
 
         # Create a button in the toolbar to display the dropdown menu with an icon
         self.dropdown_button.setMenu(self.dropdown_menu)
-        
-        
 
         icon_atlasexport = os.path.join(
             os.path.join(cmd_folder, 'images/export.svg'))
         self.action_atlasexport = QAction(QIcon(icon_atlasexport), 'Atlas Export',
                                           self.iface.mainWindow())
         self.action_atlasexport.triggered.connect(self.show_atlasexport)
-        
+
         self.iface.addPluginToMenu("&Gruhanaksha", self.action_atlasexport)
-        
-        # Adding icons to the toolbar 
+
+        icon_backup = os.path.join(
+            os.path.join(cmd_folder, 'images/export.svg'))
+        self.action_backup = QAction(QIcon(icon_backup), 'Backup',
+                                     self.iface.mainWindow())
+        self.action_backup.triggered.connect(self.show_backup_widget)
+
+        self.iface.addPluginToMenu("&Gruhanaksha", self.action_backup)
+
+        # Adding icons to the toolbar
         self.toolbar.addAction(self.action_tools)
         self.toolbar.addAction(self.dropdown_button)
         self.toolbar.addAction(self.action_advanced_line)
         self.toolbar.addAction(self.action_atlasexport)
+        # self.toolbar.addAction(self.action_backup)
+
+        self.backup_timer_label = QLabel("")
+        self.backup_timer_label.setVisible(False)
+        self.toolbar.addWidget(self.backup_timer_label)
 
     def unload(self):
         """Remove plugin from GUI and unregister provider."""
@@ -174,7 +187,7 @@ class SvamitvaPPMPlugin(object):
             self.iface.removePluginMenu(u"&Gruhanaksha", self.action_master)
 
         # Unregister all main window actions. This is good practice.
-        for action_name in ['action', 'action_master', 'action_advanced_line', 'action_tools', 'dropdown_button', 'action_atlasexport']:
+        for action_name in ['action', 'action_master', 'action_advanced_line', 'action_tools', 'dropdown_button', 'action_atlasexport', 'action_backup']:
             if hasattr(self, action_name):
                 self.iface.unregisterMainWindowAction(
                     getattr(self, action_name))
@@ -212,6 +225,26 @@ class SvamitvaPPMPlugin(object):
         else:
             asksaveProject()
 
+    def show_backup_widget(self):
+        if QgsProject.instance().fileName():
+            if not self.backup_plugin:
+                self.backup_plugin = BackupPlugin(self.iface)
+                self.backup_widget_instance = self.backup_plugin.widget
+                self.backup_widget_instance.timerUpdated.connect(
+                    self.update_backup_timer)
+                self.backup_widget_instance.hideTimer.connect(
+                    self.hide_backup_timer)
+            self.backup_plugin.show()
+        else:
+            asksaveProject()
+
+    def update_backup_timer(self, text):
+        self.backup_timer_label.setText(text)
+        self.backup_timer_label.setVisible(True)
+
+    def hide_backup_timer(self):
+        self.backup_timer_label.setVisible(False)
+
 
 def asksaveProject():
     """
@@ -233,9 +266,9 @@ def asksaveProject():
         # Check if project now has a filename (user saved it)
         if project.fileName():
             iface.messageBar().pushMessage("Success", "Project saved successfully.",
-                                           level=Qgis.Success, duration=3)
+                                           level=Qgis.MessageLevel.Success, duration=2)
             return True
         else:
             iface.messageBar().pushMessage("Warning", "Project was not saved.",
-                                           level=Qgis.Warning, duration=3)
+                                           level=Qgis.MessageLevel.Warning, duration=2)
             return False

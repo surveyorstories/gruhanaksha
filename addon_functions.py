@@ -1,5 +1,5 @@
 from qgis.core import QgsProject
-from PyQt5.QtGui import QFont, QColor
+from qgis.PyQt.QtGui import QFont, QColor
 from qgis.core import (QgsMapLayer, Qgis, QgsTextFormat,
                        QgsSymbol, QgsRuleBasedRenderer, QgsStyle, QgsWkbTypes, QgsRendererCategory, QgsCategorizedSymbolRenderer,
                        QgsProcessing, QgsProcessingAlgorithm, QgsProcessingMultiStepFeedback,
@@ -9,6 +9,7 @@ from qgis.core import (QgsMapLayer, Qgis, QgsTextFormat,
                        QgsPalLayerSettings, QgsVectorLayerSimpleLabeling
                        )
 from qgis.PyQt.QtGui import QColor
+from qgis.PyQt.QtCore import Qt
 import processing
 import os
 from qgis.core import QgsPalLayerSettings, QgsVectorLayerSimpleLabeling, QgsFeatureRequest
@@ -17,9 +18,30 @@ from qgis.utils import iface
 from qgis.PyQt.QtWidgets import (
     QAction
 )
-from PyQt5.QtXml import QDomDocument
-from PyQt5.QtGui import QFont
+from qgis.PyQt.QtXml import QDomDocument
+from qgis.PyQt.QtGui import QFont
 from qgis.core import QgsPrintLayout, QgsLayoutItemMap, QgsLayoutItemLabel, QgsLayoutItemPage, QgsReadWriteContext, QgsLayoutSize, QgsLayoutItemPage, QgsLayoutPoint, QgsUnitTypes, QgsVectorLayer, QgsVectorFileWriter, QgsField, QgsWkbTypes, QgsFeature, QgsMarkerSymbol
+
+
+# making a top level widgets
+if hasattr(Qt, 'WindowType'):
+    # Qt6
+    TOOL_WINDOW_FLAGS = (
+        Qt.WindowType.Tool |
+        Qt.WindowType.WindowTitleHint |
+        Qt.WindowType.WindowCloseButtonHint |
+        Qt.WindowType.CustomizeWindowHint
+    )
+    STAY_ON_TOP_FLAG = Qt.WindowType.WindowStaysOnTopHint
+else:
+    # Qt5
+    TOOL_WINDOW_FLAGS = (
+        Qt.Tool |
+        Qt.WindowTitleHint |
+        Qt.WindowCloseButtonHint |
+        Qt.CustomizeWindowHint
+    )
+    STAY_ON_TOP_FLAG = Qt.WindowStaysOnTopHint
 
 
 def rule_based_symbology(inputlayer, rules, outline_status, symbol_xml_path=None, symbol_name=None, opacity=1.0):
@@ -58,12 +80,12 @@ def rule_based_symbology(inputlayer, rules, outline_status, symbol_xml_path=None
                 if outline_status:
                     symbol_layer = rule_symbol.symbolLayer(0)
                     symbol_layer.setColor(QColor(color_name))
-                    if inputlayer.geometryType() == QgsWkbTypes.LineGeometry:
+                    if inputlayer.geometryType() == QgsWkbTypes.GeometryType.LineGeometry:
                         symbol_layer.setWidth(0.46)
-                    elif inputlayer.geometryType() == QgsWkbTypes.PolygonGeometry:
+                    elif inputlayer.geometryType() == QgsWkbTypes.GeometryType.PolygonGeometry:
                         symbol_layer.setStrokeColor(QColor(color_name))
                         symbol_layer.setStrokeWidth(0.46)
-                        symbol_layer.setBrushStyle(0)
+                        symbol_layer.setBrushStyle(Qt.BrushStyle.NoBrush)
                 else:
                     rule_symbol.setColor(QColor(color_name))
                 rule = QgsRuleBasedRenderer.Rule(rule_symbol)
@@ -177,7 +199,7 @@ def load_template_and_setup_atlas_with_text(
         text_item1.setFont(QFont("Verdana", 12))
         text_item1.adjustSizeToText()
         text_item1.attemptMove(QgsLayoutPoint(
-            75, 33, QgsUnitTypes.LayoutMillimeters))
+            75, 33, QgsUnitTypes.LayoutUnit.LayoutMillimeters))
         layout.addLayoutItem(text_item1)
 
         # Add second text item
@@ -187,9 +209,9 @@ def load_template_and_setup_atlas_with_text(
         text_item2.adjustSizeToText()
         # Set fixed size for the text item (in millimeters)
         text_item2.setFixedSize(QgsLayoutSize(
-            100, 13, QgsUnitTypes.LayoutMillimeters))
+            100, 13, QgsUnitTypes.LayoutUnit.LayoutMillimeters))
         text_item2.attemptMove(QgsLayoutPoint(
-            75, 39.60, QgsUnitTypes.LayoutMillimeters))
+            75, 39.60, QgsUnitTypes.LayoutUnit.LayoutMillimeters))
         layout.addLayoutItem(text_item2)
 
         # Add third text item
@@ -199,9 +221,9 @@ def load_template_and_setup_atlas_with_text(
         text_item3.adjustSizeToText()
         # Set fixed size for the text item (in millimeters)
         text_item3.setFixedSize(QgsLayoutSize(
-            100, 13, QgsUnitTypes.LayoutMillimeters))
+            100, 13, QgsUnitTypes.LayoutUnit.LayoutMillimeters))
         text_item3.attemptMove(QgsLayoutPoint(
-            75, 45.60, QgsUnitTypes.LayoutMillimeters))
+            75, 45.60, QgsUnitTypes.LayoutUnit.LayoutMillimeters))
         layout.addLayoutItem(text_item3)
 
         layout.refresh()
@@ -370,21 +392,21 @@ def apply_categorized_symbology(layer, categories_info):
         symbol.setOpacity(category_info['opacity'])
 
         # Set specific properties based on geometry type
-        if geometry_type == QgsWkbTypes.PointGeometry:
+        if geometry_type == QgsWkbTypes.GeometryType.PointGeometry:
             # For point layers, set size
             if 'size' in category_info:
                 symbol.setSize(category_info['size'])
             else:
                 raise ValueError("Missing key 'size' for point category.")
 
-        elif geometry_type == QgsWkbTypes.LineGeometry:
+        elif geometry_type == QgsWkbTypes.GeometryType.LineGeometry:
             # For line layers, set width
             if 'line_width' in category_info:
                 symbol.setWidth(category_info['line_width'])
             else:
                 raise ValueError("Missing key 'line_width' for line category.")
 
-        elif geometry_type == QgsWkbTypes.PolygonGeometry:
+        elif geometry_type == QgsWkbTypes.GeometryType.PolygonGeometry:
             # For polygon layers, set fill style and outline
             symbol.setFillColor(QColor(category_info['color']))  # Fill color
             symbol.setStrokeColor(
@@ -440,7 +462,7 @@ def save_temp_layer(self, layer):
                 layer, file_path, QgsProject.instance().transformContext(), options
             )
 
-            if error[0] == QgsVectorFileWriter.NoError:
+            if error[0] == QgsVectorFileWriter.WriterError.NoError:
                 QMessageBox.information(
                     self, "Save Successful", f"Layer saved successfully at {file_path}!"
                 )
@@ -502,27 +524,27 @@ def delete_small_parcels(layer_name: str, area_threshold: float = 0.02):
     layers = QgsProject.instance().mapLayersByName(layer_name)
     if not layers:
         message_bar.pushMessage(
-            "Error", f"Layer '{layer_name}' not found.", level=Qgis.Critical)
+            "Error", f"Layer '{layer_name}' not found.", level=Qgis.MessageLevel.Critical)
         return
 
     layer = layers[0]
 
     # Check if layer is a vector layer and has polygon geometry
-    if layer.type() != QgsMapLayer.VectorLayer:
+    if layer.type() != QgsMapLayer.LayerType.VectorLayer:
         message_bar.pushMessage(
-            "Error", f"Layer '{layer_name}' is not a vector layer.", level=Qgis.Critical)
+            "Error", f"Layer '{layer_name}' is not a vector layer.", level=Qgis.MessageLevel.Critical)
         return
 
-    if layer.geometryType() != QgsWkbTypes.PolygonGeometry:
+    if layer.geometryType() != QgsWkbTypes.GeometryType.PolygonGeometry:
         message_bar.pushMessage(
-            "Error", f"Layer '{layer_name}' does not contain polygon geometries.", level=Qgis.Critical)
+            "Error", f"Layer '{layer_name}' does not contain polygon geometries.", level=Qgis.MessageLevel.Critical)
         return
 
     # Start editing if not already in edit mode
     if not layer.isEditable():
         if not layer.startEditing():
             message_bar.pushMessage(
-                "Error", f"Could not start editing layer '{layer_name}'.", level=Qgis.Critical)
+                "Error", f"Could not start editing layer '{layer_name}'.", level=Qgis.MessageLevel.Critical)
             return
 
     try:
@@ -539,24 +561,24 @@ def delete_small_parcels(layer_name: str, area_threshold: float = 0.02):
             if layer.deleteFeatures(ids_to_delete):
                 if layer.commitChanges():
                     message_bar.pushMessage(
-                        "Success", f"Successfully deleted {len(ids_to_delete)} parcels with area < {area_threshold} sq.m", level=Qgis.Success)
+                        "Success", f"Successfully deleted {len(ids_to_delete)} parcels with area < {area_threshold} sq.m", level=Qgis.MessageLevel.Success)
                 else:
                     message_bar.pushMessage(
-                        "Error", "Failed to commit changes.", level=Qgis.Critical)
+                        "Error", "Failed to commit changes.", level=Qgis.MessageLevel.Critical)
                     layer.rollBack()
             else:
                 message_bar.pushMessage(
-                    "Error", "Failed to delete features.", level=Qgis.Critical)
+                    "Error", "Failed to delete features.", level=Qgis.MessageLevel.Critical)
                 layer.rollBack()
         else:
             message_bar.pushMessage(
-                "Info", "No parcels found with area below the threshold.", level=Qgis.Info)
+                "Info", "No parcels found with area below the threshold.", level=Qgis.MessageLevel.Info)
             # Only commit if we actually made changes, otherwise just stop editing
             layer.rollBack()
 
     except Exception as e:
         message_bar.pushMessage(
-            "Error", f"Error occurred: {str(e)}", level=Qgis.Critical)
+            "Error", f"Error occurred: {str(e)}", level=Qgis.MessageLevel.Critical)
         layer.rollBack()
 
     # Ensure we're not left in editing mode
@@ -599,21 +621,21 @@ def apply_categorized_symbology(layer, categories_info):
         symbol.setOpacity(category_info['opacity'])
 
         # Set specific properties based on geometry type
-        if geometry_type == QgsWkbTypes.PointGeometry:
+        if geometry_type == QgsWkbTypes.GeometryType.PointGeometry:
             # For point layers, set size
             if 'size' in category_info:
                 symbol.setSize(category_info['size'])
             else:
                 raise ValueError("Missing key 'size' for point category.")
 
-        elif geometry_type == QgsWkbTypes.LineGeometry:
+        elif geometry_type == QgsWkbTypes.GeometryType.LineGeometry:
             # For line layers, set width
             if 'line_width' in category_info:
                 symbol.setWidth(category_info['line_width'])
             else:
                 raise ValueError("Missing key 'line_width' for line category.")
 
-        elif geometry_type == QgsWkbTypes.PolygonGeometry:
+        elif geometry_type == QgsWkbTypes.GeometryType.PolygonGeometry:
             # For polygon layers, set fill style and outline
             symbol.setFillColor(QColor(category_info['color']))  # Fill color
             symbol.setStrokeColor(

@@ -1,8 +1,9 @@
-from PyQt5 import QtWidgets, QtCore
+from qgis.PyQt.QtWidgets import QWidget, QComboBox, QLineEdit, QPushButton, QFormLayout, QHBoxLayout, QVBoxLayout, QMessageBox
+from qgis.PyQt.QtCore import Qt
 from qgis.core import QgsExpressionContextUtils, QgsProject
 
 
-class MasterWidget(QtWidgets.QWidget):
+class MasterWidget(QWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle('Master Panel')
@@ -20,11 +21,11 @@ class MasterWidget(QtWidgets.QWidget):
         }
 
         # Widgets
-        self.district_name = QtWidgets.QComboBox()
-        self.mandal_name_eng = QtWidgets.QLineEdit()
-        self.panchayat_name = QtWidgets.QLineEdit()
-        self.grama_panchayat_code = QtWidgets.QLineEdit()
-        self.village_code = QtWidgets.QLineEdit()
+        self.district_name = QComboBox()
+        self.mandal_name_eng = QLineEdit()
+        self.panchayat_name = QLineEdit()
+        self.grama_panchayat_code = QLineEdit()
+        self.village_code = QLineEdit()
 
         self.populate_district_combobox()
 
@@ -39,30 +40,32 @@ class MasterWidget(QtWidgets.QWidget):
         self.global_keys = list(self.widgets.keys())
 
         # Layout
-        form_layout = QtWidgets.QFormLayout()
+        form_layout = QFormLayout()
         form_layout.addRow("Choose Your District:", self.district_name)
         form_layout.addRow("Mandal Name (English):", self.mandal_name_eng)
         form_layout.addRow("Panchayat Name:", self.panchayat_name)
         form_layout.addRow("Grama Panchayat Code:", self.grama_panchayat_code)
         form_layout.addRow("Village (LGD)Code:", self.village_code)
 
-        self.clear_button = QtWidgets.QPushButton("Clear")
-        self.update_button = QtWidgets.QPushButton("Update")
-        self.clear_button.setStyleSheet("background-color: black; color: white;")
-        self.update_button.setStyleSheet("background-color: black; color: white;")
-        self.clear_button.setCursor(QtCore.Qt.PointingHandCursor)
-        self.update_button.setCursor(QtCore.Qt.PointingHandCursor)
+        self.clear_button = QPushButton("Clear")
+        self.update_button = QPushButton("Update")
+        self.clear_button.setStyleSheet(
+            "background-color: black; color: white;")
+        self.update_button.setStyleSheet(
+            "background-color: black; color: white;")
+        self.clear_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.update_button.setCursor(Qt.CursorShape.PointingHandCursor)
 
         self.clear_button.clicked.connect(self.clear_data)
         self.update_button.clicked.connect(self.update_data)
 
-        button_layout = QtWidgets.QHBoxLayout()
+        button_layout = QHBoxLayout()
         button_layout.addWidget(self.clear_button)
         button_layout.addWidget(self.update_button)
 
         form_layout.addRow(button_layout)
 
-        main_layout = QtWidgets.QVBoxLayout()
+        main_layout = QVBoxLayout()
         main_layout.addLayout(form_layout)
         self.setLayout(main_layout)
 
@@ -88,12 +91,13 @@ class MasterWidget(QtWidgets.QWidget):
         for var in self.global_keys:
             if QgsExpressionContextUtils.globalScope().hasVariable(var):
                 value = QgsExpressionContextUtils.globalScope().variable(var)
-                if isinstance(self.widgets[var], QtWidgets.QLineEdit):
+                if isinstance(self.widgets[var], QLineEdit):
                     self.widgets[var].setText(str(value))
 
         # Load from project variables (optional)
         for key, widget in self.widgets.items():
-            proj_val = QgsExpressionContextUtils.projectScope(QgsProject.instance()).variable(key)
+            proj_val = QgsExpressionContextUtils.projectScope(
+                QgsProject.instance()).variable(key)
             if proj_val:
                 widget.setText(str(proj_val))
 
@@ -101,26 +105,28 @@ class MasterWidget(QtWidgets.QWidget):
         # Save district name (eng and telugu)
         district_eng = self.district_name.currentData()
         district_tel = self.district_names[district_eng]
-        QgsExpressionContextUtils.setGlobalVariable('district_eng', district_eng)
-        QgsExpressionContextUtils.setGlobalVariable('District_Name', district_tel)
+        QgsExpressionContextUtils.setGlobalVariable(
+            'district_eng', district_eng)
+        QgsExpressionContextUtils.setGlobalVariable(
+            'District_Name', district_tel)
 
         # Save inputs to global and project variables in Proper Case
         for key, widget in self.widgets.items():
-            if isinstance(widget, QtWidgets.QLineEdit):
+            if isinstance(widget, QLineEdit):
                 val = widget.text().title()
                 QgsExpressionContextUtils.setGlobalVariable(key, val)
-                QgsExpressionContextUtils.setProjectVariable(QgsProject.instance(), key, val)
+                QgsExpressionContextUtils.setProjectVariable(
+                    QgsProject.instance(), key, val)
 
-        QtWidgets.QMessageBox.information(self, "Data Updated", "Data has been successfully updated.")
+        QMessageBox.information(
+            self, "Data Updated", "Data has been successfully updated.")
 
     def clear_data(self):
         for widget in self.widgets.values():
-            if isinstance(widget, QtWidgets.QLineEdit):
+            if isinstance(widget, QLineEdit):
                 widget.clear()
         self.district_name.setCurrentIndex(0)
 
 
-
 # Show the widget
 master = MasterWidget()
-

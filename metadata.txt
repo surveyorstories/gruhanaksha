@@ -6,7 +6,8 @@
 name=Gruhanaksha
 qgisMinimumVersion=3.26
 description=Svamitva Deliverables plugin 
-version=1.0.1
+version=2.0.0
+supportsQt6=True
 author=Surveyor Stories
 email=surveyorstories@gmail.com
 
@@ -23,13 +24,13 @@ hasProcessingProvider=yes
 changelog= <a href=https://surveyorstories.github.io/gruhanakshaweb/releases>Visit Releases page </a>
 
 # Tags are comma separated with spaces allowed
-tags=svamitva,resurvey,ppm
+tags=svamitva,resurvey,ppm, polygon adjuster, triangle
 
 homepage=https://surveyorstories.github.io/gruhanakshaweb
 category=Analysis, vector, Raster
 icon=images/ppm.svg
 # experimental flag
-experimental=False
+experimental=True
 
 # deprecated flag (applies to the whole plugin, not just a single version)
 deprecated=False
