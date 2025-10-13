@@ -33,24 +33,21 @@ jobs:
             exit 1
           fi
           echo "version=$version" >> $GITHUB_ENV
-
       - name: Read release notes
         run: |
-          if [ ! -f release.md ]; then
+          if [ ! -f CHANGELOG.md ]; then
             echo "No release notes found"
             exit 1
           fi
           echo "RELEASE_NOTE<<EOF" >> $GITHUB_ENV
-          cat release.md >> $GITHUB_ENV
+          cat CHANGELOG.md >> $GITHUB_ENV
           echo "EOF" >> $GITHUB_ENV
-
       - name: Compress repository
         run: |
           cd ..
           zip -r gruhanaksha/gruhanaksha_${{ env.version }}.zip gruhanaksha \
             -x "gruhanaksha/.git*" "gruhanaksha/.github/*" "gruhanaksha/*.html" "gruhanaksha/release.zip" "gruhanaksha/gruha.zip"
           cd gruhanaksha
-
       - name: Create GitHub Release
         uses: ncipollo/release-action@v1
         with:

@@ -6,6 +6,6 @@
 - Free Hand Polygon Adjuster
 - Auto Save and Backup
 - Added units toggling in Polygon Adjuster with Q
-- Updated Plotter
+- Updated Plotter and Triangle
 - Added Rectangle in Advanced Line
 - Plotter enhancement

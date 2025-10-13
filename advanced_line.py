@@ -38,7 +38,7 @@ class CursorInfo(QWidget):
             self.setAttribute(Qt.WA_DeleteOnClose)
 
         self.setStyleSheet(
-            "QWidget{background:rgba(240,248,255,230);border:2px solid #2E86AB;border-radius:6px;padding:6px;font:bold 10pt Consolas;color:#3dfcff}")
+            "QWidget{background:rgba(240,248,255,230);border:2px solid #2E86AB;border-radius:6px;padding:6px;font:bold 10pt Consolas;color:#FC0FC0}")
 
         # Focus tracking
         self.cleanup_timer = QTimer(self)
@@ -399,8 +399,8 @@ class ProfessionalLineTool(QgsMapTool):
         # UI Components
         self.rubber_band = QgsRubberBand(
             canvas, QgsWkbTypes.GeometryType.LineGeometry)
-        self.rubber_band.setColor(QColor("brown"))
-        self.rubber_band.setWidth(1.5)
+        self.rubber_band.setColor(QColor("#f462ab"))
+        self.rubber_band.setWidth(1)
         self.rubber_band.setLineStyle(Qt.PenStyle.DashLine)
 
         self.snap_marker = QgsVertexMarker(canvas)

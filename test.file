@@ -12,64 +12,6 @@ from qgis.core import (QgsWkbTypes, QgsPointXY, QgsGeometry,
                        QgsVectorFileWriter, QgsRectangle, QgsSnappingConfig,
                        QgsTolerance, QgsPointLocator, QgsMapLayer)
 from qgis.utils import iface
-from .addon_functions import TOOL_WINDOW_FLAGS, STAY_ON_TOP_FLAG
-
-# Qt5/Qt6 Compatibility Helper
-
-
-class QtCompat:
-    """Helper class for Qt5/Qt6 compatibility"""
-
-    @staticmethod
-    def get_pen_style(style_name):
-        """Get pen style compatible with both Qt5 and Qt6"""
-        try:
-            # Qt6 style
-            return getattr(Qt.PenStyle, style_name)
-        except AttributeError:
-            # Qt5 style
-            return getattr(Qt, style_name)
-
-    @staticmethod
-    def get_cursor_shape(shape_name):
-        """Get cursor shape compatible with both Qt5 and Qt6"""
-        try:
-            # Qt6 style
-            return getattr(Qt.CursorShape, shape_name)
-        except AttributeError:
-            # Qt5 style
-            return getattr(Qt, shape_name)
-
-    @staticmethod
-    def get_key(key_name):
-        """Get key constant compatible with both Qt5 and Qt6"""
-        try:
-            # Qt6 style
-            return getattr(Qt.Key, key_name)
-        except AttributeError:
-            # Qt5 style
-            return getattr(Qt, key_name)
-
-    @staticmethod
-    def get_mouse_button(button_name):
-        """Get mouse button constant compatible with both Qt5 and Qt6"""
-        try:
-            # Qt6 style
-            return getattr(Qt.MouseButton, button_name)
-        except AttributeError:
-            # Qt5 style
-            return getattr(Qt, button_name)
-
-    @staticmethod
-    def get_alignment(alignment_name):
-        """Get alignment constant compatible with both Qt5 and Qt6"""
-        try:
-            # Qt6 style
-            return getattr(Qt.AlignmentFlag, alignment_name)
-        except AttributeError:
-            # Qt5 style
-            return getattr(Qt, alignment_name)
-
 
 # Constants
 UNIT_CONVERSIONS = {
@@ -83,9 +25,8 @@ UNIT_CONVERSIONS = {
 POINT_CATEGORIES = [
     {'name': 'Cut Point', 'color': 'orange', 'size': 2},
     {'name': "Offset Point", 'color': 'blue', 'size': 2},
-    {'name': "Bisect Point", 'color': '#F736F6', 'size': 2},
     {'name': "Extended Point", 'color': 'purple', 'size': 2},
-
+    {'name': "Bisect Point", 'color': 'green', 'size': 2},
 ]
 
 # Utility Classes
@@ -347,18 +288,15 @@ class TrianglePointTool(QgsMapTool):
         self.temp_line = QgsRubberBand(canvas, QgsWkbTypes.LineGeometry)
         self.temp_line.setColor(QColor(0, 0, 255, 100))
         self.temp_line.setWidth(1)
-
-        # Qt5/Qt6 compatible pen style and cursor
-        self.temp_line.setLineStyle(QtCompat.get_pen_style('DashLine'))
-        self.setCursor(QtCompat.get_cursor_shape('CrossCursor'))
-
+        self.temp_line.setLineStyle(Qt.DashLine)
+        self.setCursor(Qt.CrossCursor)
         self.snapping_utils = canvas.snappingUtils()
         self.snap_marker = MarkerFactory.create_snap_marker(canvas)
 
     def activate(self):
         super().activate()
         self.is_selecting = True
-        self.canvas.setCursor(QtCompat.get_cursor_shape('CrossCursor'))
+        self.canvas.setCursor(Qt.CrossCursor)
 
     def deactivate(self):
         had_first_point = self.first_point is not None
@@ -379,10 +317,10 @@ class TrianglePointTool(QgsMapTool):
         super().deactivate()
 
     def keyPressEvent(self, event):
-        if event.key() == QtCompat.get_key('Key_L') and self.first_point is not None:
+        if event.key() == Qt.Key_L and self.first_point is not None:
             self.use_fixed_length = True
             self.show_length_dialog()
-        elif event.key() == QtCompat.get_key('Key_Escape'):
+        elif event.key() == Qt.Key_Escape:
             self.clear()
             self.triangle_widget.status_label.setText(
                 "Operation cancelled. Click 'Select Points' to start.")
@@ -464,17 +402,14 @@ class TrianglePointTool(QgsMapTool):
     def canvasPressEvent(self, event):
         if not self.is_selecting:
             return
-
-        if event.button() == QtCompat.get_mouse_button('RightButton'):
-            # Only reset if first point exists
+        if event.button() == Qt.RightButton:
             if self.first_point is not None:
-                # Reset but keep tool active in both cases
                 self.clear()
-                self.is_selecting = True
                 self.triangle_widget.status_label.setText(
-                    "Click first point on canvas")
+                    "Reset. Click first point to start again.")
             return
-
+        if event.button() != Qt.LeftButton:
+            return
         match = self.snapping_utils.snapToMap(event.pos())
         point = match.point() if match.isValid() else self.toMapCoordinates(event.pos())
         if self.first_point is None:
@@ -575,9 +510,9 @@ class TriangleWidget(QWidget):
         self.status_label = QLabel("Click 'Select Points' to start")
         self.status_label.setWordWrap(True)
         self.status_label.setStyleSheet(
-            "QLabel { color: #F736F6; font-weight: bold; padding: 5px; }")
+            "QLabel { color: blue; font-weight: bold; padding: 5px; }")
         self.status_label.setMinimumHeight(40)
-        self.status_label.setAlignment(QtCompat.get_alignment('AlignTop'))
+        self.status_label.setAlignment(Qt.AlignTop)
         layout.addWidget(self.status_label)
         button_layout = QHBoxLayout()
         self.select_points_button = QPushButton("Select Points")
@@ -618,7 +553,7 @@ class TriangleWidget(QWidget):
         self.draw_button.clicked.connect(self.draw_triangle)
         self.draw_button.setEnabled(False)
         layout.addWidget(self.draw_button)
-        layout.setAlignment(QtCompat.get_alignment('AlignTop'))
+        layout.setAlignment(Qt.AlignTop)
         self.setLayout(layout)
 
     def start_point_selection(self):
@@ -755,9 +690,9 @@ class SegmentSelectTool(QgsMapTool):
         super().activate()
         self.is_active = True
         self.is_selecting = True
-        self.canvas.setCursor(QtCompat.get_cursor_shape('CrossCursor'))
+        self.canvas.setCursor(Qt.CrossCursor)
         self.plotter_widget.status_label.setText(
-            "Click on a line segment to add endpoints.")
+            "Click on a line segment on the canvas.")
         self.plotter_widget.select_segment_button.setEnabled(False)
         self.plotter_widget.select_segment_button.setText("Selecting...")
         self.plotter_widget.clear_segment_button.setEnabled(True)
@@ -786,30 +721,11 @@ class SegmentSelectTool(QgsMapTool):
     def canvasPressEvent(self, event):
         if not self.is_active or not self.is_selecting:
             return
-
-        if event.button() == QtCompat.get_mouse_button('RightButton'):
-            # Clear segment/endpoints but keep tool active
-            if self.plotter_widget.current_segment is not None:
-                # Clear internal state without deactivating tool
-                self.plotter_widget.current_layer = None
-                self.plotter_widget.current_segment = None
-                self.plotter_widget.plot_button.setEnabled(False)
-                self.plotter_widget.endpoint_manager.clear_display()
-                self.plotter_widget.status_label.setText(
-                    "Last endpoint cleared. Click on a line segment to add more.")
-            # Reinforce active state
-            self.is_selecting = True
-            self.canvas.setCursor(QtCompat.get_cursor_shape('CrossCursor'))
-            self.plotter_widget.select_segment_button.setEnabled(False)
-            self.plotter_widget.select_segment_button.setText("Selecting...")
-            self.plotter_widget.clear_segment_button.setEnabled(True)
-            self.snap_marker.hide()
-            self.canvas.refresh()
+        if event.button() == Qt.RightButton:
+            self.cancel_selection()
             return
-
-        if event.button() != QtCompat.get_mouse_button('LeftButton'):
+        if event.button() != Qt.LeftButton:
             return
-
         match = self.snapping_utils.snapToMap(event.pos())
         if match.isValid() and match.type() == QgsPointLocator.Edge:
             selected_feature = self._get_feature_from_snap(match)
@@ -827,27 +743,21 @@ class SegmentSelectTool(QgsMapTool):
             self.plotter_widget.status_label.setText(
                 "Invalid segment selection.")
             return
-        # Add segment/endpoints without deactivating: keep active for more
+        self.is_selecting = False
         self.plotter_widget.set_selected_segment(layer, start_pt, end_pt)
-        self.snap_marker.hide()  # Reset for next hover
-        self.plotter_widget.status_label.setText(
-            "Endpoint added. Click another segment to add more (Right-click to clear last, Escape to finish).")
-        self.canvas.refresh()
-        # Ensure selecting stays enabled (reinforce for consistency)
-        self.is_selecting = True
-        self.canvas.setCursor(QtCompat.get_cursor_shape(
-            'CrossCursor'))  # Also reinforce after add
+        self.snap_marker.hide()
+        iface.mapCanvas().unsetMapTool(self)
 
     def keyPressEvent(self, event):
         if not self.is_active:
             return
-        if event.key() == QtCompat.get_key('Key_Escape'):
-            self.deactivate()  # Full exit with reset
-            return
-        super().keyPressEvent(event)
+        if event.key() == Qt.Key_Escape:
+            self.cancel_selection()
+            iface.mapCanvas().unsetMapTool(self)
+        else:
+            super().keyPressEvent(event)
 
     def cancel_selection(self):
-        # Deprecated for multi-add; use right-click instead
         self.reset_selection_state()
         self.plotter_widget.status_label.setText(
             "Selection cancelled. Click 'Select Segment' to start.")
@@ -934,7 +844,6 @@ class SegmentSelectTool(QgsMapTool):
                 return None, None
             return vertices[seg_start_idx], vertices[seg_start_idx + 1]
 
-
 # Plotter Widget
 
 
@@ -954,7 +863,7 @@ class PlotterWidget(QWidget):
         self.status_label = QLabel("Click 'Select Segment' to start.")
         self.status_label.setWordWrap(True)
         self.status_label.setStyleSheet(
-            "QLabel { color: #F736F6; font-weight: bold; padding: 5px; }")
+            "QLabel { color: blue; font-weight: bold; padding: 5px; }")
         layout.addWidget(self.status_label)
         button_layout = QHBoxLayout()
         self.select_segment_button = QPushButton("Select Segment")
@@ -988,7 +897,7 @@ class PlotterWidget(QWidget):
         self.plot_button.clicked.connect(self.plot)
         self.plot_button.setEnabled(False)
         layout.addWidget(self.plot_button)
-        layout.setAlignment(QtCompat.get_alignment('AlignTop'))
+        layout.setAlignment(Qt.AlignTop)
         self.setLayout(layout)
 
     def start_segment_selection(self):
@@ -1150,7 +1059,7 @@ class CombinedMainWidget(QWidget):
         super().__init__(parent)
         self.setWindowTitle('Plotter')
         self.setGeometry(900, 250, 250, 350)
-        self.setWindowFlags(TOOL_WINDOW_FLAGS)
+        self.setWindowFlags(Qt.WindowStaysOnTopHint | Qt.Tool)
         self.tab_widget = QTabWidget()
         self.triangle_widget = TriangleWidget()
         self.plotter_widget = PlotterWidget()
@@ -1231,4 +1140,3 @@ class CombinedMainWidget(QWidget):
 
 # Main Execution
 main_widget = CombinedMainWidget()
-# main_widget.show()

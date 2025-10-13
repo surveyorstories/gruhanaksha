@@ -168,9 +168,43 @@ class SvamitvaPPMPlugin(object):
         self.backup_timer_label.setVisible(False)
         self.toolbar.addWidget(self.backup_timer_label)
 
+        self.iface.registerMainWindowAction(
+            self.action_advanced_line, "A")
+
     def unload(self):
         """Remove plugin from GUI and unregister provider."""
-        # Use hasattr to prevent errors if initGui failed partway through
+
+        # CRITICAL: Deactivate any active map tools first
+        # This prevents tools from staying active after plugin unload
+        if hasattr(self, 'canvas') and self.canvas:
+            current_tool = self.canvas.mapTool()
+            if current_tool:
+                # Check if the current tool belongs to this plugin
+                # by checking if it's from our module
+                tool_module = type(current_tool).__module__
+                if tool_module and tool_module.startswith(__name__.split('.')[0]):
+                    # Unset the tool to revert to default pan tool
+                    self.canvas.unsetMapTool(current_tool)
+
+        # Close any open widgets/dialogs
+        if hasattr(self, 'tools') and self.tools:
+            try:
+                self.tools.close()
+            except:
+                pass
+
+        if hasattr(self, 'backup_widget_instance') and self.backup_widget_instance:
+            try:
+                self.backup_widget_instance.close()
+            except:
+                pass
+
+        # Close master widget
+        try:
+            if master and master.isVisible():
+                master.close()
+        except:
+            pass
 
         # Unregister processing provider safely
         if hasattr(self, 'provider') and self.provider:
@@ -185,17 +219,44 @@ class SvamitvaPPMPlugin(object):
             self.iface.removePluginMenu("&Gruhanaksha", self.action)
         if hasattr(self, 'action_master'):
             self.iface.removePluginMenu(u"&Gruhanaksha", self.action_master)
+        if hasattr(self, 'action_atlasexport'):
+            self.iface.removePluginMenu(
+                "&Gruhanaksha", self.action_atlasexport)
+        if hasattr(self, 'action_backup'):
+            self.iface.removePluginMenu("&Gruhanaksha", self.action_backup)
 
-        # Unregister all main window actions. This is good practice.
-        for action_name in ['action', 'action_master', 'action_advanced_line', 'action_tools', 'dropdown_button', 'action_atlasexport', 'action_backup']:
+        # Unregister all main window actions
+        for action_name in ['action', 'action_master', 'action_advanced_line',
+                            'action_tools', 'dropdown_button', 'action_atlasexport',
+                            'action_backup']:
             if hasattr(self, action_name):
-                self.iface.unregisterMainWindowAction(
-                    getattr(self, action_name))
+                try:
+                    self.iface.unregisterMainWindowAction(
+                        getattr(self, action_name))
+                except:
+                    pass
 
-        # Clean up toolbar. Qt's parent-child relationship will handle the C++ object destruction.
-        # We just need to delete our Python reference to it.
+        # Clean up toolbar
         if hasattr(self, 'toolbar'):
+            try:
+                self.iface.mainWindow().removeToolBar(self.toolbar)
+            except:
+                pass
             del self.toolbar
+
+        # Clean up backup plugin
+        if hasattr(self, 'backup_plugin') and self.backup_plugin:
+            try:
+                self.backup_plugin.unload()  # Add cleanup method if exists
+            except:
+                pass
+            self.backup_plugin = None
+
+        # Set references to None to help garbage collection
+        self.backup_widget_instance = None
+        self.tools = None
+        self.canvas = None
+        self.provider = None
 
     def run_svamitva_algorithm(self):
         """Trigger custom logic or Processing algorithm"""
@@ -229,21 +290,21 @@ class SvamitvaPPMPlugin(object):
         if QgsProject.instance().fileName():
             if not self.backup_plugin:
                 self.backup_plugin = BackupPlugin(self.iface)
-                self.backup_widget_instance = self.backup_plugin.widget
-                self.backup_widget_instance.timerUpdated.connect(
-                    self.update_backup_timer)
-                self.backup_widget_instance.hideTimer.connect(
-                    self.hide_backup_timer)
+                # self.backup_widget_instance = self.backup_plugin.widget
+                # self.backup_widget_instance.timerUpdated.connect(
+                #     self.update_backup_timer)
+                # self.backup_widget_instance.hideTimer.connect(
+                #     self.hide_backup_timer)
             self.backup_plugin.show()
         else:
             asksaveProject()
 
-    def update_backup_timer(self, text):
-        self.backup_timer_label.setText(text)
-        self.backup_timer_label.setVisible(True)
+    # def update_backup_timer(self, text):
+    #     self.backup_timer_label.setText(text)
+    #     self.backup_timer_label.setVisible(True)
 
-    def hide_backup_timer(self):
-        self.backup_timer_label.setVisible(False)
+    # def hide_backup_timer(self):
+    #     self.backup_timer_label.setVisible(False)
 
 
 def asksaveProject():

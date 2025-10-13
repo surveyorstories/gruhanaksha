@@ -6,7 +6,7 @@ import json
 import subprocess
 import sys
 import time
-
+from qgis.utils import iface
 try:
     from qgis.PyQt.QtCore import QTimer, Qt, QThread, pyqtSignal
     from qgis.PyQt.QtWidgets import (
@@ -15,7 +15,7 @@ try:
         QListWidgetItem, QCheckBox, QFrame, QSystemTrayIcon, QWidgetAction,
         QTextEdit
     )
-    from qgis.PyQt.QtGui import QFont
+    from qgis.PyQt.QtGui import QFont, QIcon
     from qgis.core import QgsProject, QgsVectorLayer, Qgis
 except ImportError:
     # Fallback for different Qt versions
@@ -117,6 +117,15 @@ def get_frame_shadow():
         return QFrame.Shadow.Sunken
     except AttributeError:
         return QFrame.Sunken
+
+
+def get_icon(name):
+    """Return QIcon that works in both Qt5 and Qt6."""
+    plugin_dir = os.path.dirname(__file__)
+    icon_path = os.path.join(plugin_dir, "images", name)
+    if not os.path.exists(icon_path):
+        print(f"⚠️ Icon not found: {icon_path}")
+    return QIcon(icon_path)
 
 
 class ToolbarTimerWidget(QWidget):
@@ -222,9 +231,38 @@ class ComprehensiveProjectBackupWidget(QWidget):
     hideTimer = pyqtSignal()
     toolbarTimerUpdate = pyqtSignal(int, int, str)  # minutes, seconds, status
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=iface.mainWindow()):
         super().__init__(parent)
         self.iface = None
+
+        # Hide maximize button - works for both Qt5 and Qt6
+
+        # making a top level widgets
+        if hasattr(Qt, 'WindowType'):
+            # Qt6
+            TOOL_WINDOW_FLAGS = (
+                Qt.WindowType.Window
+                | Qt.WindowType.WindowTitleHint
+                | Qt.WindowType.WindowMinimizeButtonHint
+                | Qt.WindowType.WindowCloseButtonHint
+                | Qt.WindowType.CustomizeWindowHint
+            )
+            STAY_ON_TOP_FLAG = Qt.WindowType.WindowStaysOnTopHint
+
+        else:
+            # Qt5
+            TOOL_WINDOW_FLAGS = (
+                Qt.Window
+                | Qt.WindowTitleHint
+                | Qt.WindowMinimizeButtonHint
+                | Qt.WindowCloseButtonHint
+                | Qt.CustomizeWindowHint
+            )
+            STAY_ON_TOP_FLAG = Qt.WindowStaysOnTopHint
+
+        self.setWindowFlags(TOOL_WINDOW_FLAGS)
+        self.setWindowFlag(STAY_ON_TOP_FLAG, False)
+        self.setWindowIcon(get_icon("autosave.svg"))
 
         self.setWindowTitle("Auto Save and Backup")
         self.setMinimumWidth(300)

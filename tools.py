@@ -63,6 +63,9 @@ class ToolWidget(QWidget):
         self.function_completed = False
         self.setWindowIcon(QIcon(icon))
 
+        # Initialize backup_plugin as None - will be created on first use
+        self.backup_plugin = None
+
         main_layout = QVBoxLayout(self)
 
         # Group box named "Tool"
@@ -124,8 +127,21 @@ class ToolWidget(QWidget):
 
     def backup_button_clicked(self):
         try:
-            self.backup_plugin = BackupPlugin(iface)
-            self.backup_plugin.show()
+            # Create the backup plugin only once, then reuse it
+            if self.backup_plugin is None:
+                self.backup_plugin = BackupPlugin(iface)
+
+            # Show and activate the widget inside the plugin
+            widget = self.backup_plugin.widget
+
+            # If minimized, restore it first
+            if widget.isMinimized():
+                widget.showNormal()
+            else:
+                widget.show()
+
+            widget.raise_()
+            widget.activateWindow()
         except Exception as e:
             QMessageBox.critical(self, "Error", f"An error occurred: {e}")
 
@@ -137,13 +153,11 @@ class ToolWidget(QWidget):
 
     def combined_button_clicked(self):
         try:
-
             combined_window.show()
         except Exception as e:
             QMessageBox.critical(self, "Error", f"An error occurred: {e}")
 
     def bisector_button_clicked(self):
-
         try:
             bisector_window.show()
         except Exception as e:
