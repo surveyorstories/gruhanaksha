@@ -1,5 +1,3 @@
-
-
 """
 /***************************************************************************
  SvamitvaPPM
@@ -56,7 +54,7 @@ from .Gruhanaksha_provider import SvamitvaPPMProvider
 from qgis.PyQt.QtCore import Qt
 from .master import MasterWidget
 from .tools import ToolWidget
-from .advanced_line import activate_tool
+from .advanced_line import activate_tool, ProfessionalLineTool
 from .atlas_export import show_atlas_export_dialog
 
 
@@ -78,6 +76,7 @@ class SvamitvaPPMPlugin(object):
         self.tools = ToolWidget()
         self.backup_plugin = None
         self.backup_widget_instance = None
+        self.current_tool = None
         # self.tools.setParent(iface.mainWindow(), Qt.WindowType.Window)
 
     def initProcessing(self):
@@ -116,7 +115,6 @@ class SvamitvaPPMPlugin(object):
         # advanced line
         self.action_advanced_line = QAction(QIcon(icon_advancedicon), 'Advanced Line',
                                             self.iface.mainWindow())
-        self.action_advanced_line.triggered.connect(self.show_advanced_line)
 
         # Define tools with icon and label
         # Make sure this file exists
@@ -168,8 +166,12 @@ class SvamitvaPPMPlugin(object):
         self.backup_timer_label.setVisible(False)
         self.toolbar.addWidget(self.backup_timer_label)
 
-        self.iface.registerMainWindowAction(
-            self.action_advanced_line, "A")
+        # self.iface.registerMainWindowAction(
+        #     self.action_advanced_line, "Alt + A")
+
+        # Set up checkable behavior for advanced line tool
+        self.setup_checkable_tool_action(
+            self.action_advanced_line, ProfessionalLineTool, activate_tool)
 
     def unload(self):
         """Remove plugin from GUI and unregister provider."""
@@ -185,6 +187,13 @@ class SvamitvaPPMPlugin(object):
                 if tool_module and tool_module.startswith(__name__.split('.')[0]):
                     # Unset the tool to revert to default pan tool
                     self.canvas.unsetMapTool(current_tool)
+
+        # Disconnect map tool signal if connected
+        if hasattr(self, 'canvas') and self.canvas:
+            try:
+                self.canvas.mapToolSet.disconnect()
+            except:
+                pass
 
         # Close any open widgets/dialogs
         if hasattr(self, 'tools') and self.tools:
@@ -274,12 +283,6 @@ class SvamitvaPPMPlugin(object):
         else:
             asksaveProject()
 
-    def show_advanced_line(self):
-        if QgsProject.instance().fileName():
-            activate_tool()
-        else:
-            asksaveProject()
-
     def show_atlasexport(self):
         if QgsProject.instance().fileName():
             show_atlas_export_dialog()
@@ -298,6 +301,56 @@ class SvamitvaPPMPlugin(object):
             self.backup_plugin.show()
         else:
             asksaveProject()
+
+    def setup_checkable_tool_action(self, action, tool_class, activate_function):
+        """
+        Set up a checkable action for a map tool with proper toggle behavior.
+
+        Args:
+            action: The QAction to make checkable
+            tool_class: The class of the tool (e.g., ProfessionalLineTool)
+            activate_function: Function to activate the tool
+        """
+        action.setCheckable(True)
+
+        # Create a handler function for the action
+        def toggle_tool():
+            if action.isChecked():
+                # Activate the tool
+                tool = activate_function()
+                if tool:
+                    self.current_tool = self.canvas.mapTool()
+                else:
+                    action.setChecked(False)
+            else:
+                # Deactivate the tool - revert to default pan tool
+                if self.canvas:
+                    current_tool = self.canvas.mapTool()
+                    if current_tool and isinstance(current_tool, tool_class):
+                        self.canvas.unsetMapTool(current_tool)
+                self.current_tool = None
+
+        # Connect the action to the toggle handler
+        action.triggered.connect(toggle_tool)
+
+        # Monitor when map tool changes to update checkbox state
+        def on_map_tool_changed(new_tool):
+            """Update action checked state when map tool changes."""
+            try:
+                if self.canvas and action:
+                    # Check if the new tool is an instance of our tool class
+                    if isinstance(new_tool, tool_class):
+                        action.setChecked(True)
+                    else:
+                        # If switched to a different tool, uncheck our action
+                        action.setChecked(False)
+            except (AttributeError, RuntimeError):
+                # Canvas or action might be None during plugin unload
+                pass
+
+        # Connect to the map tool change signal
+        if self.canvas:
+            self.canvas.mapToolSet.connect(on_map_tool_changed)
 
     # def update_backup_timer(self, text):
     #     self.backup_timer_label.setText(text)

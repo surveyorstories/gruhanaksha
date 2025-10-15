@@ -2015,6 +2015,12 @@ class ProfessionalLineTool(QgsMapTool):
 
 
 def activate_tool():
+    layer = iface.activeLayer()
+    if not (layer and layer.type() == QgsMapLayer.LayerType.VectorLayer and
+            layer.geometryType() == QgsWkbTypes.GeometryType.LineGeometry and layer.isEditable()):
+        show_msg("Need editable line layer", 1, Qgis.MessageLevel.Critical)
+        return None
+
     canvas = iface.mapCanvas()
     tool = ProfessionalLineTool(canvas)
     canvas.setMapTool(tool)
