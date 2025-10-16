@@ -1,4 +1,4 @@
-## Release Notes 2.0.0
+## Release Notes 2.0.1
 
 - Upgrade from QT 5 to QT6 support
 - Bug Fixes
