@@ -5,13 +5,16 @@
 [general]
 name=Gruhanaksha
 qgisMinimumVersion=3.26
+qgisMaximumVersion=4.99
+supportsQt6=True
+
 description=Svamitva Deliverables plugin 
 version=2.0.0
-supportsQt6=True
+
 author=Surveyor Stories
 email=surveyorstories@gmail.com
 
-about=SVAMITVA stands for "Survey of Villages and Mapping with Improvised Technology in Village Areas." It's a Central Sector Scheme aimed at providing an integrated inhabited property ownership solution for rural India.
+about=Gruhanaksha is a QGIS plugin developed specifically to support the deliverables of the SVAMITVA by offering various tools Polygon adjuster, Plotter, auto backup and save , free hand adjuster, ppm generation, other tools for geometry adjustments and manipulation
 
 tracker=https://github.com/surveyorstories/gruhanaksha/issues
 repository=https://github.com/surveyorstories/gruhanaksha
@@ -30,7 +33,7 @@ homepage=https://surveyorstories.github.io/gruhanakshaweb
 category=Analysis, vector, Raster
 icon=images/ppm.svg
 # experimental flag
-experimental=True
+experimental=False
 
 # deprecated flag (applies to the whole plugin, not just a single version)
 deprecated=False
