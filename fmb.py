@@ -144,51 +144,152 @@ class GeometryHelper:
 class LayerManager:
     @staticmethod
     def save_temp_layer(parent, layer):
+        """Save a memory layer to disk with proper commit handling"""
         if layer.providerType() != "memory":
             return True
-        file_path, _ = QFileDialog.getSaveFileName(parent, f"Save {layer.name()}", layer.name(
-        ), "ESRI Shapefile (*.shp);;GeoJSON (*.geojson);;GPKG (*.gpkg)")
+        
+        # If layer is in edit mode, ask user to commit or rollback first
+        if layer.isEditable():
+            reply = QMessageBox.question(
+                parent, 
+                'Unsaved Changes', 
+                f"The layer '{layer.name()}' has unsaved changes. Do you want to save them before exporting?",
+                QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel, 
+                QMessageBox.Yes
+            )
+            
+            if reply == QMessageBox.Cancel:
+                return False
+            elif reply == QMessageBox.Yes:
+                if not layer.commitChanges():
+                    QMessageBox.warning(
+                        parent, "Commit Error",
+                        f"Failed to save changes: {layer.commitErrors()}")
+                    return False
+            else:  # No - rollback changes
+                layer.rollBack()
+        
+        file_path, _ = QFileDialog.getSaveFileName(
+            parent, f"Save {layer.name()}", layer.name(),
+            "ESRI Shapefile (*.shp);;GeoJSON (*.geojson);;GPKG (*.gpkg)")
+        
         if not file_path:
             return False
-        format_map = {".shp": "ESRI Shapefile",
-                      ".geojson": "GeoJSON", ".gpkg": "GPKG"}
+        
+        format_map = {
+            ".shp": "ESRI Shapefile",
+            ".geojson": "GeoJSON", 
+            ".gpkg": "GPKG"
+        }
         format_name = next(
             (fmt for ext, fmt in format_map.items() if file_path.endswith(ext)), None)
+        
         if not format_name:
             QMessageBox.critical(parent, "Error", "Unsupported file format.")
             return False
+        
         options = QgsVectorFileWriter.SaveVectorOptions()
         options.driverName = format_name
         options.fileEncoding = "UTF-8"
         error = QgsVectorFileWriter.writeAsVectorFormatV3(
             layer, file_path, QgsProject.instance().transformContext(), options)
+        
         if error[0] != QgsVectorFileWriter.WriterError.NoError:
-            QMessageBox.critical(parent, "Save Error",
-                                 f"Error saving layer. Error code: {error[0]}")
+            QMessageBox.critical(
+                parent, "Save Error",
+                f"Error saving layer. Error code: {error[0]}")
             return False
-        QMessageBox.information(parent, "Save Successful",
-                                f"Layer saved successfully at {file_path}!")
+        
+        QMessageBox.information(
+            parent, "Save Successful",
+            f"Layer saved successfully at {file_path}!")
+        
         new_layer = QgsVectorLayer(file_path, layer.name(), "ogr")
         if new_layer.isValid():
             new_layer.setRenderer(layer.renderer().clone())
             QgsProject.instance().addMapLayer(new_layer)
             QgsProject.instance().removeMapLayer(layer.id())
             return True
+        
         QMessageBox.warning(
-            parent, "Warning", "Failed to reload the saved layer into the project.")
+            parent, "Warning", 
+            "Failed to reload the saved layer into the project.")
         return False
 
     @staticmethod
     def apply_categorized_symbology(layer, categories_info):
-        categories = [QgsRendererCategory(info['name'], QgsMarkerSymbol.createSimple({'name': 'circle', 'color': info['color'], 'size': str(
-            info['size']), 'outline_color': '0,0,0,255', 'outline_width': '0.2'}), info['name']) for info in categories_info]
+        categories = [
+            QgsRendererCategory(
+                info['name'], 
+                QgsMarkerSymbol.createSimple({
+                    'name': 'circle', 
+                    'color': info['color'], 
+                    'size': str(info['size']), 
+                    'outline_color': '0,0,0,255', 
+                    'outline_width': '0.2'
+                }), 
+                info['name']
+            ) for info in categories_info
+        ]
         layer.setRenderer(QgsCategorizedSymbolRenderer('Type', categories))
 
     @staticmethod
+    def enable_layer_snapping(layer):
+        """Enable snapping for a specific layer"""
+        snap_config = QgsProject.instance().snappingConfig()
+        
+        # Enable snapping if not already enabled
+        if not snap_config.enabled():
+            snap_config.setEnabled(True)
+        
+        # Get current settings
+        settings = snap_config.individualLayerSettings(layer)
+        
+        # Enable snapping for this layer
+        settings.setEnabled(True)
+        settings.setType(QgsSnappingConfig.VertexAndSegment)
+        settings.setTolerance(10)
+        settings.setUnits(QgsTolerance.Pixels)
+        
+        # Apply settings back
+        snap_config.setIndividualLayerSettings(layer, settings)
+        QgsProject.instance().setSnappingConfig(snap_config)
+
+    @staticmethod
+    def get_project_crs():
+        """Get CRS from active layer or project, with fallback"""
+        # Try to get CRS from active layer
+        layer = iface.activeLayer()
+        if layer and hasattr(layer, 'crs'):
+            return layer.crs()
+        
+        # Try to get CRS from any visible vector layer
+        for lyr in QgsProject.instance().mapLayers().values():
+            if isinstance(lyr, QgsVectorLayer) and lyr.isSpatial():
+                return lyr.crs()
+        
+        # Fallback to project CRS
+        project_crs = QgsProject.instance().crs()
+        if project_crs.isValid():
+            return project_crs
+        
+        # Ultimate fallback to WGS84
+        return QgsCoordinateReferenceSystem("EPSG:4326")
+
+    @staticmethod
     def get_or_create_layer(layer_name, geometry_type, crs, fields):
+        # Check if layer already exists
         for lyr in QgsProject.instance().mapLayers().values():
             if lyr.name() == layer_name and lyr.geometryType() == geometry_type:
+                # Ensure snapping is enabled for existing layer too
+                LayerManager.enable_layer_snapping(lyr)
                 return lyr
+        
+        # Ensure we have a valid CRS
+        if not crs or not crs.isValid():
+            crs = LayerManager.get_project_crs()
+        
+        # Create new layer
         geom_type_str = "LineString" if geometry_type == QgsWkbTypes.LineGeometry else "Point"
         layer = QgsVectorLayer(
             f"{geom_type_str}?crs={crs.toWkt()}", layer_name, "memory")
@@ -196,6 +297,10 @@ class LayerManager:
         layer.updateFields()
         QgsProject.instance().addMapLayer(layer)
         layer.updateExtents()
+        
+        # CRITICAL: Enable snapping for the newly created layer
+        LayerManager.enable_layer_snapping(layer)
+        
         return layer
 
     @staticmethod
@@ -207,6 +312,7 @@ class LayerManager:
         layer.reload()
         layer.triggerRepaint()
         iface.mapCanvas().refresh()
+
 
 
 class MarkerFactory:
@@ -242,13 +348,12 @@ class LineEndpointManager:
         self.is_active = False
         self.start_point_marker = None
         self.end_point_marker = None
-        self.manual_mode = False  # Flag to indicate manual segment display
+        self.manual_mode = False
 
     def activate(self):
         if self.is_active:
             return
         self.is_active = True
-        # Only connect to layer changes if not in manual mode
         if not self.manual_mode:
             iface.layerTreeView().currentLayerChanged.connect(self.on_layer_changed)
             current_layer = iface.activeLayer()
@@ -266,8 +371,7 @@ class LineEndpointManager:
             pass
         if self.current_layer:
             try:
-                self.current_layer.selectionChanged.disconnect(
-                    self.update_display)
+                self.current_layer.selectionChanged.disconnect(self.update_display)
             except (TypeError, AttributeError):
                 pass
         self.clear_display()
@@ -277,7 +381,6 @@ class LineEndpointManager:
         if not self.is_active or self.manual_mode:
             return
 
-        # Check if layer is a vector layer and is a line layer
         if not layer or layer.type() != QgsMapLayer.VectorLayer:
             self.current_layer = None
             self.clear_display()
@@ -285,8 +388,7 @@ class LineEndpointManager:
 
         if self.current_layer:
             try:
-                self.current_layer.selectionChanged.disconnect(
-                    self.update_display)
+                self.current_layer.selectionChanged.disconnect(self.update_display)
             except (TypeError, AttributeError):
                 pass
 
@@ -300,7 +402,6 @@ class LineEndpointManager:
             self.current_layer = None
 
     def update_display(self):
-        """Update endpoint markers based on selected line features"""
         if not self.is_active or self.manual_mode:
             return
         self.clear_display()
@@ -317,17 +418,16 @@ class LineEndpointManager:
             self.start_point_marker = MarkerFactory.create_vertex_marker(
                 self.map_canvas, start_point, QColor(0, 0, 0), QColor(0, 255, 0, 200), 11)
             self.start_point_marker.setPenWidth(1)
-            self.start_point_marker.show()  # Explicitly show marker
+            self.start_point_marker.show()
 
             self.end_point_marker = MarkerFactory.create_vertex_marker(
                 self.map_canvas, end_point, QColor(0, 0, 0), QColor(255, 0, 0, 200), 11)
             self.end_point_marker.setPenWidth(1)
-            self.end_point_marker.show()  # Explicitly show marker
+            self.end_point_marker.show()
 
             self.map_canvas.refresh()
 
     def clear_display(self):
-        """Clear endpoint markers from canvas"""
         if self.start_point_marker:
             try:
                 self.start_point_marker.hide()
@@ -344,26 +444,20 @@ class LineEndpointManager:
             self.end_point_marker = None
 
     def display_segment_endpoints(self, start_point, end_point):
-        """Display markers at segment endpoints - MANUAL MODE"""
-        # Enter manual mode to prevent automatic updates from clearing these
         self.manual_mode = True
 
-        # Disconnect from layer changes temporarily
         try:
             iface.layerTreeView().currentLayerChanged.disconnect(self.on_layer_changed)
         except (TypeError, AttributeError):
             pass
         if self.current_layer:
             try:
-                self.current_layer.selectionChanged.disconnect(
-                    self.update_display)
+                self.current_layer.selectionChanged.disconnect(self.update_display)
             except (TypeError, AttributeError):
                 pass
 
-        # Clear old markers
         self.clear_display()
 
-        # Create new markers
         if start_point and end_point:
             self.start_point_marker = MarkerFactory.create_vertex_marker(
                 self.map_canvas, start_point, QColor(0, 0, 0), QColor(0, 255, 0, 200), 11)
@@ -375,7 +469,6 @@ class LineEndpointManager:
             self.end_point_marker.setPenWidth(1)
             self.end_point_marker.show()
 
-            # Force markers to stay on top
             self.map_canvas.scene().update()
 
     def cleanup(self):
@@ -400,11 +493,8 @@ class TrianglePointTool(QgsMapTool):
         self.temp_line = QgsRubberBand(canvas, QgsWkbTypes.LineGeometry)
         self.temp_line.setColor(QColor(0, 0, 255, 100))
         self.temp_line.setWidth(1)
-
-        # Qt5/Qt6 compatible pen style and cursor
         self.temp_line.setLineStyle(QtCompat.get_pen_style('DashLine'))
         self.setCursor(QtCompat.get_cursor_shape('CrossCursor'))
-
         self.snapping_utils = canvas.snappingUtils()
         self.snap_marker = MarkerFactory.create_snap_marker(canvas)
 
@@ -427,8 +517,7 @@ class TrianglePointTool(QgsMapTool):
             self.use_fixed_length = False
             self.triangle_widget.select_points_button.setEnabled(True)
             self.triangle_widget.select_points_button.setText("Select Points")
-            self.triangle_widget.status_label.setText(
-                "Click 'Select Points' to start")
+            self.triangle_widget.status_label.setText("Click 'Select Points' to start")
         super().deactivate()
 
     def keyPressEvent(self, event):
@@ -437,8 +526,7 @@ class TrianglePointTool(QgsMapTool):
             self.show_length_dialog()
         elif event.key() == QtCompat.get_key('Key_Escape'):
             self.clear()
-            self.triangle_widget.status_label.setText(
-                "Operation cancelled. Click 'Select Points' to start.")
+            self.triangle_widget.status_label.setText("Operation cancelled. Click 'Select Points' to start.")
             self.triangle_widget.clear_points()
         else:
             super().keyPressEvent(event)
@@ -461,13 +549,11 @@ class TrianglePointTool(QgsMapTool):
         unit_layout.addWidget(QLabel("Unit:"))
         unit_combo = QComboBox()
         unit_combo.addItems(list(UNIT_CONVERSIONS.keys()))
-        unit_combo.setCurrentText(
-            self.triangle_widget.unit_combo.currentText())
+        unit_combo.setCurrentText(self.triangle_widget.unit_combo.currentText())
         unit_combo.setMinimumWidth(150)
         unit_layout.addWidget(unit_combo)
         layout.addLayout(unit_layout)
-        button_box = QDialogButtonBox(
-            QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         button_box.accepted.connect(dialog.accept)
         button_box.rejected.connect(dialog.reject)
         layout.addWidget(button_box)
@@ -480,56 +566,91 @@ class TrianglePointTool(QgsMapTool):
             self.triangle_widget.fixed_base_length = length
             self.triangle_widget.unit_combo.setCurrentText(unit)
             unit_abbrev = UnitConverter.get_abbreviation(unit)
-            self.triangle_widget.status_label.setText(
-                f"Length set to {length:.3f} {unit_abbrev}. Click to set direction.")
+            self.triangle_widget.status_label.setText(f"Length set to {length:.3f} {unit_abbrev}. Click to set direction.")
         else:
             self.use_fixed_length = False
 
     def canvasMoveEvent(self, event):
+        """FIXED: Now respects QGIS snapping settings"""
         if not self.is_selecting:
             return
-        match = self.snapping_utils.snapToMap(event.pos())
-        current_point = match.point() if match.isValid(
-        ) else self.toMapCoordinates(event.pos())
-        if match.isValid():
-            self.snap_marker.setCenter(current_point)
-            self.snap_marker.show()
+        
+        # Check if snapping is enabled in project settings
+        snap_config = QgsProject.instance().snappingConfig()
+        snapping_enabled = snap_config.enabled()
+        
+        current_point = None
+        
+        if snapping_enabled and self.snapping_utils:
+            # Try to snap to map features
+            match = self.snapping_utils.snapToMap(event.pos())
+            if match.isValid():
+                current_point = match.point()
+                self.snap_marker.setCenter(current_point)
+                self.snap_marker.show()
+            else:
+                # No snap found, use raw point
+                current_point = self.toMapCoordinates(event.pos())
+                self.snap_marker.hide()
         else:
+            # Snapping disabled, use raw point
+            current_point = self.toMapCoordinates(event.pos())
             self.snap_marker.hide()
-        if self.first_point is not None:
+        
+        if self.first_point is not None and current_point:
             self.temp_line.reset()
             self.temp_line.addPoint(self.first_point, False)
             if self.use_fixed_length:
-                distance = GeometryHelper.calculate_distance(
-                    self.first_point, current_point)
+                distance = GeometryHelper.calculate_distance(self.first_point, current_point)
                 if distance > 0:
                     base_length = UnitConverter.to_meters(
-                        self.triangle_widget.fixed_base_length, self.triangle_widget.unit_combo.currentText())
+                        self.triangle_widget.fixed_base_length, 
+                        self.triangle_widget.unit_combo.currentText()
+                    )
                     dx = current_point.x() - self.first_point.x()
                     dy = current_point.y() - self.first_point.y()
                     unit_dx, unit_dy = dx / distance, dy / distance
-                    preview_end = QgsPointXY(self.first_point.x(
-                    ) + unit_dx * base_length, self.first_point.y() + unit_dy * base_length)
+                    preview_end = QgsPointXY(
+                        self.first_point.x() + unit_dx * base_length,
+                        self.first_point.y() + unit_dy * base_length
+                    )
                     self.temp_line.addPoint(preview_end, True)
             else:
                 self.temp_line.addPoint(current_point, True)
 
     def canvasPressEvent(self, event):
+        """FIXED: Now respects QGIS snapping settings"""
         if not self.is_selecting:
             return
 
         if event.button() == QtCompat.get_mouse_button('RightButton'):
-            # Only reset if first point exists
             if self.first_point is not None:
-                # Reset but keep tool active in both cases
                 self.clear()
                 self.is_selecting = True
-                self.triangle_widget.status_label.setText(
-                    "Click first point on canvas")
+                self.triangle_widget.status_label.setText("Click first point on canvas")
             return
 
-        match = self.snapping_utils.snapToMap(event.pos())
-        point = match.point() if match.isValid() else self.toMapCoordinates(event.pos())
+        # Check if snapping is enabled in project settings
+        snap_config = QgsProject.instance().snappingConfig()
+        snapping_enabled = snap_config.enabled()
+        
+        point = None
+        
+        if snapping_enabled and self.snapping_utils:
+            # Try to snap to map features
+            match = self.snapping_utils.snapToMap(event.pos())
+            if match.isValid():
+                point = match.point()
+            else:
+                # No snap found, use raw point
+                point = self.toMapCoordinates(event.pos())
+        else:
+            # Snapping disabled, use raw point
+            point = self.toMapCoordinates(event.pos())
+        
+        if point is None:
+            return
+            
         if self.first_point is None:
             self.first_point = point
             marker = MarkerFactory.create_vertex_marker(
@@ -540,33 +661,39 @@ class TrianglePointTool(QgsMapTool):
         else:
             if self.use_fixed_length:
                 base_length = UnitConverter.to_meters(
-                    self.triangle_widget.fixed_base_length, self.triangle_widget.unit_combo.currentText())
+                    self.triangle_widget.fixed_base_length, 
+                    self.triangle_widget.unit_combo.currentText()
+                )
                 if base_length <= 0:
                     QMessageBox.warning(
-                        self.triangle_widget, "Invalid Length", "Base line length must be greater than 0.")
+                        self.triangle_widget, "Invalid Length", 
+                        "Base line length must be greater than 0.")
                     return
-                distance = GeometryHelper.calculate_distance(
-                    self.first_point, point)
+                distance = GeometryHelper.calculate_distance(self.first_point, point)
                 if distance == 0:
-                    QMessageBox.warning(self.triangle_widget, "Invalid Direction",
-                                        "Second point must be different from first point.")
+                    QMessageBox.warning(
+                        self.triangle_widget, "Invalid Direction",
+                        "Second point must be different from first point.")
                     return
                 dx = point.x() - self.first_point.x()
                 dy = point.y() - self.first_point.y()
                 unit_dx, unit_dy = dx / distance, dy / distance
-                second_point = QgsPointXY(self.first_point.x(
-                ) + unit_dx * base_length, self.first_point.y() + unit_dy * base_length)
+                second_point = QgsPointXY(
+                    self.first_point.x() + unit_dx * base_length,
+                    self.first_point.y() + unit_dy * base_length
+                )
             else:
-                base_length = GeometryHelper.calculate_distance(
-                    self.first_point, point)
+                base_length = GeometryHelper.calculate_distance(self.first_point, point)
                 if base_length == 0:
-                    QMessageBox.warning(self.triangle_widget, "Invalid Point",
-                                        "Second point must be different from first point.")
+                    QMessageBox.warning(
+                        self.triangle_widget, "Invalid Point",
+                        "Second point must be different from first point.")
                     return
                 second_point = point
                 current_unit = self.triangle_widget.unit_combo.currentText()
                 self.triangle_widget.fixed_base_length = UnitConverter.from_meters(
                     base_length, current_unit)
+            
             marker = MarkerFactory.create_vertex_marker(
                 self.canvas, second_point, QColor(255, 0, 0), QColor(255, 0, 0, 200))
             self.markers.append(marker)
@@ -574,11 +701,9 @@ class TrianglePointTool(QgsMapTool):
             self.base_line.addPoint(self.first_point, False)
             self.base_line.addPoint(second_point, True)
             self.temp_line.reset()
-            actual_length = GeometryHelper.calculate_distance(
-                self.first_point, second_point)
+            actual_length = GeometryHelper.calculate_distance(self.first_point, second_point)
             current_unit = self.triangle_widget.unit_combo.currentText()
-            display_length = UnitConverter.from_meters(
-                actual_length, current_unit)
+            display_length = UnitConverter.from_meters(actual_length, current_unit)
             unit_abbrev = UnitConverter.get_abbreviation(current_unit)
             self.use_fixed_length = False
             self.is_selecting = False
@@ -741,26 +866,29 @@ class TriangleWidget(QWidget):
 
     def draw_triangle(self):
         if self.start_point is None or self.end_point is None:
-            QMessageBox.critical(
-                self, "Error", "Please select two points first.")
+            QMessageBox.critical(self, "Error", "Please select two points first.")
             return
-        layer = iface.activeLayer()
-        if layer is None:
-            QMessageBox.critical(
-                self, "Error", "No active layer to determine CRS.")
-            return
+        
+        # Get CRS - use robust method instead of relying on active layer
+        crs = LayerManager.get_project_crs()  # <-- NEW FIX
+        
         start_length = UnitConverter.to_meters(
             self.start_length_input.value(), self.unit_combo.currentText())
         end_length = UnitConverter.to_meters(
             self.end_length_input.value(), self.unit_combo.currentText())
         apex_point = GeometryHelper.calculate_triangle_apex(
-            self.start_point, self.end_point, start_length, end_length, self.orientation_combo.currentText())
+            self.start_point, self.end_point, start_length, end_length, 
+            self.orientation_combo.currentText())
+        
         if not apex_point:
             QMessageBox.critical(
                 self, "Error", "Invalid side lengths. Triangle cannot be formed.")
             return
+        
+        # CRS is now guaranteed to be valid
         line_layer = LayerManager.get_or_create_layer(
-            "Triangle Lines", QgsWkbTypes.LineGeometry, layer.crs(), [QgsField("Type", QVariant.String)])
+            "Triangle Lines", QgsWkbTypes.LineGeometry, crs, 
+            [QgsField("Type", QVariant.String)])
         line_layer.startEditing()
 
         def add_line(start, end, line_type):
@@ -779,7 +907,7 @@ class TriangleWidget(QWidget):
             QMessageBox.warning(
                 self, "Warning", f"Some features may not have been saved: {errors}")
         LayerManager.update_layer_extent(line_layer)
-        iface.setActiveLayer(layer)
+        # iface.setActiveLayer(layer)
         self.triangle_rubber_band.reset()
         self.lines_drawn = True
         self.clear_points()
