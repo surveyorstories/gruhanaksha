@@ -18,6 +18,9 @@ from qgis.core import (
 from qgis.utils import iface
 from .addon_functions import TOOL_WINDOW_FLAGS
 
+from qgis.PyQt.QtWidgets import QLabel, QLineEdit, QCheckBox
+from qgis.core import QgsField, QgsPalLayerSettings, QgsTextFormat, QgsVectorLayerSimpleLabeling
+
 # ======================
 # Qt5/Qt6 Compatibility
 # ======================
@@ -277,9 +280,11 @@ class GeometryHelper:
 
 
 class LayerManager:
+    """Updated LayerManager with Label field support"""
+    
     @staticmethod
     def get_project_crs():
-        # ✅ PROJECT CRS AS FIRST PREFERENCE
+        # PROJECT CRS AS FIRST PREFERENCE
         project_crs = QgsProject.instance().crs()
         if project_crs.isValid():
             return project_crs
@@ -295,27 +300,65 @@ class LayerManager:
                 return lyr.crs()
 
         # Final fallback: WGS84
+        from qgis.core import QgsCoordinateReferenceSystem
         return QgsCoordinateReferenceSystem("EPSG:4326")
-
+    
     @staticmethod
     def get_or_create_layer(name, geom_type, crs, fields):
-        # ✅ CHECK EXISTING LAYER
+        # Check existing layer
         for lyr in QgsProject.instance().mapLayers().values():
             if lyr.name() == name and lyr.geometryType() == geom_type:
+                # Ensure Label field exists for Plotted Points
+                if name == "Plotted Points":
+                    field_names = [f.name() for f in lyr.fields()]
+                    if "Label" not in field_names:
+                        if not lyr.isEditable():
+                            lyr.startEditing()
+                        lyr.dataProvider().addAttributes([QgsField("Label", QVariant.String)])
+                        lyr.updateFields()
+                        lyr.commitChanges()
                 return lyr
 
-        # ✅ CREATE NEW LAYER WITH BUILT-IN SNAPPING
+        # Create new layer
         if not crs or not crs.isValid():
             crs = LayerManager.get_project_crs()
         geom_str = "LineString" if geom_type == QgsWkbTypes.LineGeometry else "Point"
         layer = QgsVectorLayer(f"{geom_str}?crs={crs.toWkt()}", name, "memory")
         layer.dataProvider().addAttributes(fields)
         layer.updateFields()
+        
+        # Enable labels for Plotted Points layer
+        if name == "Plotted Points":
+            LayerManager.enable_labels(layer)
+        
         QgsProject.instance().addMapLayer(layer)
         return layer
+    
+    @staticmethod
+    def enable_labels(layer):
+        """Enable labels for the layer using the Label field"""
+        label_settings = QgsPalLayerSettings()
+        label_settings.fieldName = "Label"
+        label_settings.enabled = True
+        
+        # Configure text format
+        text_format = QgsTextFormat()
+        text_format.setSize(10)
+        text_format.setColor(QColor(0, 0, 0))
+        label_settings.setFormat(text_format)
+        
+        # Set label placement
+        label_settings.placement = QgsPalLayerSettings.OrderedPositionsAroundPoint
+        label_settings.dist = 2
+        
+        # Apply labeling
+        labeling = QgsVectorLayerSimpleLabeling(label_settings)
+        layer.setLabeling(labeling)
+        layer.setLabelsEnabled(True)
 
     @staticmethod
     def apply_categorized_symbology(layer, categories_info):
+        from qgis.core import QgsMarkerSymbol, QgsRendererCategory, QgsCategorizedSymbolRenderer
         categories = []
         for info in categories_info:
             symbol = QgsMarkerSymbol.createSimple({
@@ -331,69 +374,11 @@ class LayerManager:
 
     @staticmethod
     def update_layer_extent(layer):
-        provider = layer.dataProvider()
-        if provider:
+        if provider := layer.dataProvider():
             provider.updateExtents()
         layer.updateExtents()
         layer.reload()
         layer.triggerRepaint()
-
-    @staticmethod
-    def save_temp_layer(parent, layer):
-        if layer.providerType() != "memory":
-            return True
-        if layer.isEditable():
-            reply = QMessageBox.question(
-                parent, 'Unsaved Changes',
-                f"The layer '{layer.name()}' has unsaved changes. Save before exporting?",
-                QtCompat.get_message_box_button('Yes') |
-                QtCompat.get_message_box_button('No') |
-                QtCompat.get_message_box_button('Cancel'),
-                QtCompat.get_message_box_button('Yes')
-            )
-            if reply == QtCompat.get_message_box_button('Cancel'):
-                return False
-            elif reply == QtCompat.get_message_box_button('Yes'):
-                if not layer.commitChanges():
-                    QMessageBox.warning(
-                        parent, "Commit Error", f"Failed: {layer.commitErrors()}")
-                    return False
-            else:
-                layer.rollBack()
-
-        path, _ = QFileDialog.getSaveFileName(
-            parent, f"Save {layer.name()}", layer.name(),
-            "ESRI Shapefile (*.shp);;GeoJSON (*.geojson);;GPKG (*.gpkg)"
-        )
-        if not path:
-            return False
-
-        fmt_map = {".shp": "ESRI Shapefile",
-                   ".geojson": "GeoJSON", ".gpkg": "GPKG"}
-        fmt = next((v for k, v in fmt_map.items() if path.endswith(k)), None)
-        if not fmt:
-            QMessageBox.critical(parent, "Error", "Unsupported format.")
-            return False
-
-        opts = QgsVectorFileWriter.SaveVectorOptions()
-        opts.driverName = fmt
-        opts.fileEncoding = "UTF-8"
-        err = QgsVectorFileWriter.writeAsVectorFormatV3(
-            layer, path, QgsProject.instance().transformContext(), opts
-        )
-        if err[0] != QgsVectorFileWriter.NoError:
-            QMessageBox.critical(parent, "Save Error", f"Error code: {err[0]}")
-            return False
-
-        QMessageBox.information(parent, "Success", f"Saved to {path}!")
-        new_layer = QgsVectorLayer(path, layer.name(), "ogr")
-        if new_layer.isValid():
-            new_layer.setRenderer(layer.renderer().clone())
-            QgsProject.instance().addMapLayer(new_layer)
-            QgsProject.instance().removeMapLayer(layer.id())
-            return True
-        QMessageBox.warning(parent, "Warning", "Failed to reload saved layer.")
-        return False
 
 
 class MarkerFactory:
@@ -1228,14 +1213,20 @@ class TriangleWidget(QWidget):
 
 
 class PlotterWidget(QWidget):
+    """Complete PlotterWidget with numbering system"""
+    
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setMinimumWidth(220)
-        self.endpoint_manager = LineEndpointManager()
-        self.segment_tool = SegmentSelectTool(iface.mapCanvas(), self)
+        # Import these from your original code
+        from qgis.utils import iface
+        self.endpoint_manager = LineEndpointManager()  # Make sure this is imported
+        self.segment_tool = SegmentSelectTool(iface.mapCanvas(), self)  # Make sure this is imported
         self.current_layer = None
         self.current_segment = None
         self.points_drawn = False
+        self.current_label = self.get_highest_label_from_layer()  # Get highest from layer
+        self.auto_increment = True
         self.setup_ui()
 
     def setup_ui(self):
@@ -1248,8 +1239,7 @@ class PlotterWidget(QWidget):
 
         btn_layout = QHBoxLayout()
         self.select_segment_button = QPushButton("Select Segment")
-        self.select_segment_button.clicked.connect(
-            self.start_segment_selection)
+        self.select_segment_button.clicked.connect(self.start_segment_selection)
         btn_layout.addWidget(self.select_segment_button)
         self.clear_segment_button = QPushButton("Clear Segment")
         self.clear_segment_button.clicked.connect(self.clear_segment)
@@ -1259,6 +1249,7 @@ class PlotterWidget(QWidget):
 
         layout.addWidget(QLabel("Units:"))
         self.unit_combo = QComboBox()
+        # Make sure UNIT_CONVERSIONS is imported from your original code
         self.unit_combo.addItems(list(UNIT_CONVERSIONS.keys()))
         layout.addWidget(self.unit_combo)
 
@@ -1279,16 +1270,105 @@ class PlotterWidget(QWidget):
         self.offset_input.setRange(-1e6, 1e6)
         layout.addWidget(self.offset_input)
 
+        # NEW: Point Label input
+        label_layout = QHBoxLayout()
+        label_layout.addWidget(QLabel("Point Label:"))
+        self.label_input = QLineEdit()
+        self.label_input.setText(self.current_label)
+        self.label_input.setMaxLength(20)
+        self.label_input.textChanged.connect(self.on_label_changed)
+        label_layout.addWidget(self.label_input)
+        layout.addLayout(label_layout)
+
+        # NEW: Auto-increment checkbox
+        self.auto_increment_check = QCheckBox("Auto-increment label")
+        self.auto_increment_check.setChecked(True)
+        self.auto_increment_check.stateChanged.connect(self.on_auto_increment_changed)
+        layout.addWidget(self.auto_increment_check)
+
         self.plot_button = QPushButton("Plot")
         self.plot_button.clicked.connect(self.plot)
         self.plot_button.setEnabled(False)
         layout.addWidget(self.plot_button)
 
+        # Import QtCompat from your original code
         layout.setAlignment(QtCompat.get_alignment('AlignTop'))
         self.setLayout(layout)
         self.clearFocus()
 
+    def on_label_changed(self, text):
+        """Update current label when user changes it"""
+        self.current_label = text
+
+    def on_auto_increment_changed(self, state):
+        """Toggle auto-increment behavior"""
+        self.auto_increment = (state == Qt.Checked)
+
+    def get_highest_label_from_layer(self):
+        """Get the highest label from the existing Plotted Points layer and increment it"""
+        layer = None
+        for lyr in QgsProject.instance().mapLayers().values():
+            if lyr.name() == "Plotted Points" and lyr.geometryType() == QgsWkbTypes.PointGeometry:
+                layer = lyr
+                break
+        
+        if not layer or layer.featureCount() == 0:
+            return "1"
+        
+        # Collect all labels and find the highest
+        numeric_labels = []
+        alpha_labels = []
+        alphanumeric_labels = {}
+        
+        for feature in layer.getFeatures():
+            label = feature.attribute("Label")
+            if not label or label == "":
+                continue
+            
+            label = str(label).strip()
+            
+            # Check if purely numeric
+            if label.isdigit():
+                numeric_labels.append(int(label))
+            # Check if purely alphabetic
+            elif label.isalpha():
+                alpha_labels.append(label)
+            # Alphanumeric
+            else:
+                # Extract prefix and number
+                i = len(label) - 1
+                while i >= 0 and label[i].isdigit():
+                    i -= 1
+                if i < len(label) - 1:
+                    prefix = label[:i+1]
+                    number = int(label[i+1:])
+                    if prefix not in alphanumeric_labels or number > alphanumeric_labels[prefix]:
+                        alphanumeric_labels[prefix] = number
+        
+        # Determine the highest label and increment
+        if numeric_labels:
+            # Return highest number + 1
+            return str(max(numeric_labels) + 1)
+        elif alphanumeric_labels:
+            # Return the prefix with highest number + 1
+            max_prefix = max(alphanumeric_labels.items(), key=lambda x: x[1])
+            return f"{max_prefix[0]}{max_prefix[1] + 1}"
+        elif alpha_labels:
+            # Return the highest alphabetic label incremented
+            max_alpha = max(alpha_labels)
+            if len(max_alpha) == 1:
+                if max_alpha.isupper():
+                    next_char = chr(ord(max_alpha) + 1) if ord(max_alpha) < ord('Z') else 'AA'
+                else:
+                    next_char = chr(ord(max_alpha) + 1) if ord(max_alpha) < ord('z') else 'aa'
+                return next_char
+            else:
+                return max_alpha + "1"
+        
+        return "1"
+
     def start_segment_selection(self):
+        from qgis.utils import iface
         self.status_label.setText("Click on a line segment on the canvas.")
         self.segment_tool.activate()
         iface.mapCanvas().setMapTool(self.segment_tool)
@@ -1299,9 +1379,11 @@ class PlotterWidget(QWidget):
         self.raise_()
 
     def set_selected_segment(self, layer, start, end):
+        from qgis.utils import iface
         self.current_layer = layer
         self.current_segment = [start, end]
         crs = LayerManager.get_project_crs()
+        # Import GeometryHelper and UnitConverter from your original code
         length = GeometryHelper.calculate_distance(start, end, crs)
         unit = self.unit_combo.currentText()
         display_len = UnitConverter.from_meters(length, unit)
@@ -1317,6 +1399,7 @@ class PlotterWidget(QWidget):
         self.raise_()
 
     def clear_segment(self):
+        from qgis.utils import iface
         self.current_layer = self.current_segment = None
         self.plot_button.setEnabled(False)
         self.status_label.setText("Click 'Select Segment' to start.")
@@ -1330,8 +1413,12 @@ class PlotterWidget(QWidget):
 
     def activate(self):
         self.endpoint_manager.activate()
+        # Update label from layer when widget is activated
+        self.current_label = self.get_highest_label_from_layer()
+        self.label_input.setText(self.current_label)
 
     def deactivate(self):
+        from qgis.utils import iface
         if iface.mapCanvas().mapTool() == self.segment_tool:
             self.segment_tool.deactivate()
             iface.mapCanvas().unsetMapTool(self.segment_tool)
@@ -1344,91 +1431,179 @@ class PlotterWidget(QWidget):
         self.endpoint_manager.deactivate()
         iface.mapCanvas().refresh()
 
+    def increment_label(self, label, existing_labels=None):
+        """
+        Increment label intelligently:
+        - Numbers: 1 -> 2 -> 3
+        - Letters: A -> B -> C or a -> b -> c
+        - Alphanumeric: A1 -> A2 -> A3 or AB1 -> AB2
+        """
+        if not label:
+            return "1"
+        
+        # Check if it's purely numeric
+        if label.isdigit():
+            next_num = int(label) + 1
+            if existing_labels:
+                while str(next_num) in existing_labels:
+                    next_num += 1
+            return str(next_num)
+        
+        # Check if it's purely alphabetic
+        if label.isalpha():
+            if len(label) == 1:
+                # Single letter
+                if label.isupper():
+                    next_char = chr(ord(label) + 1) if ord(label) < ord('Z') else 'A'
+                else:
+                    next_char = chr(ord(label) + 1) if ord(label) < ord('z') else 'a'
+                if existing_labels:
+                    while next_char in existing_labels:
+                        if next_char.isupper():
+                            next_char = chr(ord(next_char) + 1) if ord(next_char) < ord('Z') else 'A'
+                        else:
+                            next_char = chr(ord(next_char) + 1) if ord(next_char) < ord('z') else 'a'
+                return next_char
+        
+        # Alphanumeric: find the trailing number
+        i = len(label) - 1
+        while i >= 0 and label[i].isdigit():
+            i -= 1
+        
+        if i < len(label) - 1:
+            # Has trailing numbers
+            prefix = label[:i+1]
+            number = int(label[i+1:])
+            next_num = number + 1
+            next_label = f"{prefix}{next_num}"
+            if existing_labels:
+                while next_label in existing_labels:
+                    next_num += 1
+                    next_label = f"{prefix}{next_num}"
+            return next_label
+        
+        # No trailing number, add "1"
+        next_label = f"{label}1"
+        if existing_labels:
+            num = 1
+            while f"{label}{num}" in existing_labels:
+                num += 1
+            next_label = f"{label}{num}"
+        return next_label
+
     def plot(self):
         if not self.current_segment:
-            QMessageBox.critical(
-                self, "Error", "Please select a segment first.")
+            QMessageBox.critical(self, "Error", "Please select a segment first.")
             return
 
+        # Create or get layer with Label field
+        fields = [QgsField("Type", QVariant.String), QgsField("Label", QVariant.String)]
         layer = LayerManager.get_or_create_layer(
-            "Plotted Points", QgsWkbTypes.PointGeometry, LayerManager.get_project_crs(), [
-                QgsField("Type", QVariant.String)]
+            "Plotted Points", QgsWkbTypes.PointGeometry, LayerManager.get_project_crs(), fields
         )
         LayerManager.apply_categorized_symbology(layer, POINT_CATEGORIES)
         if not layer.isEditable():
             layer.startEditing()
 
         unit = self.unit_combo.currentText()
+        # Import UnitConverter from your original code
         offset_m = UnitConverter.to_meters(self.offset_input.value(), unit)
         cut_m = UnitConverter.to_meters(self.cut_point_input.value(), unit)
         choice = self.point_combo.currentIndex()
 
-        self._process_line_part(self.current_segment,
-                                layer, cut_m, offset_m, choice)
+        # Get current label
+        current_label = self.label_input.text().strip()
+        if not current_label:
+            current_label = self.current_label
+
+        # Track if we actually added a labeled point
+        label_was_used = self._process_line_part(self.current_segment, layer, cut_m, offset_m, choice, current_label)
+        
         LayerManager.update_layer_extent(layer)
         self.points_drawn = True
 
+        # Only auto-increment label if it was actually used on a point
+        if self.auto_increment and label_was_used:
+            existing_labels = set()
+            for feature in layer.getFeatures():
+                label = feature.attribute("Label")
+                if label:
+                    existing_labels.add(str(label))
+            
+            next_label = self.increment_label(current_label, existing_labels)
+            self.current_label = next_label
+            self.label_input.setText(next_label)
+
         self.cut_point_input.setValue(0.0)
         self.offset_input.setValue(0.0)
-        # self.unit_combo.setCurrentText("Meters")
-        # self.point_combo.setCurrentIndex(0)
         self.status_label.setText("Points added to 'Plotted Points' layer.")
         self.cut_point_input.setFocus()
         self.cut_point_input.selectAll()
 
-    def _process_line_part(self, part, layer, cut_m, offset_m, choice_idx):
+    def _process_line_part(self, part, layer, cut_m, offset_m, choice_idx, label):
         crs = LayerManager.get_project_crs()
         start, end = part[0], part[-1]
         if choice_idx == 1:
-            start, end = end, start  # Reverse for end point choice
+            start, end = end, start
+        # Import GeometryHelper from your original code
         line_len = GeometryHelper.calculate_distance(start, end, crs)
 
         if cut_m < 0 or cut_m > line_len:
-            self._handle_extended_point(
-                start, end, cut_m, offset_m, line_len, layer, crs)
+            return self._handle_extended_point(start, end, cut_m, offset_m, line_len, layer, crs, label)
         else:
-            self._handle_normal_cut_point(
-                start, end, cut_m, offset_m, layer, crs)
+            return self._handle_normal_cut_point(start, end, cut_m, offset_m, layer, crs, label)
 
-    def _handle_normal_cut_point(self, start, end, cut_m, offset_m, layer, crs):
+    def _handle_normal_cut_point(self, start, end, cut_m, offset_m, layer, crs, label):
+        # Import GeometryHelper from your original code
         cut_pt = GeometryHelper.interpolate_line(start, end, cut_m, crs)
         ptype = "Bisect Point" if offset_m == 0 else "Cut Point"
-        self._add_point(layer, cut_pt, ptype)
+        point_label = "" if ptype in ["Cut Point", "Bisect Point"] else label
+        self._add_point(layer, cut_pt, ptype, point_label)
 
         if offset_m != 0:
-            offset_pt = GeometryHelper.project_perpendicular(
-                cut_pt, start, end, offset_m, crs)
-            self._add_point(layer, offset_pt, "Offset Point")
+            offset_pt = GeometryHelper.project_perpendicular(cut_pt, start, end, offset_m, crs)
+            self._add_point(layer, offset_pt, "Offset Point", label)
+            return True  # Label was used on offset point
+        
+        return False  # No label was used (Bisect/Cut point only)
 
-    def _handle_extended_point(self, start, end, cut_m, offset_m, line_len, layer, crs):
+    def _handle_extended_point(self, start, end, cut_m, offset_m, line_len, layer, crs, label):
         if line_len == 0:
-            return
+            return False
 
+        # Import GeometryHelper from your original code
         extended = GeometryHelper.interpolate_line(start, end, cut_m, crs)
         ptype = "Bisect Point" if offset_m == 0 else "Extended Point"
-        self._add_point(layer, extended, ptype)
+        point_label = "" if ptype == "Bisect Point" else label
+        self._add_point(layer, extended, ptype, point_label)
 
         if offset_m != 0:
-            offset_pt = GeometryHelper.project_perpendicular(
-                extended, start, end, offset_m, crs)
-            self._add_point(layer, offset_pt, "Offset Point")
+            offset_pt = GeometryHelper.project_perpendicular(extended, start, end, offset_m, crs)
+            self._add_point(layer, offset_pt, "Offset Point", label)
+            return True  # Label was used
+        
+        # Label was used on Extended Point (but not on Bisect Point)
+        return ptype == "Extended Point"
 
-    def _add_point(self, layer, point, ptype):
+    def _add_point(self, layer, point, ptype, label=""):
+        """Add point with Type and Label attributes"""
         feat = QgsFeature(layer.fields())
         geom = QgsGeometry.fromPointXY(point)
         if geom.isNull() or not geom.isGeosValid():
             return False
         feat.setGeometry(geom)
-        feat.setAttributes([ptype])
+        feat.setAttributes([ptype, label])
         return layer.addFeature(feat)
 
     def keyPressEvent(self, event):
+        # Import QtCompat from your original code
         if event.key() in [QtCompat.get_key('Key_Enter'), QtCompat.get_key('Key_Return')] and self.plot_button.isEnabled():
             self.plot()
         else:
             super().keyPressEvent(event)
 
     def cleanup(self):
+        from qgis.utils import iface
         if iface.mapCanvas().mapTool() == self.segment_tool:
             self.segment_tool.deactivate()
             iface.mapCanvas().unsetMapTool(self.segment_tool)

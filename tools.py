@@ -26,6 +26,9 @@ from .fmb import TriangleWidget, PlotterWidget,  CombinedMainWidget
 from .freehand_adjuster import activate_vertex_tool
 from .autosaveandbackup import BackupPlugin
 from .polygon_adjuster import activate_unified_tool
+from .pointinput import PointInputDialog
+from .aligner import init_align_tool
+from .kmz import KMZExporterDialog
 
 # make top level widget
 from .addon_functions import TOOL_WINDOW_FLAGS, STAY_ON_TOP_FLAG
@@ -65,6 +68,12 @@ class ToolWidget(QWidget):
 
         # Initialize backup_plugin as None - will be created on first use
         self.backup_plugin = None
+        
+        # Initialize point_input_dialog as None
+        self.point_input_dialog = None
+
+        # Initialize kmz_dialog as None
+        self.kmz_dialog = None
 
         main_layout = QVBoxLayout(self)
 
@@ -97,12 +106,33 @@ class ToolWidget(QWidget):
         self.backup_button.setStyleSheet(
             "background-color: #020507 ; color: white")
 
+        self.aligner_button = QPushButton(
+            QIcon(os.path.join(cmd_folder, 'images/aligner.svg')), 'Aligner')
+        self.aligner_button.setToolTip("Open Aligner Tool")
+        self.aligner_button.setStyleSheet(
+            "background-color: #020507 ; color: white")
+
+        self.point_input_button = QPushButton(
+            QIcon(os.path.join(cmd_folder, 'images/add_point.svg')), 'Point Input')
+        self.point_input_button.setToolTip("Open Point Input Tool")
+        self.point_input_button.setStyleSheet(
+            "background-color: #020507 ; color: white")
+
+        self.kmz_button = QPushButton(
+            QIcon(os.path.join(cmd_folder, 'images/export.svg')), 'KMZ')
+        self.kmz_button.setToolTip("Open KMZ Exporter Tool")
+        self.kmz_button.setStyleSheet(
+            "background-color: #020507 ; color: white")
+
         # Connect button actions
         self.plotter_button.clicked.connect(self.combined_button_clicked)
         self.adjuster_button.clicked.connect(self.adjuster_button_clicked)
         self.free_adjuster_button.clicked.connect(
             self.free_adjuster_button_clicked)
         self.backup_button.clicked.connect(self.backup_button_clicked)
+        self.aligner_button.clicked.connect(self.aligner_button_clicked)
+        self.point_input_button.clicked.connect(self.point_input_button_clicked)
+        self.kmz_button.clicked.connect(self.kmz_button_clicked)
 
         # Layout for the first row of buttons
         row1_layout = QHBoxLayout()
@@ -113,10 +143,17 @@ class ToolWidget(QWidget):
         # Layout for the second row of buttons
         row2_layout = QHBoxLayout()
         row2_layout.addWidget(self.backup_button)
+        row2_layout.addWidget(self.aligner_button)
+        row2_layout.addWidget(self.point_input_button)
+
+        # Layout for the third row of buttons
+        row3_layout = QHBoxLayout()
+        row3_layout.addWidget(self.kmz_button)
 
         # Add rows to the main group layout
         group_layout.addLayout(row1_layout)
         group_layout.addLayout(row2_layout)
+        group_layout.addLayout(row3_layout)
 
         group_box.setLayout(group_layout)
         main_layout.addWidget(group_box)
@@ -151,9 +188,32 @@ class ToolWidget(QWidget):
     def free_adjuster_button_clicked(self):
         activate_vertex_tool()
 
+    def aligner_button_clicked(self):
+        init_align_tool()
+
+    def point_input_button_clicked(self):
+        try:
+            # Create dialog if it doesn't exist or has been closed
+            if self.point_input_dialog is None or not self.point_input_dialog.isVisible():
+                self.point_input_dialog = PointInputDialog(iface)
+            self.point_input_dialog.show()
+            self.point_input_dialog.activateWindow()
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"An error occurred: {e}")
+
     def combined_button_clicked(self):
         try:
             combined_window.show()
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"An error occurred: {e}")
+
+    def kmz_button_clicked(self):
+        try:
+            if self.kmz_dialog is None or not self.kmz_dialog.isVisible():
+                self.kmz_dialog = KMZExporterDialog()
+            self.kmz_dialog.show()
+            self.kmz_dialog.raise_()
+            self.kmz_dialog.activateWindow()
         except Exception as e:
             QMessageBox.critical(self, "Error", f"An error occurred: {e}")
 

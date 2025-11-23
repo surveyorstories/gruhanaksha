@@ -11,121 +11,107 @@ try:
     from qgis.PyQt.QtCore import QTimer, Qt, QThread, pyqtSignal
     from qgis.PyQt.QtWidgets import (
         QWidget, QVBoxLayout, QHBoxLayout, QLabel, QSpinBox, QPushButton,
-        QMessageBox, QFileDialog, QRadioButton, QButtonGroup, QListWidget, QTabWidget,
+        QMessageBox, QFileDialog, QRadioButton, QButtonGroup, QListWidget,
         QListWidgetItem, QCheckBox, QFrame, QSystemTrayIcon, QWidgetAction,
-        QTextEdit
+        QTextEdit, QTabWidget
     )
     from qgis.PyQt.QtGui import QFont, QIcon
     from qgis.core import QgsProject, QgsVectorLayer, Qgis
 except ImportError:
-    # Fallback for different Qt versions
     try:
         from PyQt5.QtCore import QTimer, Qt, QThread, pyqtSignal
-        from PyQt5.QtWidgets import (
-            QWidget, QVBoxLayout, QHBoxLayout, QLabel, QSpinBox, QPushButton,
-            QMessageBox, QFileDialog, QRadioButton, QButtonGroup, QListWidget,
-            QListWidgetItem, QCheckBox, QFrame, QSystemTrayIcon, QWidgetAction,
-            QTextEdit
-        )
+        from PyQt5.QtWidgets import *
         from PyQt5.QtGui import QFont
     except ImportError:
         from PyQt6.QtCore import QTimer, Qt, QThread, pyqtSignal
-        from PyQt6.QtWidgets import (
-            QWidget, QVBoxLayout, QHBoxLayout, QLabel, QSpinBox, QPushButton,
-            QMessageBox, QFileDialog, QRadioButton, QButtonGroup, QListWidget,
-            QListWidgetItem, QCheckBox, QFrame, QSystemTrayIcon, QWidgetAction,
-            QTextEdit
-        )
+        from PyQt6.QtWidgets import *
         from PyQt6.QtGui import QFont
 
 
-class BackupThread(QThread):
-    """Thread for performing backup operations without blocking UI"""
-    finished = pyqtSignal(bool, str, list)
-    progress = pyqtSignal(str)
+class QtCompat:
+    """Qt version compatibility helper"""
 
-    def __init__(self, backup_func, *args, **kwargs):
-        super().__init__()
-        self.backup_func = backup_func
-        self.args = args
-        self.kwargs = kwargs
-
-    def run(self):
+    @staticmethod
+    def _get_enum(parent, enum_class, attr_name):
+        """Helper to get enum value from Qt5 or Qt6"""
         try:
-            result = self.backup_func(*self.args, **self.kwargs)
-            if result:
-                success, message, files = result
-                self.finished.emit(success, message, files)
-            else:
-                self.finished.emit(False, "Backup failed", [])
-        except Exception as e:
-            self.finished.emit(False, "Backup error: {}".format(str(e)), [])
+            # Qt6: Try enum class approach
+            if hasattr(parent, enum_class):
+                enum = getattr(parent, enum_class)
+                if hasattr(enum, attr_name):
+                    return getattr(enum, attr_name)
+            # Qt5: Direct attribute
+            if hasattr(parent, attr_name):
+                return getattr(parent, attr_name)
+        except:
+            pass
+        # Final fallback
+        return getattr(parent, attr_name)
 
+    @classmethod
+    def checked(cls):
+        return cls._get_enum(Qt, 'CheckState', 'Checked')
 
-# Qt version compatibility helpers
-def get_qt_checkstate_checked():
-    """Get the Checked state constant for current Qt version"""
-    try:
-        return Qt.CheckState.Checked
-    except AttributeError:
-        return Qt.Checked
+    @classmethod
+    def unchecked(cls):
+        return cls._get_enum(Qt, 'CheckState', 'Unchecked')
 
+    @classmethod
+    def user_role(cls):
+        return cls._get_enum(Qt, 'ItemDataRole', 'UserRole')
 
-def get_qt_checkstate_unchecked():
-    """Get the Unchecked state constant for current Qt version"""
-    try:
-        return Qt.CheckState.Unchecked
-    except AttributeError:
-        return Qt.Unchecked
+    @classmethod
+    def text_interaction(cls):
+        return cls._get_enum(Qt, 'TextInteractionFlag', 'TextBrowserInteraction')
 
+    @classmethod
+    def pointing_cursor(cls):
+        return cls._get_enum(Qt, 'CursorShape', 'PointingHandCursor')
 
-def get_qt_user_role():
-    """Get the UserRole constant for current Qt version"""
-    try:
-        return Qt.ItemDataRole.UserRole
-    except AttributeError:
-        return Qt.UserRole
+    @classmethod
+    def hline(cls):
+        return cls._get_enum(QFrame, 'Shape', 'HLine')
 
+    @classmethod
+    def sunken(cls):
+        return cls._get_enum(QFrame, 'Shadow', 'Sunken')
 
-def get_qt_text_interaction():
-    """Get the TextBrowserInteraction constant for current Qt version"""
-    try:
-        return Qt.TextInteractionFlag.TextBrowserInteraction
-    except AttributeError:
-        return Qt.TextBrowserInteraction
+    @classmethod
+    def window_flags(cls):
+        try:
+            # Qt6
+            if hasattr(Qt, 'WindowType'):
+                return (Qt.WindowType.Window | Qt.WindowType.WindowTitleHint |
+                        Qt.WindowType.WindowMinimizeButtonHint | Qt.WindowType.WindowCloseButtonHint |
+                        Qt.WindowType.CustomizeWindowHint)
+        except:
+            pass
+        # Qt5
+        return (Qt.Window | Qt.WindowTitleHint | Qt.WindowMinimizeButtonHint |
+                Qt.WindowCloseButtonHint | Qt.CustomizeWindowHint)
 
+    @classmethod
+    def stay_on_top(cls):
+        return cls._get_enum(Qt, 'WindowType', 'WindowStaysOnTopHint')
 
-def get_qt_cursor():
-    """Get the PointingHandCursor constant for current Qt version"""
-    try:
-        return Qt.CursorShape.PointingHandCursor
-    except AttributeError:
-        return Qt.PointingHandCursor
+    @classmethod
+    def double_click(cls):
+        return cls._get_enum(QSystemTrayIcon, 'ActivationReason', 'DoubleClick')
 
+    @classmethod
+    def info_icon(cls):
+        return cls._get_enum(QSystemTrayIcon, 'MessageIcon', 'Information')
 
-def get_frame_shape():
-    """Get the HLine shape constant for current Qt version"""
-    try:
-        return QFrame.Shape.HLine
-    except AttributeError:
-        return QFrame.HLine
-
-
-def get_frame_shadow():
-    """Get the Sunken shadow constant for current Qt version"""
-    try:
-        return QFrame.Shadow.Sunken
-    except AttributeError:
-        return QFrame.Sunken
+    @classmethod
+    def warning_icon(cls):
+        return cls._get_enum(QSystemTrayIcon, 'MessageIcon', 'Warning')
 
 
 def get_icon(name):
     """Return QIcon that works in both Qt5 and Qt6."""
     plugin_dir = os.path.dirname(__file__)
     icon_path = os.path.join(plugin_dir, "images", name)
-    if not os.path.exists(icon_path):
-        print(f"⚠️ Icon not found: {icon_path}")
-    return QIcon(icon_path)
+    return QIcon(icon_path) if os.path.exists(icon_path) else QIcon()
 
 
 class ToolbarTimerWidget(QWidget):
@@ -153,15 +139,7 @@ class ToolbarTimerWidget(QWidget):
         font.setPointSize(9)
         font.setBold(True)
         self.timer_label.setFont(font)
-        self.timer_label.setStyleSheet("""
-            QLabel {
-                color: #2196F3;
-                padding: 2px 6px;
-                background-color: #E3F2FD;
-                border-radius: 3px;
-                border: 1px solid #90CAF9;
-            }
-        """)
+        self.set_timer_color('blue')
 
         # Status label
         self.status_label = QLabel("Backup Active")
@@ -175,114 +153,96 @@ class ToolbarTimerWidget(QWidget):
         layout.addWidget(self.status_label)
 
         self.setLayout(layout)
-        self.setCursor(get_qt_cursor())
+        self.setCursor(QtCompat.pointing_cursor())
         self.setToolTip("Click to open Backup Manager\nNext backup countdown")
 
+    def set_timer_color(self, color):
+        """Set timer color based on urgency"""
+        colors = {
+            'red': ("D32F2F", "FFEBEE", "EF9A9A"),
+            'orange': ("F57C00", "FFF3E0", "FFCC80"),
+            'blue': ("2196F3", "E3F2FD", "90CAF9")
+        }
+        c = colors.get(color, colors['blue'])
+        self.timer_label.setStyleSheet(f"""
+            QLabel {{
+                color: #{c[0]};
+                padding: 2px 6px;
+                background-color: #{c[1]};
+                border-radius: 3px;
+                border: 1px solid #{c[2]};
+            }}
+        """)
+
     def mousePressEvent(self, event):
-        """Handle click to open main widget"""
         self.clicked.emit()
 
     def update_timer(self, minutes, seconds):
-        """Update the timer display"""
-        self.timer_label.setText("{:02d}:{:02d}".format(minutes, seconds))
-
-        # Change color based on time remaining
+        self.timer_label.setText(f"{minutes:02d}:{seconds:02d}")
         if minutes == 0 and seconds <= 10:
-            # Red when < 10 seconds
-            self.timer_label.setStyleSheet("""
-                QLabel {
-                    color: #D32F2F;
-                    padding: 2px 6px;
-                    background-color: #FFEBEE;
-                    border-radius: 3px;
-                    border: 1px solid #EF9A9A;
-                }
-            """)
+            self.set_timer_color('red')
         elif minutes == 0 and seconds <= 30:
-            # Orange when < 30 seconds
-            self.timer_label.setStyleSheet("""
-                QLabel {
-                    color: #F57C00;
-                    padding: 2px 6px;
-                    background-color: #FFF3E0;
-                    border-radius: 3px;
-                    border: 1px solid #FFCC80;
-                }
-            """)
+            self.set_timer_color('orange')
         else:
-            # Blue for normal countdown
-            self.timer_label.setStyleSheet("""
-                QLabel {
-                    color: #2196F3;
-                    padding: 2px 6px;
-                    background-color: #E3F2FD;
-                    border-radius: 3px;
-                    border: 1px solid #90CAF9;
-                }
-            """)
+            self.set_timer_color('blue')
 
     def update_status(self, status_text):
-        """Update status text"""
         self.status_label.setText(status_text)
 
 
 class ComprehensiveProjectBackupWidget(QWidget):
     timerUpdated = pyqtSignal(str)
     hideTimer = pyqtSignal()
-    toolbarTimerUpdate = pyqtSignal(int, int, str)  # minutes, seconds, status
+    toolbarTimerUpdate = pyqtSignal(int, int, str)
 
     def __init__(self, parent=iface.mainWindow()):
         super().__init__(parent)
         self.iface = None
 
-        # Hide maximize button - works for both Qt5 and Qt6
-
-        # making a top level widgets
-        if hasattr(Qt, 'WindowType'):
-            # Qt6
-            TOOL_WINDOW_FLAGS = (
-                Qt.WindowType.Window
-                | Qt.WindowType.WindowTitleHint
-                | Qt.WindowType.WindowMinimizeButtonHint
-                | Qt.WindowType.WindowCloseButtonHint
-                | Qt.WindowType.CustomizeWindowHint
-            )
-            STAY_ON_TOP_FLAG = Qt.WindowType.WindowStaysOnTopHint
-
-        else:
-            # Qt5
-            TOOL_WINDOW_FLAGS = (
-                Qt.Window
-                | Qt.WindowTitleHint
-                | Qt.WindowMinimizeButtonHint
-                | Qt.WindowCloseButtonHint
-                | Qt.CustomizeWindowHint
-            )
-            STAY_ON_TOP_FLAG = Qt.WindowStaysOnTopHint
-
-        self.setWindowFlags(TOOL_WINDOW_FLAGS)
-        self.setWindowFlag(STAY_ON_TOP_FLAG, False)
+        # Set window properties
+        self.setWindowFlags(QtCompat.window_flags())
+        self.setWindowFlag(QtCompat.stay_on_top(), False)
         self.setWindowIcon(get_icon("autosave.svg"))
-
         self.setWindowTitle("Auto Save and Backup")
-        self.setMinimumWidth(300)
+        self.setMinimumWidth(350)
+
+        # Initialize state variables
         self.timer = QTimer(self)
         self.countdown_timer = QTimer(self)
         self.warning_shown = False
-
-        # Add toolbar widget references
         self.toolbar_widget = None
         self.toolbar_action = None
         self.backup_toolbar = None
-
-        # Add system tray icon support
         self.tray_icon = None
-        self.setup_tray_icon()
-
-        # Session log path
         self.session_log_path = None
+        self.backup_interval_ms = 0
+        self.remaining_time = 0
+        self.latest_backup_folder = None
+        self.backup_history = {}
+        self.current_layers = set()
+        self.last_backup_time = None
+        self.backup_thread = None
+        self.layer_registry = QgsProject.instance()
+        self.signals_connected = False
+        self.is_visible = False
 
-        # Main layout
+        # Setup UI
+        self.setup_ui()
+        self.setup_tray_icon()
+        self.setup_connections()
+
+        # Initialize backup folder
+        default_folder = os.path.join(
+            os.path.expanduser("~"), "QGIS_Project_Backups")
+        os.makedirs(default_folder, exist_ok=True)
+        self.backupFolderPath.setText(default_folder)
+
+        self.history_file = os.path.join(default_folder, "backup_history.json")
+        self.load_backup_history()
+        self.load_layers()
+
+    def setup_ui(self):
+        """Setup user interface"""
         main_layout = QVBoxLayout()
         self.setLayout(main_layout)
 
@@ -291,26 +251,27 @@ class ComprehensiveProjectBackupWidget(QWidget):
         main_layout.addWidget(self.tab_widget)
 
         # Settings Tab
+        self.setup_settings_tab()
+
+        # Log Tab
+        self.setup_log_tab()
+
+        # Control buttons
+        self.setup_control_buttons(main_layout)
+        main_layout.addStretch()
+
+    def setup_settings_tab(self):
+        """Setup settings tab"""
         settings_widget = QWidget()
         settings_layout = QVBoxLayout()
         settings_widget.setLayout(settings_layout)
         self.tab_widget.addTab(settings_widget, "Settings")
 
-        # Log Tab
-        log_widget = QWidget()
-        log_layout = QVBoxLayout()
-        log_widget.setLayout(log_layout)
-        self.tab_widget.addTab(log_widget, "Log")
-
         # Add separator
-        separator1 = QFrame()
-        separator1.setFrameShape(get_frame_shape())
-        separator1.setFrameShadow(get_frame_shadow())
-        settings_layout.addWidget(separator1)
+        settings_layout.addWidget(self.create_separator())
 
         # Backup Settings Section
-        settingsLabel = QLabel("Backup Settings")
-        settings_layout.addWidget(settingsLabel)
+        settings_layout.addWidget(QLabel("Backup Settings"))
 
         # Backup interval
         intervalLayout = QHBoxLayout()
@@ -332,38 +293,70 @@ class ComprehensiveProjectBackupWidget(QWidget):
         settings_layout.addWidget(self.countdownLabel)
 
         # Backup folder section
-        folderLabel = QLabel("Backup Location:")
-        settings_layout.addWidget(folderLabel)
+        settings_layout.addWidget(QLabel("Backup Location:"))
+        self.setup_folder_selection(settings_layout)
 
+        # Backup mode section
+        settings_layout.addWidget(QLabel("Backup Mode:"))
+        self.setup_mode_selection(settings_layout)
+
+        settings_layout.addWidget(self.create_separator())
+
+        # Layer selection section
+        settings_layout.addWidget(QLabel("Select Layers to Backup:"))
+        self.selectAllCheckbox = QCheckBox("Select All Layers")
+        settings_layout.addWidget(self.selectAllCheckbox)
+
+        self.layerListWidget = QListWidget()
+        self.layerListWidget.setMinimumHeight(150)
+        self.layerListWidget.setAlternatingRowColors(True)
+        self.layerListWidget.setToolTip(
+            "Check layers you want to include in backup")
+        settings_layout.addWidget(self.layerListWidget)
+
+        infoLabel = QLabel("Note: Project file is always included in backup")
+        infoLabel.setStyleSheet("color: #666; font-style: italic;")
+        settings_layout.addWidget(infoLabel)
+
+    def setup_log_tab(self):
+        """Setup log tab"""
+        log_widget = QWidget()
+        log_layout = QVBoxLayout()
+        log_widget.setLayout(log_layout)
+        self.tab_widget.addTab(log_widget, "Log")
+
+        self.logTextEdit = QTextEdit()
+        self.logTextEdit.setReadOnly(True)
+        self.logTextEdit.setMinimumHeight(100)
+        log_layout.addWidget(self.logTextEdit)
+
+        self.clearLogButton = QPushButton("Clear Log")
+        log_layout.addWidget(self.clearLogButton)
+
+    def setup_folder_selection(self, layout):
+        """Setup folder selection UI"""
         folderLayout = QHBoxLayout()
         self.backupFolderPath = QLabel("")
         self.backupFolderPath.setStyleSheet(
-            "color: #0066cc; padding: 5px; background-color: #f5f5f5; border: 1px solid #ddd; border-radius: 3px;"
+            "color: #0066cc; padding: 5px; background-color: #f5f5f5; "
+            "border: 1px solid #ddd; border-radius: 3px;"
         )
         self.backupFolderPath.setTextInteractionFlags(
-            get_qt_text_interaction())
-        self.backupFolderPath.setCursor(get_qt_cursor())
+            QtCompat.text_interaction())
+        self.backupFolderPath.setCursor(QtCompat.pointing_cursor())
         self.backupFolderPath.mousePressEvent = self.open_backup_folder
         self.backupFolderPath.setWordWrap(True)
         self.backupFolderPath.setToolTip("Click to open backup folder")
 
-        self.selectFolderButton = QPushButton("Change Folder")
-        self.selectFolderButton.clicked.connect(self.select_backup_folder)
-        self.selectFolderButton.setToolTip("Choose where to store backups")
-        self.selectFolderButton.setStyleSheet(
-            "QPushButton { background-color: #333; color: white; padding: 6px 12px; border: none; border-radius: 3px; } "
-            "QPushButton:hover { background-color: #555; } "
-            "QPushButton:disabled { background-color: #999; color: #ccc; }"
-        )
+        self.selectFolderButton = self.create_button(
+            "Change Folder", "Choose where to store backups")
 
         folderLayout.addWidget(self.backupFolderPath, 1)
         folderLayout.addWidget(self.selectFolderButton)
-        settings_layout.addLayout(folderLayout)
+        layout.addLayout(folderLayout)
 
-        # Backup mode section
-        modeLabel = QLabel("Backup Mode:")
-        settings_layout.addWidget(modeLabel)
-
+    def setup_mode_selection(self, layout):
+        """Setup backup mode selection UI"""
         modeLayout = QHBoxLayout()
         self.singleRadio = QRadioButton("Single Backup")
         self.singleRadio.setChecked(True)
@@ -380,7 +373,7 @@ class ComprehensiveProjectBackupWidget(QWidget):
         modeLayout.addWidget(self.singleRadio)
         modeLayout.addWidget(self.multipleRadio)
         modeLayout.addStretch()
-        settings_layout.addLayout(modeLayout)
+        layout.addLayout(modeLayout)
 
         # Max backups option
         maxBackupsLayout = QHBoxLayout()
@@ -394,132 +387,68 @@ class ComprehensiveProjectBackupWidget(QWidget):
         maxBackupsLayout.addWidget(self.maxBackupsLabel)
         maxBackupsLayout.addWidget(self.maxBackupsSpinBox)
         maxBackupsLayout.addStretch()
-        settings_layout.addLayout(maxBackupsLayout)
+        layout.addLayout(maxBackupsLayout)
 
         self.maxBackupsLabel.hide()
         self.maxBackupsSpinBox.hide()
 
-        # Connect mode change signals
-        self.multipleRadio.toggled.connect(self.on_mode_changed)
-        self.singleRadio.toggled.connect(self.on_mode_changed)
+    def setup_control_buttons(self, layout):
+        """Setup control buttons"""
+        layout.addWidget(self.create_separator())
 
-        # Add separator
-        separator2 = QFrame()
-        separator2.setFrameShape(get_frame_shape())
-        separator2.setFrameShadow(get_frame_shadow())
-        settings_layout.addWidget(separator2)
-
-        # Layer selection section
-        layerLabel = QLabel("Select Layers to Backup:")
-        settings_layout.addWidget(layerLabel)
-
-        self.selectAllCheckbox = QCheckBox("Select All Layers")
-        self.selectAllCheckbox.stateChanged.connect(
-            self.toggle_select_all_layers)
-        settings_layout.addWidget(self.selectAllCheckbox)
-
-        self.layerListWidget = QListWidget()
-        self.layerListWidget.setMinimumHeight(150)
-        self.layerListWidget.setAlternatingRowColors(True)
-        self.layerListWidget.setToolTip(
-            "Check layers you want to include in backup")
-        settings_layout.addWidget(self.layerListWidget)
-
-        infoLabel = QLabel("Note: Project file is always included in backup")
-        infoLabel.setStyleSheet(
-            "color: #666; font-style: italic;")
-        settings_layout.addWidget(infoLabel)
-
-        # Backup Log section
-        self.logTextEdit = QTextEdit()
-        self.logTextEdit.setReadOnly(True)
-        self.logTextEdit.setMinimumHeight(100)
-        log_layout.addWidget(self.logTextEdit)
-
-        self.clearLogButton = QPushButton("Clear Log")
-        self.clearLogButton.clicked.connect(self.clear_log)
-        log_layout.addWidget(self.clearLogButton)
-
-        # Add separator
-        separator3 = QFrame()
-        separator3.setFrameShape(get_frame_shape())
-        separator3.setFrameShadow(get_frame_shadow())
-        main_layout.addWidget(separator3)
-
-        # Control buttons
         buttonLayout = QHBoxLayout()
-
-        self.backupNowButton = QPushButton("Backup Now")
-        self.backupNowButton.clicked.connect(self.backup_now)
-        self.backupNowButton.setMinimumHeight(35)
-        self.backupNowButton.setStyleSheet(
-            "QPushButton { background-color: #333; color: white; padding: 8px 16px; border: none; border-radius: 3px; } "
-            "QPushButton:hover { background-color: #555; } "
-            "QPushButton:disabled { background-color: #999; color: #ccc; }"
-        )
-
-        self.startButton = QPushButton("Start Auto Backup")
-        self.startButton.clicked.connect(self.start_backup)
-        self.startButton.setMinimumHeight(35)
-        self.startButton.setStyleSheet(
-            "QPushButton { background-color: #333; color: white; padding: 8px 16px; border: none; border-radius: 3px; } "
-            "QPushButton:hover { background-color: #555; } "
-            "QPushButton:disabled { background-color: #999; color: #ccc; }"
-        )
-
-        self.stopButton = QPushButton("Stop Auto Backup")
-        self.stopButton.clicked.connect(self.stop_backup)
+        self.backupNowButton = self.create_button("Backup Now", min_height=35)
+        self.startButton = self.create_button(
+            "Start Auto Backup", min_height=35)
+        self.stopButton = self.create_button("Stop Auto Backup", min_height=35)
         self.stopButton.setEnabled(False)
-        self.stopButton.setMinimumHeight(35)
-        self.stopButton.setStyleSheet(
-            "QPushButton { background-color: #333; color: white; padding: 8px 16px; border: none; border-radius: 3px; } "
-            "QPushButton:hover { background-color: #555; } "
-            "QPushButton:disabled { background-color: #999; color: #ccc; }"
-        )
 
         buttonLayout.addWidget(self.startButton)
         buttonLayout.addWidget(self.stopButton)
         buttonLayout.addWidget(self.backupNowButton)
-        main_layout.addLayout(buttonLayout)
+        layout.addLayout(buttonLayout)
 
-        main_layout.addStretch()
-
-        # Setup timers
+    def setup_connections(self):
+        """Setup signal connections"""
         self.timer.timeout.connect(self.backup_project)
         self.countdown_timer.timeout.connect(self.update_countdown)
+        self.selectAllCheckbox.stateChanged.connect(
+            self.toggle_select_all_layers)
+        self.multipleRadio.toggled.connect(self.on_mode_changed)
+        self.singleRadio.toggled.connect(self.on_mode_changed)
+        self.selectFolderButton.clicked.connect(self.select_backup_folder)
+        self.backupNowButton.clicked.connect(self.backup_now)
+        self.startButton.clicked.connect(self.start_backup)
+        self.stopButton.clicked.connect(self.stop_backup)
+        self.clearLogButton.clicked.connect(self.clear_log)
 
-        # Set default backup folder
-        default_folder = os.path.join(
-            os.path.expanduser("~"), "QGIS_Project_Backups")
-        os.makedirs(default_folder, exist_ok=True)
-        self.backupFolderPath.setText(default_folder)
+    def create_separator(self):
+        """Create a horizontal separator line"""
+        separator = QFrame()
+        separator.setFrameShape(QtCompat.hline())
+        separator.setFrameShadow(QtCompat.sunken())
+        return separator
 
-        self.backup_interval_ms = 0
-        self.remaining_time = 0
-        self.latest_backup_folder = None
-
-        self.backup_history = {}
-        self.history_file = os.path.join(
-            os.path.expanduser("~"), "QGIS_Project_Backups", "backup_history.json")
-        self.load_backup_history()
-
-        self.current_layers = set()
-        self.load_layers()
-
-        self.last_backup_time = None
-        self.backup_thread = None
-
-        self.layer_registry = QgsProject.instance()
-        self.signals_connected = False
-        self.is_visible = False
-
-        self.reset_state()
+    def create_button(self, text, tooltip=None, min_height=None):
+        """Create a styled button"""
+        button = QPushButton(text)
+        if tooltip:
+            button.setToolTip(tooltip)
+        if min_height:
+            button.setMinimumHeight(min_height)
+        button.setStyleSheet(
+            "QPushButton { background-color: #333; color: white; padding: 8px 16px; "
+            "border: none; border-radius: 3px; } "
+            "QPushButton:hover { background-color: #555; } "
+            "QPushButton:disabled { background-color: #999; color: #ccc; }"
+        )
+        return button
 
     def clear_log(self):
         self.logTextEdit.clear()
 
     def setup_tray_icon(self):
-        """Setup system tray icon for minimized notifications"""
+        """Setup system tray icon"""
         try:
             self.tray_icon = QSystemTrayIcon(self)
             icon = self.style().standardIcon(self.style().SP_DialogSaveButton)
@@ -527,22 +456,12 @@ class ComprehensiveProjectBackupWidget(QWidget):
             self.tray_icon.setToolTip("QGIS Backup Manager")
             self.tray_icon.activated.connect(self.on_tray_icon_activated)
         except Exception as e:
-            print("System tray icon not available: {}".format(str(e)))
+            print(f"System tray icon not available: {e}")
             self.tray_icon = None
 
     def on_tray_icon_activated(self, reason):
-        """Handle tray icon double-click to restore window"""
-        try:
-            try:
-                double_click = QSystemTrayIcon.ActivationReason.DoubleClick
-            except AttributeError:
-                double_click = QSystemTrayIcon.DoubleClick
-
-            if reason == double_click:
-                self.showNormal()
-                self.activateWindow()
-                self.raise_()
-        except:
+        """Handle tray icon activation"""
+        if reason == QtCompat.double_click():
             self.showNormal()
             self.activateWindow()
             self.raise_()
@@ -550,31 +469,19 @@ class ComprehensiveProjectBackupWidget(QWidget):
     def create_toolbar_timer(self):
         """Create and add timer widget to QGIS toolbar"""
         if not self.iface:
-            print("No iface available for toolbar")
             return
 
         try:
-            # Remove existing toolbar widget if present
             self.remove_toolbar_timer()
-
-            # Create toolbar widget
             self.toolbar_widget = ToolbarTimerWidget()
             self.toolbar_widget.clicked.connect(self.on_toolbar_timer_clicked)
-
-            # Create action to hold the widget
             self.toolbar_action = QWidgetAction(self.iface.mainWindow())
             self.toolbar_action.setDefaultWidget(self.toolbar_widget)
-
-            # Add to toolbar
             self.backup_toolbar = self.iface.addToolBar("Backup Timer")
             self.backup_toolbar.setObjectName("BackupTimerToolbar")
             self.backup_toolbar.addAction(self.toolbar_action)
-
-            print("Toolbar timer created successfully")
         except Exception as e:
-            print("Failed to create toolbar timer: {}".format(str(e)))
-            import traceback
-            traceback.print_exc()
+            print(f"Failed to create toolbar timer: {e}")
 
     def remove_toolbar_timer(self):
         """Remove timer widget from toolbar"""
@@ -585,12 +492,11 @@ class ComprehensiveProjectBackupWidget(QWidget):
                 self.backup_toolbar = None
                 self.toolbar_action = None
                 self.toolbar_widget = None
-                print("Toolbar timer removed")
             except Exception as e:
-                print("Error removing toolbar timer: {}".format(str(e)))
+                print(f"Error removing toolbar timer: {e}")
 
     def on_toolbar_timer_clicked(self):
-        """Handle toolbar timer click - show/restore main window"""
+        """Handle toolbar timer click"""
         if self.isMinimized():
             self.showNormal()
         elif not self.isVisible():
@@ -599,14 +505,12 @@ class ComprehensiveProjectBackupWidget(QWidget):
         self.raise_()
 
     def showEvent(self, event):
-        """Called when widget becomes visible"""
         super().showEvent(event)
         self.is_visible = True
         self.connect_layer_signals()
         self.load_layers()
 
     def hideEvent(self, event):
-        """Called when widget is hidden"""
         super().hideEvent(event)
         self.is_visible = False
         self.disconnect_layer_signals()
@@ -635,6 +539,11 @@ class ComprehensiveProjectBackupWidget(QWidget):
                 pass
 
     def load_layers(self):
+        """Load vector layers into the layer list"""
+        # Block signals to prevent triggering stateChanged during load
+        self.selectAllCheckbox.blockSignals(True)
+        self.layerListWidget.blockSignals(True)
+
         self.layerListWidget.clear()
         self.current_layers.clear()
         project = QgsProject.instance()
@@ -643,26 +552,57 @@ class ComprehensiveProjectBackupWidget(QWidget):
             if isinstance(layer, QgsVectorLayer):
                 self.current_layers.add(layer.id())
                 item = QListWidgetItem(layer.name())
-                item.setData(get_qt_user_role(), layer.id())
-                item.setCheckState(get_qt_checkstate_unchecked())
+                item.setData(QtCompat.user_role(), layer.id())
+                item.setCheckState(QtCompat.unchecked())
                 self.layerListWidget.addItem(item)
 
+        # Restore signal blocking
+        self.selectAllCheckbox.blockSignals(False)
+        self.layerListWidget.blockSignals(False)
+
+        # Reset select all checkbox state
+        self.selectAllCheckbox.setChecked(False)
+
     def toggle_select_all_layers(self, state):
-        checked_state = get_qt_checkstate_checked()
-        unchecked_state = get_qt_checkstate_unchecked()
+        """Toggle all layer checkboxes"""
+        checked_state = QtCompat.checked()
+        unchecked_state = QtCompat.unchecked()
+
+        # Block signals during batch update
+        self.layerListWidget.blockSignals(True)
+
+        try:
+            is_checked = state == checked_state or (
+                hasattr(checked_state, 'value') and state == checked_state.value)
+        except AttributeError:
+            is_checked = state == checked_state
 
         for index in range(self.layerListWidget.count()):
             item = self.layerListWidget.item(index)
+            item.setCheckState(
+                checked_state if is_checked else unchecked_state)
+
+        self.layerListWidget.blockSignals(False)
+
+    def get_selected_layers(self):
+        """Get list of selected layer names - FIXED BUG"""
+        selected_layers = []
+        checked_state = QtCompat.checked()
+
+        for i in range(self.layerListWidget.count()):
+            item = self.layerListWidget.item(i)
             try:
-                if state == checked_state or state == checked_state.value:
-                    item.setCheckState(checked_state)
-                else:
-                    item.setCheckState(unchecked_state)
+                is_checked = item.checkState() == checked_state or (
+                    hasattr(checked_state, 'value') and item.checkState(
+                    ) == checked_state.value
+                )
             except AttributeError:
-                if state == checked_state:
-                    item.setCheckState(checked_state)
-                else:
-                    item.setCheckState(unchecked_state)
+                is_checked = item.checkState() == checked_state
+
+            if is_checked:
+                selected_layers.append(item.text())
+
+        return selected_layers
 
     def select_backup_folder(self):
         folder = QFileDialog.getExistingDirectory(
@@ -672,11 +612,11 @@ class ComprehensiveProjectBackupWidget(QWidget):
             self.reset_state()
 
     def validate_backup_folder(self):
-        """Validate and ensure backup folder is writable"""
+        """Validate backup folder is writable"""
         folder = self.backupFolderPath.text()
         if not folder:
             self.show_message("Please select a backup folder",
-                              level=Qgis.Warning, duration=2)
+                              level=Qgis.Warning)
             return False
 
         try:
@@ -688,15 +628,15 @@ class ComprehensiveProjectBackupWidget(QWidget):
             return True
         except Exception as e:
             self.show_message(
-                "Backup folder is not writable: {}".format(str(e)), level=Qgis.Critical, duration=2)
+                f"Backup folder is not writable: {e}", level=Qgis.Critical)
             return False
 
     def backup_now(self):
-        """Perform an immediate backup"""
+        """Perform immediate backup"""
         project = QgsProject.instance()
         if not project.fileName():
             self.show_message("Please save the project first",
-                              level=Qgis.Warning, duration=2)
+                              level=Qgis.Warning)
             return
 
         if not self.validate_backup_folder():
@@ -707,12 +647,11 @@ class ComprehensiveProjectBackupWidget(QWidget):
         QTimer.singleShot(2000, lambda: self.backupNowButton.setEnabled(True))
 
     def start_backup(self):
-        # self.show_message("'Start Auto Backup' clicked.",
-        #                   level=Qgis.Info, duration=2)
+        """Start auto backup timer"""
         project = QgsProject.instance()
         if not project.fileName():
             self.show_message("Please save the project first",
-                              level=Qgis.Warning, duration=2)
+                              level=Qgis.Warning)
             return
 
         if not self.validate_backup_folder():
@@ -720,50 +659,32 @@ class ComprehensiveProjectBackupWidget(QWidget):
 
         project.write()
 
-        # Set up session log file
-        project = QgsProject.instance()
-        project_path = project.fileName()
-        project_name = os.path.splitext(os.path.basename(project_path))[
-            0] if project_path else "unnamed_project"
-        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        # Setup session log
+        project_name = os.path.splitext(os.path.basename(project.fileName()))[
+            0] or "unnamed_project"
         self.session_log_path = os.path.join(
             self.backupFolderPath.text(),
             f"{project_name}_auto_backup_session.log"
         )
-        # Create the file
+
         try:
             with open(self.session_log_path, 'w') as f:
-                f.write("Auto Backup Session Log\n")
-                f.write("=" * 20 + "\n")
+                f.write("Auto Backup Session Log\n" + "="*20 + "\n")
         except Exception as e:
             self.show_message(
-                f"Failed to create session log file: {str(e)}", level=Qgis.Warning, duration=2
-            )
+                f"Failed to create session log: {e}", level=Qgis.Warning)
             self.session_log_path = None
 
         self.backup_interval_ms = self.intervalSpinBox.value() * 60 * 1000
         self.remaining_time = self.backup_interval_ms
         self.warning_shown = False
 
-        # self.show_message("Starting backup timer...",
-        #                   level=Qgis.Info, duration=2)
         self.timer.start(self.backup_interval_ms)
         self.countdown_timer.start(1000)
 
         # Update UI state
-        self.startButton.setEnabled(False)
-        self.stopButton.setEnabled(True)
-        self.backupNowButton.setEnabled(True)
-        self.intervalSpinBox.setEnabled(False)
-        self.selectFolderButton.setEnabled(False)
-        self.singleRadio.setEnabled(False)
-        self.multipleRadio.setEnabled(False)
-        self.maxBackupsSpinBox.setEnabled(False)
-
-        # Update window title
+        self.set_ui_state(backup_active=True)
         self.setWindowTitle("Auto Save and Backup - ACTIVE")
-
-        # Create toolbar timer
         self.create_toolbar_timer()
 
         # Show tray notification
@@ -773,54 +694,48 @@ class ComprehensiveProjectBackupWidget(QWidget):
                 self.tray_icon.showMessage(
                     "QGIS Backup Started",
                     "Auto backup is now running",
-                    QSystemTrayIcon.MessageIcon.Information,
+                    QtCompat.info_icon(),
                     3000
                 )
             except:
-                self.tray_icon.showMessage(
-                    "QGIS Backup Started",
-                    "Auto backup is now running",
-                    QSystemTrayIcon.Information,
-                    3000
-                )
+                pass
 
         self.show_message("Auto backup started - Timer visible in toolbar")
         self.update_countdown()
 
     def stop_backup(self):
+        """Stop auto backup timer"""
         self.timer.stop()
         self.countdown_timer.stop()
         self.warning_shown = False
         self.hideTimer.emit()
 
         # Update UI state
-        self.startButton.setEnabled(True)
-        self.stopButton.setEnabled(False)
-        self.backupNowButton.setEnabled(True)
-        self.intervalSpinBox.setEnabled(True)
-        self.selectFolderButton.setEnabled(True)
-        self.singleRadio.setEnabled(True)
-        self.multipleRadio.setEnabled(True)
-        self.maxBackupsSpinBox.setEnabled(True)
-
-        # Reset window title
+        self.set_ui_state(backup_active=False)
         self.setWindowTitle("Auto Save and Backup")
-
-        # Remove toolbar timer
         self.remove_toolbar_timer()
 
-        # Hide tray icon
         if self.tray_icon:
             self.tray_icon.hide()
 
         self.countdownLabel.setText("Next Backup: Not scheduled")
         self.countdownLabel.setStyleSheet("color: #666; font-style: italic;")
-        self.show_message("Auto backup stopped", level=Qgis.Info, duration=2)
-
-        # Reset session log path
+        self.show_message("Auto backup stopped", level=Qgis.Info)
         self.session_log_path = None
 
+    def set_ui_state(self, backup_active):
+        """Set UI element states based on backup status"""
+        self.startButton.setEnabled(not backup_active)
+        self.stopButton.setEnabled(backup_active)
+        self.backupNowButton.setEnabled(True)
+        self.intervalSpinBox.setEnabled(not backup_active)
+        self.selectFolderButton.setEnabled(not backup_active)
+        self.singleRadio.setEnabled(not backup_active)
+        self.multipleRadio.setEnabled(not backup_active)
+        self.maxBackupsSpinBox.setEnabled(not backup_active)
+
     def update_countdown(self):
+        """Update countdown timer display"""
         self.remaining_time -= 1000
         minutes = self.remaining_time // 60000
         seconds = (self.remaining_time % 60000) // 1000
@@ -828,27 +743,18 @@ class ComprehensiveProjectBackupWidget(QWidget):
         # Show warning 10 seconds before backup
         if self.remaining_time <= 10000 and not self.warning_shown:
             message = "Backup will occur in 10 seconds..."
-            self.show_message(message, level=Qgis.Info, duration=2)
+            self.show_message(message, level=Qgis.Info)
 
             if self.tray_icon and self.isMinimized():
                 try:
                     self.tray_icon.showMessage(
-                        "QGIS Backup Alert",
-                        message,
-                        QSystemTrayIcon.MessageIcon.Information,
-                        5000
-                    )
+                        "QGIS Backup Alert", message, QtCompat.info_icon(), 5000)
                 except:
-                    self.tray_icon.showMessage(
-                        "QGIS Backup Alert",
-                        message,
-                        QSystemTrayIcon.Information,
-                        5000
-                    )
+                    pass
 
             self.warning_shown = True
 
-        countdown_text = "Next Backup: {:02d}:{:02d}".format(minutes, seconds)
+        countdown_text = f"Next Backup: {minutes:02d}:{seconds:02d}"
         status_text = "Active"
 
         if self.last_backup_time:
@@ -856,35 +762,28 @@ class ComprehensiveProjectBackupWidget(QWidget):
             if elapsed.total_seconds() < 2:
                 status = "Last backup: Just now"
             else:
-                status = "Last backup: {} seconds ago".format(
-                    int(elapsed.total_seconds()))
-            countdown_text = "{} | {}".format(countdown_text, status)
+                status = f"Last backup: {int(elapsed.total_seconds())} seconds ago"
+            countdown_text = f"{countdown_text} | {status}"
 
             if elapsed.total_seconds() < 60:
                 status_text = "Just backed up"
-            else:
-                status_text = "Active"
 
         self.countdownLabel.setText(countdown_text)
         self.countdownLabel.setStyleSheet("color: #2196F3;")
-
-        # Update window title with countdown
         self.setWindowTitle(
-            "Auto Save and Backup - {:02d}:{:02d}".format(minutes, seconds))
+            f"Auto Save and Backup - {minutes:02d}:{seconds:02d}")
 
         # Update toolbar timer
         if self.toolbar_widget:
             self.toolbar_widget.update_timer(minutes, seconds)
             self.toolbar_widget.update_status(status_text)
 
-        # Emit signal for toolbar update
         self.toolbarTimerUpdate.emit(minutes, seconds, status_text)
 
-        # Update tray icon tooltip when minimized
+        # Update tray icon
         if self.tray_icon:
             if self.isMinimized():
-                self.tray_icon.setToolTip(
-                    "QGIS Backup\n{}".format(countdown_text))
+                self.tray_icon.setToolTip(f"QGIS Backup\n{countdown_text}")
                 if not self.tray_icon.isVisible():
                     self.tray_icon.show()
             else:
@@ -909,7 +808,7 @@ class ComprehensiveProjectBackupWidget(QWidget):
                     hasher.update(chunk)
             return hasher.hexdigest()
         except Exception as e:
-            print("Error calculating hash for {}: {}".format(filepath, str(e)))
+            print(f"Error calculating hash for {filepath}: {e}")
             return None
 
     def load_backup_history(self):
@@ -920,7 +819,7 @@ class ComprehensiveProjectBackupWidget(QWidget):
                     self.backup_history = json.load(f)
         except Exception as e:
             self.show_message(
-                "Failed to load backup history: {}".format(str(e)), level=Qgis.Warning, duration=2)
+                f"Failed to load backup history: {e}", level=Qgis.Warning)
             self.backup_history = {}
 
     def save_backup_history(self):
@@ -931,7 +830,7 @@ class ComprehensiveProjectBackupWidget(QWidget):
                 json.dump(self.backup_history, f, indent=4)
         except Exception as e:
             self.show_message(
-                "Failed to save backup history: {}".format(str(e)), level=Qgis.Warning, duration=2)
+                f"Failed to save backup history: {e}", level=Qgis.Warning)
 
     def cleanup_old_backups(self):
         """Remove old backups exceeding the maximum count"""
@@ -956,7 +855,7 @@ class ComprehensiveProjectBackupWidget(QWidget):
             backup_folders = [
                 d for d in os.listdir(backup_root)
                 if os.path.isdir(os.path.join(backup_root, d))
-                and d.startswith("{}_Backup_".format(safe_project_name))
+                and d.startswith(f"{safe_project_name}_Backup_")
             ]
 
             if len(backup_folders) > self.maxBackupsSpinBox.value():
@@ -966,12 +865,10 @@ class ComprehensiveProjectBackupWidget(QWidget):
                         shutil.rmtree(os.path.join(backup_root, folder))
                     except Exception as e:
                         self.show_message(
-                            "Failed to remove old backup {}: {}".format(
-                                folder, str(e)),
-                            level=Qgis.Warning, duration=2)
+                            f"Failed to remove old backup {folder}: {e}", level=Qgis.Warning)
         except Exception as e:
             self.show_message(
-                "Error during backup cleanup: {}".format(str(e)), level=Qgis.Warning, duration=2)
+                f"Error during backup cleanup: {e}", level=Qgis.Warning)
 
     def should_backup_file(self, source_file, dest_file):
         """Determine if a file should be backed up"""
@@ -1000,7 +897,7 @@ class ComprehensiveProjectBackupWidget(QWidget):
             return False
 
         except Exception as e:
-            print("Error checking file {}: {}".format(source_file, str(e)))
+            print(f"Error checking file {source_file}: {e}")
             return True
 
     def copy_file_with_retry(self, src, dst, max_retries=3):
@@ -1026,6 +923,7 @@ class ComprehensiveProjectBackupWidget(QWidget):
 
         project = QgsProject.instance()
 
+        # Commit layer changes
         commit_failed = []
         try:
             for layer in project.mapLayers().values():
@@ -1033,50 +931,48 @@ class ComprehensiveProjectBackupWidget(QWidget):
                     if not layer.commitChanges():
                         commit_failed.append(layer.name())
                         errors = layer.commitErrors()
-                        print("Failed to commit {}: {}".format(
-                            layer.name(), errors))
+                        print(f"Failed to commit {layer.name()}: {errors}")
         except Exception as e:
             self.show_message(
-                "Error committing layer changes: {}".format(str(e)), level=Qgis.Critical, duration=2)
+                f"Error committing layer changes: {e}", level=Qgis.Critical)
             self.stop_backup()
             return
 
         if commit_failed:
             self.show_message(
-                "Failed to commit changes for layers: {}".format(
-                    ', '.join(commit_failed)),
-                level=Qgis.Warning, duration=2)
+                f"Failed to commit changes for layers: {', '.join(commit_failed)}",
+                level=Qgis.Warning
+            )
 
+        # Save project
         try:
             if not project.write():
                 raise Exception("Failed to save project")
         except Exception as e:
             self.show_message(
-                "Failed to save project: {}".format(str(e)), level=Qgis.Critical, duration=2)
+                f"Failed to save project: {e}", level=Qgis.Critical)
             self.stop_backup()
             return
 
         project_path = project.fileName()
         if not project_path:
             self.show_message(
-                "Backup failed: Project not saved", level=Qgis.Critical, duration=2)
+                "Backup failed: Project not saved", level=Qgis.Critical)
             self.stop_backup()
             return
 
         project_name = os.path.splitext(os.path.basename(project_path))[0]
-        safe_project_name = "".join(
-            c for c in project_name if c.isalnum() or c in (' ', '-', '_')).strip()
+        safe_project_name = "".join(c for c in project_name if c.isalnum() or c in (
+            ' ', '-', '_')).strip() or "Project"
 
-        if not safe_project_name:
-            safe_project_name = "Project"
-
+        # Create backup folder
         if self.multipleRadio.isChecked():
             timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
             backup_folder = os.path.join(
-                self.backupFolderPath.text(), "{}_Backup_{}".format(safe_project_name, timestamp))
+                self.backupFolderPath.text(), f"{safe_project_name}_Backup_{timestamp}")
         else:
             backup_folder = os.path.join(
-                self.backupFolderPath.text(), "{}_Latest_Backup".format(safe_project_name))
+                self.backupFolderPath.text(), f"{safe_project_name}_Latest_Backup")
 
         backup_summary = []
         backup_errors = []
@@ -1084,6 +980,7 @@ class ComprehensiveProjectBackupWidget(QWidget):
         try:
             os.makedirs(backup_folder, exist_ok=True)
 
+            # Backup project file
             project_filename = os.path.basename(project_path)
             project_backup_path = os.path.join(backup_folder, project_filename)
 
@@ -1091,20 +988,10 @@ class ComprehensiveProjectBackupWidget(QWidget):
                 self.copy_file_with_retry(project_path, project_backup_path)
                 backup_summary.append("Project file")
             except Exception as e:
-                backup_errors.append(
-                    "Failed to backup project file: {}".format(str(e)))
+                backup_errors.append(f"Failed to backup project file: {e}")
 
-            selected_layers = []
-            checked_state = get_qt_checkstate_checked()
-
-            for i in range(self.layerListWidget.count()):
-                item = self.layerListWidget.item(i)
-                try:
-                    if item.checkState() == checked_state or item.checkState() == checked_state.value:
-                        selected_layers.append(item.text())
-                except AttributeError:
-                    if item.checkState() == checked_state:
-                        selected_layers.append(item.text())
+            # Backup selected layers - FIXED BUG
+            selected_layers = self.get_selected_layers()
 
             if selected_layers:
                 for layer_name in selected_layers:
@@ -1116,48 +1003,43 @@ class ComprehensiveProjectBackupWidget(QWidget):
                             continue
 
                         force_backup = layer.isEditable() and layer.isModified()
-
                         layer_source = layer.source()
+
                         try:
-                            if self.backup_vector_layer(
-                                    layer_source, backup_folder, layer_name, force_backup):
+                            if self.backup_vector_layer(layer_source, backup_folder, layer_name, force_backup):
                                 backup_summary.append(layer_name)
                         except Exception as e:
                             backup_errors.append(
-                                "Failed to backup layer {}: {}".format(layer_name, str(e)))
+                                f"Failed to backup layer {layer_name}: {e}")
 
             if not self.multipleRadio.isChecked():
                 self.save_backup_history()
 
         except Exception as e:
-            backup_errors.append("General backup error: {}".format(str(e)))
+            backup_errors.append(f"General backup error: {e}")
 
         finally:
             # Write backup log
-            self.show_message("Writing backup log...",
-                              level=Qgis.Info, duration=2)
             log_path = os.path.join(backup_folder, "backup_log.txt")
             try:
                 with open(log_path, 'w') as f:
-                    f.write("Backup Summary\n")
-                    f.write("="*20 + "\n")
-                    f.write("Timestamp: {}\n".format(
-                        datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
-                    f.write("Project: {}\n".format(project_name))
+                    f.write("Backup Summary\n" + "="*20 + "\n")
+                    f.write(
+                        f"Timestamp: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                    f.write(f"Project: {project_name}\n")
                     if backup_summary:
                         f.write("\nBacked up files:\n")
                         for item in backup_summary:
-                            f.write("- {}\n".format(item))
+                            f.write(f"- {item}\n")
                     if backup_errors:
                         f.write("\nErrors:\n")
                         for err in backup_errors:
-                            f.write("- {}\n".format(err))
-                self.show_message("Backup log written to: {}".format(
-                    log_path), level=Qgis.Info, duration=2)
+                            f.write(f"- {err}\n")
             except Exception as e:
                 self.show_message(
-                    "Failed to write backup log: {}".format(str(e)), level=Qgis.Warning, duration=2)
+                    f"Failed to write backup log: {e}", level=Qgis.Warning)
 
+        # Show completion message
         if backup_errors:
             summary_message = "Backup completed with errors. See log for details."
             level = Qgis.Warning
@@ -1167,38 +1049,26 @@ class ComprehensiveProjectBackupWidget(QWidget):
             else:
                 layer_names = [
                     item for item in backup_summary if item != "Project file"]
-                summary_message = "Backup completed: Project and layers: {}".format(
-                    ', '.join(layer_names))
+                summary_message = f"Backup completed: Project and layers: {', '.join(layer_names)}"
             level = Qgis.Success
 
         self.show_message(summary_message, level=level)
 
         # Update toolbar widget
-        try:
-            if self.toolbar_widget:
-                self.toolbar_widget.update_status("Backing up...")
-                QTimer.singleShot(1000, lambda: self.toolbar_widget.update_status(
-                    "Complete!") if self.toolbar_widget else None)
-                QTimer.singleShot(3000, lambda: self.toolbar_widget.update_status(
-                    "Active") if self.toolbar_widget else None)
+        if self.toolbar_widget:
+            self.toolbar_widget.update_status("Backing up...")
+            QTimer.singleShot(1000, lambda: self.toolbar_widget.update_status(
+                "Complete!") if self.toolbar_widget else None)
+            QTimer.singleShot(3000, lambda: self.toolbar_widget.update_status(
+                "Active") if self.toolbar_widget else None)
 
-            if self.tray_icon and self.isMinimized():
-                try:
-                    self.tray_icon.showMessage(
-                        "QGIS Backup Complete",
-                        summary_message,
-                        QSystemTrayIcon.MessageIcon.Information if not backup_errors else QSystemTrayIcon.MessageIcon.Warning,
-                        3000
-                    )
-                except:
-                    self.tray_icon.showMessage(
-                        "QGIS Backup Complete",
-                        summary_message,
-                        QSystemTrayIcon.Information if not backup_errors else QSystemTrayIcon.Warning,
-                        3000
-                    )
-        except Exception as e:
-            print("Could not show notification: {}".format(str(e)))
+        if self.tray_icon and self.isMinimized():
+            try:
+                icon = QtCompat.info_icon() if not backup_errors else QtCompat.warning_icon()
+                self.tray_icon.showMessage(
+                    "QGIS Backup Complete", summary_message, icon, 3000)
+            except:
+                pass
 
         self.cleanup_old_backups()
         self.last_backup_time = datetime.datetime.now()
@@ -1249,20 +1119,18 @@ class ComprehensiveProjectBackupWidget(QWidget):
                                 'last_backup': datetime.datetime.now().isoformat()
                             }
                         except Exception as e:
-                            print("Error updating history for {}: {}".format(
-                                source_file, str(e)))
+                            print(
+                                f"Error updating history for {source_file}: {e}")
 
                 except Exception as e:
                     self.show_message(
-                        "Failed to copy {}: {}".format(
-                            os.path.basename(source_file), str(e)),
-                        level=Qgis.Warning, duration=2)
+                        f"Failed to copy {os.path.basename(source_file)}: {e}", level=Qgis.Warning)
 
             return backed_up
 
         except Exception as e:
             self.show_message(
-                "Failed to backup layer {}: {}".format(layer_name, str(e)), level=Qgis.Critical, duration=2)
+                f"Failed to backup layer {layer_name}: {e}", level=Qgis.Critical)
             raise
 
     def on_layers_added(self, layers):
@@ -1274,11 +1142,11 @@ class ComprehensiveProjectBackupWidget(QWidget):
             if isinstance(layer, QgsVectorLayer) and layer.id() not in self.current_layers:
                 self.current_layers.add(layer.id())
                 item = QListWidgetItem(layer.name())
-                item.setData(get_qt_user_role(), layer.id())
-                item.setCheckState(get_qt_checkstate_unchecked())
+                item.setData(QtCompat.user_role(), layer.id())
+                item.setCheckState(QtCompat.unchecked())
                 self.layerListWidget.addItem(item)
-                self.show_message("New layer added: {}".format(
-                    layer.name()), level=Qgis.Info, duration=2)
+                self.show_message(
+                    f"New layer added: {layer.name()}", level=Qgis.Info)
 
     def on_layers_removed(self, layer_ids):
         """Handle layers being removed from the project"""
@@ -1290,7 +1158,7 @@ class ComprehensiveProjectBackupWidget(QWidget):
                 self.current_layers.remove(layer_id)
                 for i in range(self.layerListWidget.count()):
                     item = self.layerListWidget.item(i)
-                    if item.data(get_qt_user_role()) == layer_id:
+                    if item.data(QtCompat.user_role()) == layer_id:
                         self.layerListWidget.takeItem(i)
                         break
 
@@ -1306,20 +1174,14 @@ class ComprehensiveProjectBackupWidget(QWidget):
         """Called when widget is closed"""
         self.disconnect_layer_signals()
         self.stop_backup()
-
-        # Clean up toolbar timer
         self.remove_toolbar_timer()
-
-        # Clean up tray icon
         if self.tray_icon:
             self.tray_icon.hide()
-
         super().closeEvent(event)
 
     def show_message(self, message, level=Qgis.Info, duration=2):
         """Display a message in QGIS's message bar and log panel"""
         if hasattr(self, 'iface') and self.iface and self.iface.messageBar():
-            duration = 2
             self.iface.messageBar().pushMessage("Backup", message, level, duration)
         else:
             level_text = {
@@ -1328,7 +1190,7 @@ class ComprehensiveProjectBackupWidget(QWidget):
                 Qgis.Critical: "CRITICAL",
                 Qgis.Success: "SUCCESS"
             }.get(level, "INFO")
-            print("[Backup {}] {}".format(level_text, message))
+            print(f"[Backup {level_text}] {message}")
 
         # Append to log panel
         timestamp = datetime.datetime.now().strftime("%H:%M:%S")
@@ -1342,7 +1204,7 @@ class ComprehensiveProjectBackupWidget(QWidget):
                 with open(self.session_log_path, 'a') as f:
                     f.write(log_entry + '\n')
             except Exception as e:
-                print(f"Failed to write to session log: {str(e)}")
+                print(f"Failed to write to session log: {e}")
 
     def reset_state(self):
         """Reset internal states and history without deleting backup files"""
@@ -1362,9 +1224,7 @@ class ComprehensiveProjectBackupWidget(QWidget):
         self.load_layers()
         self.countdownLabel.setText("Next Backup: Not scheduled")
         self.countdownLabel.setStyleSheet("color: #666; font-style: italic;")
-        self.startButton.setEnabled(True)
-        self.stopButton.setEnabled(False)
-        self.backupNowButton.setEnabled(True)
+        self.set_ui_state(backup_active=False)
         self.timer.stop()
         self.countdown_timer.stop()
 
@@ -1379,7 +1239,7 @@ class ComprehensiveProjectBackupWidget(QWidget):
             self.maxBackupsSpinBox.setVisible(show_max_backups)
 
             self.show_message(
-                "Backup mode changed. Previous backups preserved.", level=Qgis.Info, duration=2)
+                "Backup mode changed. Previous backups preserved.", level=Qgis.Info)
 
     def open_backup_folder(self, event):
         """Open the backup folder in the system file explorer"""
@@ -1394,7 +1254,7 @@ class ComprehensiveProjectBackupWidget(QWidget):
                     subprocess.call(["xdg-open", folder])
             except Exception as e:
                 self.show_message(
-                    "Failed to open folder: {}".format(str(e)), level=Qgis.Warning, duration=2)
+                    f"Failed to open folder: {e}", level=Qgis.Warning)
 
 
 class BackupPlugin:

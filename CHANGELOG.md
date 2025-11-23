@@ -1,5 +1,9 @@
-## Release Notes 2.0.2
+## Release Notes 2.1.0
 
-- Upgrade from QT 5 to QT6 support
-- Bug Fixes in Plotter tool
-- Added support for WGS 84 in Plotter
+- New: Align tool was added
+- New: Point input Tool was added
+- New: KMZ export tool was added
+- Added: Offsets No's are added in FMB plotting tool
+- Update: Rectangle toggle changed to R(toggle after Circle) from T in advacned Line
+- Update: Advacned Line now supports WGS 84 (ellipsoidal)
+- Bug: Bug Fixes in Advanced Line

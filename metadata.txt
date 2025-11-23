@@ -10,7 +10,7 @@ supportsQt6=True
 
 description= Gruhanaksha is developed specifically to support the deliverables of the SVAMITVA by offering various tools Polygon adjuster, Plotter, auto backup and save , free hand adjuster, ppm generation, other tools for geometry adjustments and manipulation
 
-version=2.0.2
+version=2.1.0
 
 author=Surveyor Stories
 email=surveyorstories@gmail.com
@@ -28,7 +28,7 @@ hasProcessingProvider=yes
 changelog= <a href=https://surveyorstories.github.io/gruhanakshaweb/releases>Visit Releases page </a>
 
 # Tags are comma separated with spaces allowed
-tags=svamitva,resurvey,ppm, polygon adjuster, triangle
+tags=svamitva,resurvey,ppm, polygon adjuster, triangle, autocad aligner,csv importer, geometry,auto backup and auto save 
 
 homepage=https://surveyorstories.github.io/gruhanakshaweb
 category=Analysis, vector, Raster
