@@ -586,6 +586,7 @@ class ComprehensiveProjectBackupWidget(QWidget):
 
     def get_selected_layers(self):
         """Get list of selected layer names - FIXED BUG"""
+        """Get list of selected layer IDs"""
         selected_layers = []
         checked_state = QtCompat.checked()
 
@@ -601,6 +602,7 @@ class ComprehensiveProjectBackupWidget(QWidget):
 
             if is_checked:
                 selected_layers.append(item.text())
+                selected_layers.append(item.data(QtCompat.user_role()))
 
         return selected_layers
 
@@ -909,6 +911,7 @@ class ComprehensiveProjectBackupWidget(QWidget):
             except PermissionError:
                 if attempt < max_retries - 1:
                     time.sleep(0.5)
+                    time.sleep(0.5)  # Wait before retrying
                 else:
                     raise
             except Exception:
@@ -992,25 +995,32 @@ class ComprehensiveProjectBackupWidget(QWidget):
 
             # Backup selected layers - FIXED BUG
             selected_layers = self.get_selected_layers()
+            selected_layer_ids = self.get_selected_layers()
 
             if selected_layers:
                 for layer_name in selected_layers:
                     layers = project.mapLayersByName(layer_name)
                     if layers:
                         layer = layers[0]
+            if selected_layer_ids:
+                for layer_id in selected_layer_ids:
+                    layer = project.mapLayer(layer_id)
+                    if not layer:
+                        continue
+                    layer_name = layer.name()
 
-                        if layer.providerType() not in ['ogr', 'spatialite', 'gpkg']:
-                            continue
+                    if layer.providerType() not in ['ogr', 'spatialite', 'gpkg']:
+                        continue
 
-                        force_backup = layer.isEditable() and layer.isModified()
-                        layer_source = layer.source()
+                    force_backup = layer.isEditable() and layer.isModified()
+                    layer_source = layer.source()
 
-                        try:
-                            if self.backup_vector_layer(layer_source, backup_folder, layer_name, force_backup):
-                                backup_summary.append(layer_name)
-                        except Exception as e:
-                            backup_errors.append(
-                                f"Failed to backup layer {layer_name}: {e}")
+                    try:
+                        if self.backup_vector_layer(layer_source, backup_folder, layer_name, force_backup):
+                            backup_summary.append(layer_name)
+                    except Exception as e:
+                        backup_errors.append(
+                            f"Failed to backup layer {layer_name}: {e}")
 
             if not self.multipleRadio.isChecked():
                 self.save_backup_history()

@@ -616,7 +616,7 @@ def init_align_tool():
 
                 iface.messageBar().pushMessage(
                     "Align Tool",
-                    f"{layer_type} layer selected. Alignment tool activated (Qt{QT_VERSION}). Snapping is {snap_status}.",
+                    f"{layer_type} layer selected. Alignment tool activated. Snapping is {snap_status}.",
                     level=Qgis.Info, duration=2)
 
                 if not snap_config.enabled():

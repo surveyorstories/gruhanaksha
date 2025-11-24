@@ -281,7 +281,7 @@ class GeometryHelper:
 
 class LayerManager:
     """Updated LayerManager with Label field support"""
-    
+
     @staticmethod
     def get_project_crs():
         # PROJECT CRS AS FIRST PREFERENCE
@@ -302,7 +302,7 @@ class LayerManager:
         # Final fallback: WGS84
         from qgis.core import QgsCoordinateReferenceSystem
         return QgsCoordinateReferenceSystem("EPSG:4326")
-    
+
     @staticmethod
     def get_or_create_layer(name, geom_type, crs, fields):
         # Check existing layer
@@ -314,7 +314,8 @@ class LayerManager:
                     if "Label" not in field_names:
                         if not lyr.isEditable():
                             lyr.startEditing()
-                        lyr.dataProvider().addAttributes([QgsField("Label", QVariant.String)])
+                        lyr.dataProvider().addAttributes(
+                            [QgsField("Label", QVariant.String)])
                         lyr.updateFields()
                         lyr.commitChanges()
                 return lyr
@@ -326,31 +327,31 @@ class LayerManager:
         layer = QgsVectorLayer(f"{geom_str}?crs={crs.toWkt()}", name, "memory")
         layer.dataProvider().addAttributes(fields)
         layer.updateFields()
-        
+
         # Enable labels for Plotted Points layer
         if name == "Plotted Points":
             LayerManager.enable_labels(layer)
-        
+
         QgsProject.instance().addMapLayer(layer)
         return layer
-    
+
     @staticmethod
     def enable_labels(layer):
         """Enable labels for the layer using the Label field"""
         label_settings = QgsPalLayerSettings()
         label_settings.fieldName = "Label"
         label_settings.enabled = True
-        
+
         # Configure text format
         text_format = QgsTextFormat()
         text_format.setSize(10)
         text_format.setColor(QColor(0, 0, 0))
         label_settings.setFormat(text_format)
-        
+
         # Set label placement
         label_settings.placement = QgsPalLayerSettings.OrderedPositionsAroundPoint
         label_settings.dist = 2
-        
+
         # Apply labeling
         labeling = QgsVectorLayerSimpleLabeling(label_settings)
         layer.setLabeling(labeling)
@@ -1214,14 +1215,15 @@ class TriangleWidget(QWidget):
 
 class PlotterWidget(QWidget):
     """Complete PlotterWidget with numbering system"""
-    
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setMinimumWidth(220)
         # Import these from your original code
         from qgis.utils import iface
         self.endpoint_manager = LineEndpointManager()  # Make sure this is imported
-        self.segment_tool = SegmentSelectTool(iface.mapCanvas(), self)  # Make sure this is imported
+        self.segment_tool = SegmentSelectTool(
+            iface.mapCanvas(), self)  # Make sure this is imported
         self.current_layer = None
         self.current_segment = None
         self.points_drawn = False
@@ -1239,7 +1241,8 @@ class PlotterWidget(QWidget):
 
         btn_layout = QHBoxLayout()
         self.select_segment_button = QPushButton("Select Segment")
-        self.select_segment_button.clicked.connect(self.start_segment_selection)
+        self.select_segment_button.clicked.connect(
+            self.start_segment_selection)
         btn_layout.addWidget(self.select_segment_button)
         self.clear_segment_button = QPushButton("Clear Segment")
         self.clear_segment_button.clicked.connect(self.clear_segment)
@@ -1283,7 +1286,8 @@ class PlotterWidget(QWidget):
         # NEW: Auto-increment checkbox
         self.auto_increment_check = QCheckBox("Auto-increment label")
         self.auto_increment_check.setChecked(True)
-        self.auto_increment_check.stateChanged.connect(self.on_auto_increment_changed)
+        self.auto_increment_check.stateChanged.connect(
+            self.on_auto_increment_changed)
         layout.addWidget(self.auto_increment_check)
 
         self.plot_button = QPushButton("Plot")
@@ -1311,22 +1315,29 @@ class PlotterWidget(QWidget):
             if lyr.name() == "Plotted Points" and lyr.geometryType() == QgsWkbTypes.PointGeometry:
                 layer = lyr
                 break
-        
+
         if not layer or layer.featureCount() == 0:
             return "1"
-        
+
+        # Fix: Check if 'Label' field exists before processing features
+        # Check if 'Label' field exists before processing features
+        label_field_index = layer.fields().indexOf("Label")
+        if label_field_index == -1:
+            return "1"
+
         # Collect all labels and find the highest
         numeric_labels = []
         alpha_labels = []
         alphanumeric_labels = {}
-        
+
         for feature in layer.getFeatures():
-            label = feature.attribute("Label")
+            label = feature.attribute(label_field_index)
+
             if not label or label == "":
                 continue
-            
+
             label = str(label).strip()
-            
+
             # Check if purely numeric
             if label.isdigit():
                 numeric_labels.append(int(label))
@@ -1344,7 +1355,7 @@ class PlotterWidget(QWidget):
                     number = int(label[i+1:])
                     if prefix not in alphanumeric_labels or number > alphanumeric_labels[prefix]:
                         alphanumeric_labels[prefix] = number
-        
+
         # Determine the highest label and increment
         if numeric_labels:
             # Return highest number + 1
@@ -1358,13 +1369,15 @@ class PlotterWidget(QWidget):
             max_alpha = max(alpha_labels)
             if len(max_alpha) == 1:
                 if max_alpha.isupper():
-                    next_char = chr(ord(max_alpha) + 1) if ord(max_alpha) < ord('Z') else 'AA'
+                    next_char = chr(ord(max_alpha) +
+                                    1) if ord(max_alpha) < ord('Z') else 'AA'
                 else:
-                    next_char = chr(ord(max_alpha) + 1) if ord(max_alpha) < ord('z') else 'aa'
+                    next_char = chr(ord(max_alpha) +
+                                    1) if ord(max_alpha) < ord('z') else 'aa'
                 return next_char
             else:
                 return max_alpha + "1"
-        
+
         return "1"
 
     def start_segment_selection(self):
@@ -1440,7 +1453,7 @@ class PlotterWidget(QWidget):
         """
         if not label:
             return "1"
-        
+
         # Check if it's purely numeric
         if label.isdigit():
             next_num = int(label) + 1
@@ -1448,28 +1461,32 @@ class PlotterWidget(QWidget):
                 while str(next_num) in existing_labels:
                     next_num += 1
             return str(next_num)
-        
+
         # Check if it's purely alphabetic
         if label.isalpha():
             if len(label) == 1:
                 # Single letter
                 if label.isupper():
-                    next_char = chr(ord(label) + 1) if ord(label) < ord('Z') else 'A'
+                    next_char = chr(
+                        ord(label) + 1) if ord(label) < ord('Z') else 'A'
                 else:
-                    next_char = chr(ord(label) + 1) if ord(label) < ord('z') else 'a'
+                    next_char = chr(
+                        ord(label) + 1) if ord(label) < ord('z') else 'a'
                 if existing_labels:
                     while next_char in existing_labels:
                         if next_char.isupper():
-                            next_char = chr(ord(next_char) + 1) if ord(next_char) < ord('Z') else 'A'
+                            next_char = chr(
+                                ord(next_char) + 1) if ord(next_char) < ord('Z') else 'A'
                         else:
-                            next_char = chr(ord(next_char) + 1) if ord(next_char) < ord('z') else 'a'
+                            next_char = chr(
+                                ord(next_char) + 1) if ord(next_char) < ord('z') else 'a'
                 return next_char
-        
+
         # Alphanumeric: find the trailing number
         i = len(label) - 1
         while i >= 0 and label[i].isdigit():
             i -= 1
-        
+
         if i < len(label) - 1:
             # Has trailing numbers
             prefix = label[:i+1]
@@ -1481,7 +1498,7 @@ class PlotterWidget(QWidget):
                     next_num += 1
                     next_label = f"{prefix}{next_num}"
             return next_label
-        
+
         # No trailing number, add "1"
         next_label = f"{label}1"
         if existing_labels:
@@ -1493,11 +1510,13 @@ class PlotterWidget(QWidget):
 
     def plot(self):
         if not self.current_segment:
-            QMessageBox.critical(self, "Error", "Please select a segment first.")
+            QMessageBox.critical(
+                self, "Error", "Please select a segment first.")
             return
 
         # Create or get layer with Label field
-        fields = [QgsField("Type", QVariant.String), QgsField("Label", QVariant.String)]
+        fields = [QgsField("Type", QVariant.String),
+                  QgsField("Label", QVariant.String)]
         layer = LayerManager.get_or_create_layer(
             "Plotted Points", QgsWkbTypes.PointGeometry, LayerManager.get_project_crs(), fields
         )
@@ -1517,8 +1536,9 @@ class PlotterWidget(QWidget):
             current_label = self.current_label
 
         # Track if we actually added a labeled point
-        label_was_used = self._process_line_part(self.current_segment, layer, cut_m, offset_m, choice, current_label)
-        
+        label_was_used = self._process_line_part(
+            self.current_segment, layer, cut_m, offset_m, choice, current_label)
+
         LayerManager.update_layer_extent(layer)
         self.points_drawn = True
 
@@ -1529,7 +1549,7 @@ class PlotterWidget(QWidget):
                 label = feature.attribute("Label")
                 if label:
                     existing_labels.add(str(label))
-            
+
             next_label = self.increment_label(current_label, existing_labels)
             self.current_label = next_label
             self.label_input.setText(next_label)
@@ -1561,10 +1581,11 @@ class PlotterWidget(QWidget):
         self._add_point(layer, cut_pt, ptype, point_label)
 
         if offset_m != 0:
-            offset_pt = GeometryHelper.project_perpendicular(cut_pt, start, end, offset_m, crs)
+            offset_pt = GeometryHelper.project_perpendicular(
+                cut_pt, start, end, offset_m, crs)
             self._add_point(layer, offset_pt, "Offset Point", label)
             return True  # Label was used on offset point
-        
+
         return False  # No label was used (Bisect/Cut point only)
 
     def _handle_extended_point(self, start, end, cut_m, offset_m, line_len, layer, crs, label):
@@ -1578,10 +1599,11 @@ class PlotterWidget(QWidget):
         self._add_point(layer, extended, ptype, point_label)
 
         if offset_m != 0:
-            offset_pt = GeometryHelper.project_perpendicular(extended, start, end, offset_m, crs)
+            offset_pt = GeometryHelper.project_perpendicular(
+                extended, start, end, offset_m, crs)
             self._add_point(layer, offset_pt, "Offset Point", label)
             return True  # Label was used
-        
+
         # Label was used on Extended Point (but not on Bisect Point)
         return ptype == "Extended Point"
 
