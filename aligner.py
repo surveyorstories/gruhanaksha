@@ -7,35 +7,7 @@ from qgis.PyQt.QtGui import QColor
 from qgis.PyQt.QtWidgets import QInputDialog, QMessageBox, QToolBar, QAction
 import math
 from qgis.utils import iface
-
-# Qt5/Qt6 compatibility layer
-try:
-    # Qt6
-    from qgis.PyQt.QtCore import Qt
-    from qgis.PyQt.QtGui import QColor
-    QT_VERSION = 6
-    
-    # Qt6 enum access
-    class QtCompat:
-        LeftButton = Qt.MouseButton.LeftButton
-        RightButton = Qt.MouseButton.RightButton
-        CrossCursor = Qt.CursorShape.CrossCursor
-        DashLine = Qt.PenStyle.DashLine
-        Yes = QMessageBox.StandardButton.Yes
-        No = QMessageBox.StandardButton.No
-except AttributeError:
-    # Qt5
-    QT_VERSION = 5
-    
-    # Qt5 enum access
-    class QtCompat:
-        LeftButton = Qt.LeftButton
-        RightButton = Qt.RightButton
-        CrossCursor = Qt.CrossCursor
-        DashLine = Qt.DashLine
-        Yes = QMessageBox.Yes
-        No = QMessageBox.No
-
+from .qt_compat import QtCompat
 
 class AlignTool(QgsMapTool):
     def __init__(self, iface, source_layer):
@@ -96,7 +68,7 @@ class AlignTool(QgsMapTool):
             Qgis.Info, 3)
 
         # Set cursor
-        self.canvas.setCursor(QtCompat.CrossCursor)
+        self.canvas.setCursor(QtCompat.cross_cursor())
 
     def connect_signals(self):
         """Connect to QGIS signals"""

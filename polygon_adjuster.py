@@ -7,6 +7,7 @@ from qgis.PyQt.QtWidgets import (
 from qgis.utils import iface
 from qgis.PyQt.QtGui import QColor, QCursor
 from qgis.PyQt.QtCore import Qt
+from .qt_compat import QtCompat, QPointF
 from qgis.core import (
     QgsProject, QgsVectorLayer, QgsWkbTypes, QgsPointXY, QgsUnitTypes, Qgis, QgsRasterLayer
 )
@@ -575,10 +576,10 @@ class UnifiedGeometryEditTool(QgsMapTool):
     def confirmVertexMove(self, new_point, distance, angle):
         unit_display = UnitConverter.UNIT_NAMES.get(
             self.selectedUnit, self.selectedUnit)
-        reply = QMessageBox.question(
+        reply = QtCompat.message_box_question(
             None, "Confirm Vertex Move",
             f"Move vertex {self.originalLength:+.3f} {unit_display} ({distance:+.3f} map units) at {angle:.2f}° from original?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.Yes
+            QtCompat.Yes | QtCompat.No, QtCompat.Yes
         )
         if reply == QMessageBox.StandardButton.Yes:
             self.moveVertexTopologically(new_point)
@@ -789,11 +790,11 @@ class UnifiedGeometryEditTool(QgsMapTool):
         except Exception:
             current_length_display = current_length
 
-        reply = QMessageBox.question(
+        reply = QtCompat.message_box_question(
             None, f"Confirm {segment_text.title()} Length Change",
             f"Change {segment_text} length from {current_length_display:.3f} to {self.originalLength:.3f} {unit_display}?\n"
             f"(Map units: {current_length:.3f} to {target_length:.3f})",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.Yes
+            QtCompat.Yes | QtCompat.No, QtCompat.Yes
         )
         if reply == QMessageBox.StandardButton.Yes:
             self.moveSegmentVertexTopologically(vertex_index, new_point)

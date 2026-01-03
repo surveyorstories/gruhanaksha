@@ -10,12 +10,12 @@ supportsQt6=True
 
 description= Gruhanaksha is developed specifically to support the deliverables of the SVAMITVA by offering various tools Polygon adjuster, Plotter, auto backup and save , free hand adjuster, ppm generation, other tools for geometry adjustments and manipulation
 
-version=2.1.1
+version=3.0.0
 
 author=Surveyor Stories
 email=surveyorstories@gmail.com
 
-about=Gruhanaksha is a QGIS plugin developed specifically to support the deliverables of the SVAMITVA by offering various tools Polygon adjuster, Plotter, auto backup and save , free hand adjuster, ppm generation, other tools for geometry adjustments and manipulation
+about= Gruhanaksha is a QGIS plugin developed specifically to support the deliverables of the SVAMITVA by offering various tools Polygon adjuster, Plotter, auto backup and save , free hand adjuster, ppm generation, other tools for geometry adjustments and manipulation
 
 tracker=https://github.com/surveyorstories/gruhanaksha/issues
 repository=https://github.com/surveyorstories/gruhanaksha

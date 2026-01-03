@@ -16,65 +16,11 @@ from qgis.core import (
     QgsCoordinateReferenceSystem, QgsCoordinateTransform, QgsUnitTypes
 )
 from qgis.utils import iface
-from .addon_functions import TOOL_WINDOW_FLAGS
+from .addon_functions import TOOL_WINDOW_FLAGS, save_temp_layer
+from .qt_compat import QtCompat
 
 from qgis.PyQt.QtWidgets import QLabel, QLineEdit, QCheckBox
 from qgis.core import QgsField, QgsPalLayerSettings, QgsTextFormat, QgsVectorLayerSimpleLabeling
-
-# ======================
-# Qt5/Qt6 Compatibility
-# ======================
-
-
-class QtCompat:
-    @staticmethod
-    def _get_attr(obj, name, fallback_obj=None):
-        try:
-            return getattr(obj, name)
-        except AttributeError:
-            if fallback_obj is not None:
-                return getattr(fallback_obj, name)
-            raise
-
-    @staticmethod
-    def get_pen_style(style_name):
-        return QtCompat._get_attr(Qt.PenStyle if hasattr(Qt, 'PenStyle') else Qt, style_name)
-
-    @staticmethod
-    def get_cursor_shape(shape_name):
-        return QtCompat._get_attr(Qt.CursorShape if hasattr(Qt, 'CursorShape') else Qt, shape_name)
-
-    @staticmethod
-    def get_key(key_name):
-        return QtCompat._get_attr(Qt.Key if hasattr(Qt, 'Key') else Qt, key_name)
-
-    @staticmethod
-    def get_mouse_button(button_name):
-        return QtCompat._get_attr(Qt.MouseButton if hasattr(Qt, 'MouseButton') else Qt, button_name)
-
-    @staticmethod
-    def get_alignment(alignment_name):
-        return QtCompat._get_attr(Qt.AlignmentFlag if hasattr(Qt, 'AlignmentFlag') else Qt, alignment_name)
-
-    @staticmethod
-    def get_standard_button(button_name):
-        return QtCompat._get_attr(
-            QDialogButtonBox.StandardButton if hasattr(
-                QDialogButtonBox, 'StandardButton') else QDialogButtonBox,
-            button_name
-        )
-
-    @staticmethod
-    def get_message_box_button(button_name):
-        return QtCompat._get_attr(
-            QMessageBox.StandardButton if hasattr(
-                QMessageBox, 'StandardButton') else QMessageBox,
-            button_name
-        )
-
-    @staticmethod
-    def exec_dialog(dialog):
-        return dialog.exec() if hasattr(dialog, 'exec') else dialog.exec_()
 
 
 # ======================
@@ -550,7 +496,7 @@ class TrianglePointTool(QgsMapTool):
         self.temp_line = QgsRubberBand(canvas, QgsWkbTypes.LineGeometry)
         self.temp_line.setColor(QColor(0, 0, 255, 100))
         self.temp_line.setWidth(1)
-        self.temp_line.setLineStyle(QtCompat.get_pen_style('DashLine'))
+        self.temp_line.setLineStyle(QtCompat.DashLine)
         self.setCursor(QtCompat.get_cursor_shape('CrossCursor'))
         self.snapping_utils = canvas.snappingUtils()
         self.snap_marker = MarkerFactory.create_snap_marker(canvas)
@@ -558,7 +504,7 @@ class TrianglePointTool(QgsMapTool):
     def activate(self):
         super().activate()
         self.is_selecting = True
-        self.canvas.setCursor(QtCompat.get_cursor_shape('CrossCursor'))
+        self.setCursor(QtCompat.cross_cursor())
         self.snapping_utils = self.canvas.snappingUtils()
 
     def deactivate(self):
@@ -581,11 +527,10 @@ class TrianglePointTool(QgsMapTool):
 
     def keyPressEvent(self, event):
         key = event.key()
-        enter_keys = [QtCompat.get_key(
-            'Key_Enter'), QtCompat.get_key('Key_Return')]
+        enter_keys = [QtCompat.Key_Enter, QtCompat.Key_Return]
         if key in enter_keys and self.widget.draw_button.isEnabled():
             self.widget.draw_triangle()
-        elif key == QtCompat.get_key('Key_L') and self.first_point is not None:
+        elif key == QtCompat.Key_L and self.first_point is not None:
             self.show_length_dialog()
         else:
             super().keyPressEvent(event)
@@ -604,15 +549,14 @@ class TrianglePointTool(QgsMapTool):
         unit_combo.setCurrentText(self.widget.unit_combo.currentText())
         layout.addWidget(length_input)
         layout.addWidget(unit_combo)
-        btn_box = QDialogButtonBox(QtCompat.get_standard_button(
-            'Ok') | QtCompat.get_standard_button('Cancel'))
+        btn_box = QDialogButtonBox(QtCompat.Ok | QtCompat.Cancel)
         btn_box.accepted.connect(dialog.accept)
         btn_box.rejected.connect(dialog.reject)
         layout.addWidget(btn_box)
         dialog.setLayout(layout)
         length_input.setFocus()
         length_input.selectAll()
-        if QtCompat.exec_dialog(dialog):
+        if QtCompat.exec(dialog):
             self.widget.fixed_base_length = length_input.value()
             self.widget.unit_combo.setCurrentText(unit_combo.currentText())
             self.use_fixed_length = True
@@ -678,7 +622,7 @@ class TrianglePointTool(QgsMapTool):
     def canvasPressEvent(self, event):
         if not self.is_selecting:
             return
-        if event.button() == QtCompat.get_mouse_button('RightButton'):
+        if event.button() == QtCompat.RightButton:
             if self.first_point:
                 self.clear()
                 self.is_selecting = True
@@ -810,7 +754,7 @@ class SegmentSelectTool(QgsMapTool):
             except:
                 pass
         self.snap_marker = MarkerFactory.create_snap_marker(self.canvas)
-        self.canvas.setCursor(QtCompat.get_cursor_shape('CrossCursor'))
+        self.setCursor(QtCompat.cross_cursor())
         w = self.widget
         w.status_label.setText("Click on a line segment to add endpoints.")
         w.select_segment_button.setEnabled(False)
@@ -859,7 +803,7 @@ class SegmentSelectTool(QgsMapTool):
     def canvasPressEvent(self, event):
         if not (self.is_active and self.is_selecting):
             return
-        if event.button() == QtCompat.get_mouse_button('RightButton'):
+        if event.button() == QtCompat.RightButton:
             w = self.widget
             if w.current_segment:
                 w.current_layer = w.current_segment = None
@@ -868,7 +812,7 @@ class SegmentSelectTool(QgsMapTool):
                 w.status_label.setText(
                     "Last endpoint cleared. Click on a line segment to add more.")
             self.is_selecting = True
-            self.canvas.setCursor(QtCompat.get_cursor_shape('CrossCursor'))
+            self.setCursor(QtCompat.cross_cursor())
             w.select_segment_button.setEnabled(False)
             w.select_segment_button.setText("Selecting...")
             w.clear_segment_button.setEnabled(True)
@@ -942,7 +886,7 @@ class SegmentSelectTool(QgsMapTool):
                 )
                 self.canvas.refresh()
                 self.is_selecting = True
-                self.canvas.setCursor(QtCompat.get_cursor_shape('CrossCursor'))
+                self.setCursor(QtCompat.cross_cursor())
                 return
 
         self.widget.status_label.setText(
@@ -1076,7 +1020,7 @@ class TriangleWidget(QWidget):
         self.draw_button.setEnabled(False)
         layout.addWidget(self.draw_button)
 
-        layout.setAlignment(QtCompat.get_alignment('AlignTop'))
+        layout.setAlignment(QtCompat.AlignTop)
         self.setLayout(layout)
         self.clearFocus()
 
@@ -1296,7 +1240,7 @@ class PlotterWidget(QWidget):
         layout.addWidget(self.plot_button)
 
         # Import QtCompat from your original code
-        layout.setAlignment(QtCompat.get_alignment('AlignTop'))
+        layout.setAlignment(QtCompat.AlignTop)
         self.setLayout(layout)
         self.clearFocus()
 
@@ -1619,7 +1563,7 @@ class PlotterWidget(QWidget):
 
     def keyPressEvent(self, event):
         # Import QtCompat from your original code
-        if event.key() in [QtCompat.get_key('Key_Enter'), QtCompat.get_key('Key_Return')] and self.plot_button.isEnabled():
+        if event.key() in [QtCompat.Key_Enter, QtCompat.Key_Return] and self.plot_button.isEnabled():
             self.plot()
         else:
             super().keyPressEvent(event)
@@ -1719,19 +1663,19 @@ class CombinedMainWidget(QWidget):
                 if lyr.name() == info['name'] and lyr.geometryType() == info['type']
             ), None)
             if layer and layer.providerType() == "memory":
-                reply = QMessageBox.question(
+                reply = QtCompat.message_box_question(
                     self, f"Save {info['name']}",
                     f"Do you want to save the {info['name']} Layer before closing?",
-                    QtCompat.get_message_box_button('Yes') |
-                    QtCompat.get_message_box_button('No') |
-                    QtCompat.get_message_box_button('Cancel'),
-                    QtCompat.get_message_box_button('Cancel')
+                    QtCompat.Yes |
+                    QtCompat.No |
+                    QtCompat.Cancel,
+                    QtCompat.Cancel
                 )
-                if reply == QtCompat.get_message_box_button('Yes'):
-                    if not LayerManager.save_temp_layer(self, layer):
+                if reply == QtCompat.Yes:
+                    if not save_temp_layer(self, layer):
                         event.ignore()
                         return
-                elif reply == QtCompat.get_message_box_button('Cancel'):
+                elif reply == QtCompat.Cancel:
                     event.ignore()
                     return
 

@@ -1,108 +1,27 @@
 # Qt5/Qt6 compatibility layer
-try:
-    # Try Qt6 first
-    from qgis.PyQt.QtWidgets import (
-        QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
-        QFileDialog, QTableWidget, QTableWidgetItem, QComboBox, QMessageBox,
-        QGroupBox, QRadioButton, QWidget, QProgressBar, QCheckBox, QSpinBox,
-        QSplitter, QTextEdit, QTabWidget, QFrame, QGridLayout, QScrollArea, QApplication,
-        QLayout
-    )
-    from qgis.PyQt.QtCore import QVariant, pyqtSignal, Qt, QTimer
-    from qgis.PyQt.QtGui import QDoubleValidator, QIntValidator
-    QT_VERSION = 6
-
-    # Qt6 enum access - comprehensive compatibility layer
-    class QtCompat:
-        # Window flags
-        Window = Qt.WindowType.Window
-        WindowTitleHint = Qt.WindowType.WindowTitleHint
-        CustomizeWindowHint = Qt.WindowType.CustomizeWindowHint
-        WindowCloseButtonHint = Qt.WindowType.WindowCloseButtonHint
-
-        # Message box buttons
-        Yes = QMessageBox.StandardButton.Yes
-        No = QMessageBox.StandardButton.No
-        Cancel = QMessageBox.StandardButton.Cancel
-        Ok = QMessageBox.StandardButton.Ok
-
-        # Alignment
-        AlignLeft = Qt.AlignmentFlag.AlignLeft
-        AlignRight = Qt.AlignmentFlag.AlignRight
-        AlignCenter = Qt.AlignmentFlag.AlignCenter
-        AlignTop = Qt.AlignmentFlag.AlignTop
-        AlignBottom = Qt.AlignmentFlag.AlignBottom
-
-        # Text interaction
-        TextSelectableByMouse = Qt.TextInteractionFlag.TextSelectableByMouse
-
-        # Scroll bar policies
-        ScrollBarAlwaysOff = Qt.ScrollBarPolicy.ScrollBarAlwaysOff
-        ScrollBarAlwaysOn = Qt.ScrollBarPolicy.ScrollBarAlwaysOn
-        ScrollBarAsNeeded = Qt.ScrollBarPolicy.ScrollBarAsNeeded
-
-        @staticmethod
-        def message_box_question(parent, title, text, buttons, default_button):
-            """Wrapper for QMessageBox.question with Qt5/Qt6 compatibility"""
-            return QMessageBox.question(parent, title, text, buttons, default_button)
-
-except (ImportError, AttributeError):
-    # Fall back to Qt5
-    from PyQt5.QtWidgets import (
-        QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
-        QFileDialog, QTableWidget, QTableWidgetItem, QComboBox, QMessageBox,
-        QGroupBox, QRadioButton, QWidget, QProgressBar, QCheckBox, QSpinBox,
-        QSplitter, QTextEdit, QTabWidget, QFrame, QGridLayout, QScrollArea, QApplication,
-        QLayout
-    )
-    from PyQt5.QtCore import QVariant, pyqtSignal, Qt, QTimer
-    from PyQt5.QtGui import QDoubleValidator, QIntValidator
-    QT_VERSION = 5
-
-    # Qt5 enum access - comprehensive compatibility layer
-    class QtCompat:
-        # Window flags
-        Window = Qt.Window
-        WindowTitleHint = Qt.WindowTitleHint
-        CustomizeWindowHint = Qt.CustomizeWindowHint
-        WindowCloseButtonHint = Qt.WindowCloseButtonHint
-
-        # Message box buttons
-        Yes = QMessageBox.Yes
-        No = QMessageBox.No
-        Cancel = QMessageBox.Cancel
-        Ok = QMessageBox.Ok
-
-        # Alignment
-        AlignLeft = Qt.AlignLeft
-        AlignRight = Qt.AlignRight
-        AlignCenter = Qt.AlignCenter
-        AlignTop = Qt.AlignTop
-        AlignBottom = Qt.AlignBottom
-
-        # Text interaction
-        TextSelectableByMouse = Qt.TextSelectableByMouse
-
-        # Scroll bar policies
-        ScrollBarAlwaysOff = Qt.ScrollBarAlwaysOff
-        ScrollBarAlwaysOn = Qt.ScrollBarAlwaysOn
-        ScrollBarAsNeeded = Qt.ScrollBarAsNeeded
-
-        @staticmethod
-        def message_box_question(parent, title, text, buttons, default_button):
-            """Wrapper for QMessageBox.question with Qt5/Qt6 compatibility"""
-            return QMessageBox.question(parent, title, text, buttons, default_button)
-
-from qgis.gui import QgsProjectionSelectionWidget
+from qgis.PyQt.QtGui import QDoubleValidator, QIntValidator
+from qgis.PyQt.QtCore import QVariant, pyqtSignal, Qt, QTimer
+from qgis.PyQt.QtWidgets import (
+    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
+    QFileDialog, QTableWidget, QTableWidgetItem, QComboBox, QMessageBox,
+    QGroupBox, QRadioButton, QWidget, QProgressBar, QCheckBox, QSpinBox,
+    QSplitter, QTextEdit, QTabWidget, QFrame, QGridLayout, QScrollArea, QApplication,
+    QLayout
+)
+from qgis.utils import iface
+import re
+import os
+import csv
 from qgis.core import (
     QgsVectorLayer, QgsFeature, QgsGeometry, QgsPointXY, QgsProject,
     QgsCoordinateReferenceSystem, QgsFields, QgsField, QgsVectorFileWriter,
     QgsWkbTypes, QgsCoordinateTransform, QgsRectangle, Qgis
 )
-import csv
-import os
-import re
-from qgis.utils import iface
+from qgis.gui import QgsProjectionSelectionWidget
+from .qt_compat import QtCompat
+
+# Local compatibility layer removed
+
 
 # --- Configurable height ---
 WIDGET_HEIGHT = 20

@@ -404,10 +404,8 @@ class ProfessionalLineTool(QgsMapTool):
         self.current_unit_index = 0
 
         self.dialog = ParameterDialog(self.units, self.current_unit_key)
-        try:
-            self.dialog.setParent(iface.mainWindow(), Qt.WindowType.Window)
-        except AttributeError:
-            self.dialog.setParent(iface.mainWindow(), Qt.Window)
+        from .qt_compat import QtCompat
+        self.dialog.setParent(iface.mainWindow(), QtCompat.Window)
         self.dialog.parametersEntered.connect(self.set_parameters)
 
         # Initialize distance calculator

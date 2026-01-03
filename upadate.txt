@@ -1,8 +1,0 @@
-# all from within the OSGeo4W command terminal!
-
-cd "C:\Program Files\QGISQT6 3.44.3"
-".\bin\qt6_env.bat"
-".\bin\qgis-qt6-bin.env"
-set PYTHONPATH=C:\Program Files\QGISQT6 3.44.3\apps\qgis-qt6\python;%PYTHONPATH%
-pip install astpretty tokenize-rt
-python "pyqt5_to_pyqt6.py" "C:\Users\sslr\Downloads\gruhanaksha"

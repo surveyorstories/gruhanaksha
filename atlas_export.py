@@ -43,6 +43,7 @@ from qgis.core import (
 from qgis.gui import QgsMessageBar
 from qgis.utils import iface
 
+from .qt_compat import QtCompat
 # Qt5/Qt6 compatibility for enums
 try:
     # Qt6 style
@@ -57,6 +58,8 @@ try:
     Antialiasing = QPainter.RenderHint.Antialiasing
     SmoothPixmapTransform = QPainter.RenderHint.SmoothPixmapTransform
     WhiteColor = Qt.GlobalColor.white
+    PointingHandCursor = Qt.CursorShape.PointingHandCursor
+    AlignCenter = Qt.AlignmentFlag.AlignCenter
 except AttributeError:
     # Qt5 style
     ScrollBarAlwaysOff = Qt.ScrollBarAlwaysOff
@@ -70,6 +73,8 @@ except AttributeError:
     Antialiasing = QPainter.Antialiasing
     SmoothPixmapTransform = QPainter.SmoothPixmapTransform
     WhiteColor = Qt.white
+    PointingHandCursor = Qt.PointingHandCursor
+    AlignCenter = Qt.AlignCenter
 # ----------------------------------------------------------------------
 # Constants
 # ----------------------------------------------------------------------
@@ -266,16 +271,16 @@ class SimplePreviewGenerator:
             size = QSize(PreviewConfig.PREVIEW_WIDTH,
                          PreviewConfig.PREVIEW_HEIGHT)
             img = QImage(size, QImage.Format.Format_ARGB32)
-            img.fill(Qt.GlobalColor.white)
+            img.fill(WhiteColor)
 
             if is_atlas:
                 atlas = layout.atlas()
                 if not atlas.enabled() or not atlas.coverageLayer():
                     pm = QPixmap(size)
-                    pm.fill(Qt.GlobalColor.white)
+                    pm.fill(WhiteColor)
                     p = QPainter(pm)
                     p.drawText(QRectF(0, 0, size.width(), size.height()),
-                               Qt.AlignmentFlag.AlignCenter,
+                               AlignCenter,
                                "Atlas not configured")
                     p.end()
                     return pm
@@ -305,11 +310,11 @@ class SimplePreviewGenerator:
         except Exception as e:
             pm = QPixmap(PreviewConfig.PREVIEW_WIDTH,
                          PreviewConfig.PREVIEW_HEIGHT)
-            pm.fill(Qt.GlobalColor.white)
+            pm.fill(WhiteColor)
             p = QPainter(pm)
             p.drawText(QRectF(0, 0, PreviewConfig.PREVIEW_WIDTH,
                               PreviewConfig.PREVIEW_HEIGHT),
-                       Qt.AlignmentFlag.AlignCenter,
+                       AlignCenter,
                        f"Preview Error:\n{str(e)}")
             p.end()
             return pm
@@ -1105,13 +1110,13 @@ class EnhancedAtlasExportDialog(QDialog):
         cont_lay.addLayout(ctrl_lay)
 
         self.preview_lbl = QLabel("Select a layout")
-        self.preview_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.preview_lbl.setAlignment(AlignCenter)
         self.preview_lbl.setMinimumHeight(200)
         self.preview_lbl.setStyleSheet(
             "border: 1px solid gray; background-color: white; padding: 5px;")
         self.preview_lbl.setScaledContents(False)
         self.preview_lbl.setWordWrap(True)
-        self.preview_lbl.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.preview_lbl.setCursor(QCursor(PointingHandCursor))
         self.preview_lbl.mousePressEvent = self.on_preview_label_click
         cont_lay.addWidget(self.preview_lbl)
 
@@ -1351,13 +1356,13 @@ class EnhancedAtlasExportDialog(QDialog):
 
                 cnt = self._get_safe_feature_count_from_layer(cov)
                 if cnt == 0:
-                    reply = QMessageBox.question(
+                    reply = QtCompat.message_box_question(
                         self, "Warning",
                         f"The coverage layer '{cov.name()}' appears to have no features.\n"
                         "Do you want to enable the atlas anyway?",
-                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                        QMessageBox.StandardButton.No)
-                    if reply != QMessageBox.StandardButton.Yes:
+                        QtCompat.Yes | QtCompat.No,
+                        QtCompat.No)
+                    if reply != QtCompat.Yes:
                         return
 
                 atlas.setEnabled(True)

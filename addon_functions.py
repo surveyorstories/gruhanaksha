@@ -1,6 +1,6 @@
 from qgis.core import QgsProject
 from qgis.PyQt.QtGui import QFont, QColor
-from qgis.core import (QgsMapLayer, Qgis, QgsTextFormat,
+from qgis.core import (QgsMapLayer, Qgis, QgsTextFormat, QgsTextBufferSettings, QgsLabelPlacementSettings,
                        QgsSymbol, QgsRuleBasedRenderer, QgsStyle, QgsWkbTypes, QgsRendererCategory, QgsCategorizedSymbolRenderer,
                        QgsProcessing, QgsProcessingAlgorithm, QgsProcessingMultiStepFeedback,
                        QgsProcessingParameterVectorLayer, QgsProcessingParameterField,
@@ -16,32 +16,18 @@ from qgis.core import QgsPalLayerSettings, QgsVectorLayerSimpleLabeling, QgsFeat
 # Get the path to the current project folder
 from qgis.utils import iface
 from qgis.PyQt.QtWidgets import (
-    QAction
+    QAction, QFileDialog, QMessageBox
 )
 from qgis.PyQt.QtXml import QDomDocument
 from qgis.PyQt.QtGui import QFont
 from qgis.core import QgsPrintLayout, QgsLayoutItemMap, QgsLayoutItemLabel, QgsLayoutItemPage, QgsReadWriteContext, QgsLayoutSize, QgsLayoutItemPage, QgsLayoutPoint, QgsUnitTypes, QgsVectorLayer, QgsVectorFileWriter, QgsField, QgsWkbTypes, QgsFeature, QgsMarkerSymbol
 
 
+from .qt_compat import QtCompat
+
 # making a top level widgets
-if hasattr(Qt, 'WindowType'):
-    # Qt6
-    TOOL_WINDOW_FLAGS = (
-        Qt.WindowType.Tool |
-        Qt.WindowType.WindowTitleHint |
-        Qt.WindowType.WindowCloseButtonHint |
-        Qt.WindowType.CustomizeWindowHint
-    )
-    STAY_ON_TOP_FLAG = Qt.WindowType.WindowStaysOnTopHint
-else:
-    # Qt5
-    TOOL_WINDOW_FLAGS = (
-        Qt.Tool |
-        Qt.WindowTitleHint |
-        Qt.WindowCloseButtonHint |
-        Qt.CustomizeWindowHint
-    )
-    STAY_ON_TOP_FLAG = Qt.WindowStaysOnTopHint
+TOOL_WINDOW_FLAGS = QtCompat.tool_window_flags()
+STAY_ON_TOP_FLAG = QtCompat.stay_on_top()
 
 
 def rule_based_symbology(inputlayer, rules, outline_status, symbol_xml_path=None, symbol_name=None, opacity=1.0):
@@ -85,7 +71,7 @@ def rule_based_symbology(inputlayer, rules, outline_status, symbol_xml_path=None
                     elif inputlayer.geometryType() == QgsWkbTypes.GeometryType.PolygonGeometry:
                         symbol_layer.setStrokeColor(QColor(color_name))
                         symbol_layer.setStrokeWidth(0.46)
-                        symbol_layer.setBrushStyle(Qt.BrushStyle.NoBrush)
+                        symbol_layer.setBrushStyle(QtCompat.NoBrush)
                 else:
                     rule_symbol.setColor(QColor(color_name))
                 rule = QgsRuleBasedRenderer.Rule(rule_symbol)
@@ -103,6 +89,78 @@ def rule_based_symbology(inputlayer, rules, outline_status, symbol_xml_path=None
             inputlayer.triggerRepaint()
     except Exception as e:
         print(f'Error in rule_based_symbology: {e}')
+
+
+def enable_label(layer_id, font, font_size, field_name, font_weight, is_expression, placement_index, font_color):
+
+    # layer = QgsProject.instance().mapLayersByName(layer)[0]
+    # Array of label placements
+    placements = [
+        QgsPalLayerSettings.AroundPoint,
+        QgsPalLayerSettings.Horizontal,
+        QgsPalLayerSettings.Free,
+        QgsPalLayerSettings.OverPoint,
+        QgsPalLayerSettings.OnLine,
+        QgsPalLayerSettings.Curved,
+
+    ]
+    # Get the selected placement from the array
+    selected_placement = placements[placement_index]
+    layer = QgsProject.instance().mapLayer(layer_id)
+    label_settings = QgsPalLayerSettings()
+    # Set label placement
+    label_settings.placement = selected_placement
+    text_format = QgsTextFormat()
+    label_settings.isExpression = bool(is_expression)
+    text_format.setFont(QFont(str(font), 10, font_weight))
+    text_format.setSize(font_size)
+    text_format.setColor(QColor(font_color))
+    label_settings.fieldName = field_name
+    # QFont::Light	25
+    # QFont::Normal	50
+    # QFont::DemiBold 63
+    # QFont::Bold75
+    # QFont::Black	87
+    buffer_settings = QgsTextBufferSettings()
+    # buffer_settings.setEnabled(True)
+    buffer_settings.setSize(0)
+    # buffer_settings.setColor(QColor("white"))
+
+    text_format.setBuffer(buffer_settings)
+    label_settings.setFormat(text_format)
+
+    # Configure placement settings and allow degraded placement
+    placement_settings = QgsLabelPlacementSettings()
+    placement_settings.setAllowDegradedPlacement(True)
+    placement_settings.setOverlapHandling(
+        Qgis.LabelOverlapHandling.AllowOverlapIfRequired)
+    label_settings.setPlacementSettings(placement_settings)
+    # overlaphandling
+    # Qgis.LabelOverlapHandling.AllowOverlapIfRequired
+    # Qgis.LabelOverlapHandling.PreventOverlap
+    # Qgis.LabelOverlapHandling.AllowOverlapAtNoCost
+
+    label_settings.enabled = True
+    label_settings = QgsVectorLayerSimpleLabeling(label_settings)
+    layer.setLabelsEnabled(True)
+    layer.setLabeling(label_settings)
+    layer.triggerRepaint()
+
+
+def undo(layer):
+    undo_action = [a for a in iface.digitizeToolBar(
+    ).actions() if a.objectName() == "mActionUndo"][0]
+    if undo_action:
+        undo_action.trigger()
+        layer.triggerRepaint()
+
+
+def redo(layer):
+    redo_action = [a for a in iface.digitizeToolBar(
+    ).actions() if a.objectName() == "mActionRedo"][0]
+    if redo_action:
+        redo_action.trigger()
+        layer.triggerRepaint()
 
 
 def apply_custom_symbol(layer: QgsVectorLayer, symbol_xml_path: str, symbol_name: str) -> bool:
@@ -438,7 +496,7 @@ def save_temp_layer(self, layer):
                 "ESRI Shapefile (*.shp);;GeoJSON (*.geojson);;GPKG (*.gpkg)"
             )
             if not file_path:
-                return  # User canceled the dialog
+                return False  # User canceled the dialog
 
             # Determine the file format from the file extension
             if file_path.endswith(".shp"):
@@ -450,7 +508,7 @@ def save_temp_layer(self, layer):
             else:
                 QMessageBox.critical(
                     self, "Error", "Unsupported file format.")
-                return
+                return False
 
             # Set up save options
             options = QgsVectorFileWriter.SaveVectorOptions()
@@ -486,6 +544,9 @@ def save_temp_layer(self, layer):
                              f"An unexpected error occurred: {e}")
         import traceback
         traceback.print_exc()
+        return False
+
+    return True
 
 
 def toggle_layervisibility(layer_id, action):
@@ -586,3 +647,17 @@ def delete_small_parcels(layer_name: str, area_threshold: float = 0.02):
         layer.rollBack()
 
 
+def undo(layer):
+    """
+    Undo the last operation on the given layer.
+    """
+    if layer.isEditable():
+        layer.undoStack().undo()
+
+
+def redo(layer):
+    """
+    Redo the last operation on the given layer.
+    """
+    if layer.isEditable():
+        layer.undoStack().redo()

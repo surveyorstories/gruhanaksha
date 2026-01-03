@@ -263,8 +263,10 @@ class KMLBuilder:
 
     @staticmethod
     def write_kml(root, path):
-        rough = tostring(root, encoding='utf-8')
-        pretty = minidom.parseString(rough).toprettyxml(
+        # Use 'unicode' encoding to preserve Telugu and other Unicode characters
+        rough = tostring(root, encoding='unicode')
+        # Encode to UTF-8 bytes for parsing
+        pretty = minidom.parseString(rough.encode('utf-8')).toprettyxml(
             indent=" ", encoding='utf-8')
         with open(path, 'wb') as f:
             f.write(pretty)

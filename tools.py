@@ -12,7 +12,7 @@ from qgis.utils import iface
 # from qgis.PyQt.QtWidgets import qApp
 from qgis.core import QgsProject
 from qgis.PyQt.QtWidgets import QAction
-from qgis.PyQt.QtWidgets import QCheckBox, QSpinBox,  QVBoxLayout, QWidget, QPushButton, QMessageBox, QHBoxLayout, QComboBox, QGroupBox, QProgressBar
+from qgis.PyQt.QtWidgets import QCheckBox, QSpinBox,  QVBoxLayout, QWidget, QPushButton, QMessageBox, QHBoxLayout, QComboBox, QGroupBox, QProgressBar, QGridLayout
 from qgis.PyQt.QtCore import Qt
 
 from typing import Optional, Dict, List
@@ -29,6 +29,12 @@ from .polygon_adjuster import activate_unified_tool
 from .pointinput import PointInputDialog
 from .aligner import init_align_tool
 from .kmz import KMZExporterDialog
+from .kmz import KMZExporterDialog
+from .polygon_splitter import show_polygon_splitter
+from .marker_tool import MarkerMapTool
+from .marker_tool import MarkerMapTool
+from .trim_and_extend import activate_trim_extend_tool
+from . import lpm_canvas
 
 # make top level widget
 from .addon_functions import TOOL_WINDOW_FLAGS, STAY_ON_TOP_FLAG
@@ -68,7 +74,7 @@ class ToolWidget(QWidget):
 
         # Initialize backup_plugin as None - will be created on first use
         self.backup_plugin = None
-        
+
         # Initialize point_input_dialog as None
         self.point_input_dialog = None
 
@@ -124,6 +130,24 @@ class ToolWidget(QWidget):
         self.kmz_button.setStyleSheet(
             "background-color: #020507 ; color: white")
 
+        self.splitter_button = QPushButton(
+            QIcon(os.path.join(cmd_folder, 'images/splitter.svg')), 'Polygon Splitter')
+        self.splitter_button.setToolTip("Split polygon by area")
+        self.splitter_button.setStyleSheet(
+            "background-color: #020507 ; color: white")
+
+        self.trim_extend_button = QPushButton(
+            QIcon(os.path.join(cmd_folder, 'images/canvas_one/cut.svg')), 'Trim/Extend')
+        self.trim_extend_button.setToolTip("Trim or Extend Lines/Polygons")
+        self.trim_extend_button.setStyleSheet(
+            "background-color: #020507 ; color: white")
+
+        self.auto_numbering_button = QPushButton(
+            QIcon(os.path.join(cmd_folder, 'images/snake_original.svg')), 'Auto Numbering')
+        self.auto_numbering_button.setToolTip("Open Auto Numbering Tool")
+        self.auto_numbering_button.setStyleSheet(
+            "background-color: #020507 ; color: white")
+
         # Connect button actions
         self.plotter_button.clicked.connect(self.combined_button_clicked)
         self.adjuster_button.clicked.connect(self.adjuster_button_clicked)
@@ -131,29 +155,36 @@ class ToolWidget(QWidget):
             self.free_adjuster_button_clicked)
         self.backup_button.clicked.connect(self.backup_button_clicked)
         self.aligner_button.clicked.connect(self.aligner_button_clicked)
-        self.point_input_button.clicked.connect(self.point_input_button_clicked)
+        self.point_input_button.clicked.connect(
+            self.point_input_button_clicked)
         self.kmz_button.clicked.connect(self.kmz_button_clicked)
+        self.splitter_button.clicked.connect(self.splitter_button_clicked)
+        self.trim_extend_button.clicked.connect(
+            self.trim_extend_button_clicked)
+        self.auto_numbering_button.clicked.connect(
+            self.auto_numbering_button_clicked)
 
-        # Layout for the first row of buttons
-        row1_layout = QHBoxLayout()
-        row1_layout.addWidget(self.plotter_button)
-        row1_layout.addWidget(self.adjuster_button)
-        row1_layout.addWidget(self.free_adjuster_button)
+        # GridLayout for buttons
+        grid_layout = QGridLayout()
 
-        # Layout for the second row of buttons
-        row2_layout = QHBoxLayout()
-        row2_layout.addWidget(self.backup_button)
-        row2_layout.addWidget(self.aligner_button)
-        row2_layout.addWidget(self.point_input_button)
+        # Row 1
+        grid_layout.addWidget(self.plotter_button, 0, 0)
+        grid_layout.addWidget(self.adjuster_button, 0, 1)
+        grid_layout.addWidget(self.free_adjuster_button, 0, 2)
 
-        # Layout for the third row of buttons
-        row3_layout = QHBoxLayout()
-        row3_layout.addWidget(self.kmz_button)
+        # Row 2
+        grid_layout.addWidget(self.backup_button, 1, 0)
+        grid_layout.addWidget(self.aligner_button, 1, 1)
+        grid_layout.addWidget(self.point_input_button, 1, 2)
 
-        # Add rows to the main group layout
-        group_layout.addLayout(row1_layout)
-        group_layout.addLayout(row2_layout)
-        group_layout.addLayout(row3_layout)
+        # Row 3
+        grid_layout.addWidget(self.kmz_button, 2, 0)
+        grid_layout.addWidget(self.splitter_button, 2, 1)
+        grid_layout.addWidget(self.trim_extend_button, 2, 2)
+        grid_layout.addWidget(self.auto_numbering_button, 3, 0)
+
+        # Add grid to the main group layout
+        group_layout.addLayout(grid_layout)
 
         group_box.setLayout(group_layout)
         main_layout.addWidget(group_box)
@@ -220,5 +251,28 @@ class ToolWidget(QWidget):
     def bisector_button_clicked(self):
         try:
             bisector_window.show()
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"An error occurred: {e}")
+
+    def splitter_button_clicked(self):
+        try:
+            show_polygon_splitter()
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"An error occurred: {e}")
+
+    def trim_extend_button_clicked(self):
+        try:
+            activate_trim_extend_tool()
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"An error occurred: {e}")
+
+    def auto_numbering_button_clicked(self):
+        try:
+            if lpm_canvas.lpno.isMinimized():
+                lpm_canvas.lpno.showNormal()
+            else:
+                lpm_canvas.lpno.show()
+            lpm_canvas.lpno.raise_()
+            lpm_canvas.lpno.activateWindow()
         except Exception as e:
             QMessageBox.critical(self, "Error", f"An error occurred: {e}")

@@ -38,19 +38,61 @@ LOCALES =
 # translation
 SOURCES = \
 	__init__.py \
-	Gruhanaksha.py 
+	addon_functions.py \
+	advanced_line.py \
+	aligner.py \
+	atlas_export.py \
+	autosaveandbackup.py \
+	canvas_one.py \
+	fmb.py \
+	freehand_adjuster.py \
+	Gruhanaksha_provider.py \
+	Gruhanaksha.py \
+	kmz.py \
+	lpm_canvas.py \
+	marker_tool.py \
+	master.py \
+	plugin_upload.py \
+	pointinput.py \
+	polygon_adjuster.py \
+	polygon_splitter.py \
+	qt_compat.py \
+	svamitvappm_algorithm.py \
+	tools.py \
+	trim_and_extend.py
 
 PLUGINNAME = Gruhanaksha
 
 PY_FILES = \
 	__init__.py \
-	Gruhanaksha.py 
+	addon_functions.py \
+	advanced_line.py \
+	aligner.py \
+	atlas_export.py \
+	autosaveandbackup.py \
+	canvas_one.py \
+	fmb.py \
+	freehand_adjuster.py \
+	Gruhanaksha_provider.py \
+	Gruhanaksha.py \
+	kmz.py \
+	lpm_canvas.py \
+	marker_tool.py \
+	master.py \
+	plugin_upload.py \
+	pointinput.py \
+	polygon_adjuster.py \
+	polygon_splitter.py \
+	qt_compat.py \
+	svamitvappm_algorithm.py \
+	tools.py \
+	trim_and_extend.py 
 
 UI_FILES = 
 
-EXTRAS = metadata.txt 
+EXTRAS = metadata.txt LICENSE CHANGELOG.md .qgis-plugin-ci pb_tool.cfg pylintrc
 
-EXTRA_DIRS =
+EXTRA_DIRS = assets help i18n images scripts
 
 COMPILED_RESOURCE_FILES = 
 
@@ -65,7 +107,7 @@ PEP8EXCLUDE=pydev,resources.py,conf.py,third_party,ui
 #	* Windows:
 #	  AppData\Roaming\QGIS\QGIS3\profiles\default\python\plugins'
 
-QGISDIR=C:\Users\sklrd\AppData/Roaming/QGIS/QGIS3/profiles/default/python/plugins
+QGISDIR=$(USERPROFILE)/AppData/Roaming/QGIS/QGIS3/profiles/default/python/plugins
 
 #################################################
 # Normally you would not need to edit below here

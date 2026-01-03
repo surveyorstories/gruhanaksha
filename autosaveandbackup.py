@@ -7,104 +7,19 @@ import subprocess
 import sys
 import time
 from qgis.utils import iface
-try:
-    from qgis.PyQt.QtCore import QTimer, Qt, QThread, pyqtSignal
-    from qgis.PyQt.QtWidgets import (
-        QWidget, QVBoxLayout, QHBoxLayout, QLabel, QSpinBox, QPushButton,
-        QMessageBox, QFileDialog, QRadioButton, QButtonGroup, QListWidget,
-        QListWidgetItem, QCheckBox, QFrame, QSystemTrayIcon, QWidgetAction,
-        QTextEdit, QTabWidget
-    )
-    from qgis.PyQt.QtGui import QFont, QIcon
-    from qgis.core import QgsProject, QgsVectorLayer, Qgis
-except ImportError:
-    try:
-        from PyQt5.QtCore import QTimer, Qt, QThread, pyqtSignal
-        from PyQt5.QtWidgets import *
-        from PyQt5.QtGui import QFont
-    except ImportError:
-        from PyQt6.QtCore import QTimer, Qt, QThread, pyqtSignal
-        from PyQt6.QtWidgets import *
-        from PyQt6.QtGui import QFont
+from qgis.PyQt.QtCore import QTimer, Qt, QThread, pyqtSignal
+from qgis.PyQt.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QSpinBox, QPushButton,
+    QMessageBox, QFileDialog, QRadioButton, QButtonGroup, QListWidget,
+    QListWidgetItem, QCheckBox, QFrame, QSystemTrayIcon, QWidgetAction,
+    QTextEdit, QTabWidget
+)
+from qgis.PyQt.QtGui import QFont, QIcon
+from qgis.core import QgsProject, QgsVectorLayer, Qgis
+from .qt_compat import QtCompat
 
 
-class QtCompat:
-    """Qt version compatibility helper"""
-
-    @staticmethod
-    def _get_enum(parent, enum_class, attr_name):
-        """Helper to get enum value from Qt5 or Qt6"""
-        try:
-            # Qt6: Try enum class approach
-            if hasattr(parent, enum_class):
-                enum = getattr(parent, enum_class)
-                if hasattr(enum, attr_name):
-                    return getattr(enum, attr_name)
-            # Qt5: Direct attribute
-            if hasattr(parent, attr_name):
-                return getattr(parent, attr_name)
-        except:
-            pass
-        # Final fallback
-        return getattr(parent, attr_name)
-
-    @classmethod
-    def checked(cls):
-        return cls._get_enum(Qt, 'CheckState', 'Checked')
-
-    @classmethod
-    def unchecked(cls):
-        return cls._get_enum(Qt, 'CheckState', 'Unchecked')
-
-    @classmethod
-    def user_role(cls):
-        return cls._get_enum(Qt, 'ItemDataRole', 'UserRole')
-
-    @classmethod
-    def text_interaction(cls):
-        return cls._get_enum(Qt, 'TextInteractionFlag', 'TextBrowserInteraction')
-
-    @classmethod
-    def pointing_cursor(cls):
-        return cls._get_enum(Qt, 'CursorShape', 'PointingHandCursor')
-
-    @classmethod
-    def hline(cls):
-        return cls._get_enum(QFrame, 'Shape', 'HLine')
-
-    @classmethod
-    def sunken(cls):
-        return cls._get_enum(QFrame, 'Shadow', 'Sunken')
-
-    @classmethod
-    def window_flags(cls):
-        try:
-            # Qt6
-            if hasattr(Qt, 'WindowType'):
-                return (Qt.WindowType.Window | Qt.WindowType.WindowTitleHint |
-                        Qt.WindowType.WindowMinimizeButtonHint | Qt.WindowType.WindowCloseButtonHint |
-                        Qt.WindowType.CustomizeWindowHint)
-        except:
-            pass
-        # Qt5
-        return (Qt.Window | Qt.WindowTitleHint | Qt.WindowMinimizeButtonHint |
-                Qt.WindowCloseButtonHint | Qt.CustomizeWindowHint)
-
-    @classmethod
-    def stay_on_top(cls):
-        return cls._get_enum(Qt, 'WindowType', 'WindowStaysOnTopHint')
-
-    @classmethod
-    def double_click(cls):
-        return cls._get_enum(QSystemTrayIcon, 'ActivationReason', 'DoubleClick')
-
-    @classmethod
-    def info_icon(cls):
-        return cls._get_enum(QSystemTrayIcon, 'MessageIcon', 'Information')
-
-    @classmethod
-    def warning_icon(cls):
-        return cls._get_enum(QSystemTrayIcon, 'MessageIcon', 'Warning')
+# QtCompat class removed (imported from .qt_compat)
 
 
 def get_icon(name):
