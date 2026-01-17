@@ -402,6 +402,7 @@ class FeatureProcessor:
         self.separator = separator
 
     def get_label_text(self, feature, layer):
+        # Only use fields explicitly selected in the plugin UI
         if layer.id() in self.label_field_map:
             field_names = self.label_field_map[layer.id()]
             if field_names:
@@ -409,22 +410,15 @@ class FeatureProcessor:
                 for fn in field_names:
                     if fn in feature.fields().names():
                         v = feature[fn]
-                        if v is not None and v != 'NULL':
-                            values.append(str(v))
+                        # Filter out NULL, None, empty, and whitespace-only values
+                        if v is not None:
+                            v_str = str(v).strip()
+                            if v_str and v_str.upper() != 'NULL':
+                                values.append(v_str)
                 if values:
                     return self.separator.join(values)
-        if layer.labelsEnabled():
-            lbl = layer.labeling()
-            if isinstance(lbl, QgsVectorLayerSimpleLabeling):
-                fn = lbl.settings().fieldName
-                if fn and fn in feature.fields().names():
-                    return str(feature[fn])
-        for fld in feature.fields():
-            if fld.typeName() in ('String', 'text'):
-                v = feature[fld.name()]
-                if v not in (None, '', 'NULL'):
-                    return str(v)
-        return f"Feature {feature.id()}"
+        # Return None if no fields selected or all values are NULL/empty
+        return None
 
     def create_description_html_for_layer(self, feature, layer_id, label=None):
         html_parts = []
@@ -858,13 +852,18 @@ class KMZExporterDialog(QDialog):
         btn_layout.addWidget(self.btn_none)
         btn_layout.addStretch()
         layout.addLayout(btn_layout)
-        self.lst_layers = QListWidget()
-        self.lst_layers.setMaximumHeight(120)
-        self.lst_layers.setStyleSheet("QListWidget::item { padding: 4px; }")
-        # CHANGED: Use itemClicked to toggle check state and sync UI
-        self.lst_layers.itemClicked.connect(self._on_layer_item_clicked)
-        self.lst_layers.itemChanged.connect(self._refresh_settings_combo)
-        layout.addWidget(self.lst_layers)
+
+        # Scrollable area for layer checkboxes
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QtCompat.frame_shape('styledpanel'))
+        scroll.setMinimumHeight(130)  # Increased height for better visibility
+        scroll_widget = QWidget()
+        self.layers_layout = QVBoxLayout(scroll_widget)
+        self.layers_layout.setSpacing(4)
+        scroll.setWidget(scroll_widget)
+        layout.addWidget(scroll)
+
         group.setLayout(layout)
         return group
 
@@ -919,7 +918,6 @@ class KMZExporterDialog(QDialog):
         h_sep.addWidget(self.le_separator)
         layout.addLayout(h_sep)
         self.lst_label_fields = QListWidget()
-        self.lst_label_fields.setMaximumHeight(120)
         self.lst_label_fields.setToolTip(
             "Check fields to combine into the label")
         self.lst_label_fields.itemChanged.connect(self._save_label_fields)
@@ -1035,23 +1033,30 @@ class KMZExporterDialog(QDialog):
 
     def _load_layers(self):
         project = QgsProject.instance()
-        self.lst_layers.blockSignals(True)
-        for layer_id, layer in project.mapLayers().items():
-            if not isinstance(layer, QgsVectorLayer):
-                continue
-            item = QListWidgetItem(layer.name())
-            item.setData(QtCompat.user_role(), layer_id)
-            item.setFlags(item.flags() | QtCompat.item_flag(
-                'ItemIsUserCheckable'))
-            node = project.layerTreeRoot().findLayer(layer_id)
-            item.setCheckState(QtCompat.checkstate(node and node.isVisible()))
-            self.lst_layers.addItem(item)
-            self.layers_dict[layer_id] = layer
-            self.label_mode_map[layer_id] = 'name'
-        self.lst_layers.blockSignals(False)
+        layer_tree = project.layerTreeRoot()
+
+        # Get layers in panel order
+        layers_in_panel_order = []
+        for node in layer_tree.children():
+            if hasattr(node, 'layer') and node.layer():
+                layer = node.layer()
+                if isinstance(layer, QgsVectorLayer) and layer.isValid():
+                    layers_in_panel_order.append((layer, node.isVisible()))
+
+        # Add checkboxes for each layer
+        for layer, is_visible in layers_in_panel_order:
+            checkbox = QCheckBox(layer.name())
+            checkbox.setChecked(is_visible)
+            checkbox.setProperty("layer_id", layer.id())
+            checkbox.stateChanged.connect(self._on_layer_checkbox_changed)
+            self.layers_layout.addWidget(checkbox)
+            self.layers_dict[layer.id()] = layer
+            self.label_mode_map[layer.id()] = 'name'  # Default to Map mode
+
+        self.layers_layout.addStretch()
         self._refresh_settings_combo()
 
-    def _refresh_settings_combo(self, item=None):
+    def _refresh_settings_combo(self):
         if self._updating_ui:
             return
         self._updating_ui = True
@@ -1059,13 +1064,12 @@ class KMZExporterDialog(QDialog):
         current_layer_id = self.settings_layer_combo.currentData()
         self.settings_layer_combo.clear()
 
-        for i in range(self.lst_layers.count()):
-            list_item = self.lst_layers.item(i)
-            if list_item.checkState() == QtCompat.checkstate(True):
-                layer_id = list_item.data(QtCompat.user_role())
-                if layer_id in self.layers_dict:
-                    self.settings_layer_combo.addItem(
-                        self.layers_dict[layer_id].name(), layer_id)
+        # Get all checked layer checkboxes
+        for checkbox in self.findChildren(QCheckBox):
+            layer_id = checkbox.property("layer_id")
+            if layer_id and checkbox.isChecked() and layer_id in self.layers_dict:
+                self.settings_layer_combo.addItem(
+                    self.layers_dict[layer_id].name(), layer_id)
 
         if current_layer_id:
             idx = self.settings_layer_combo.findData(current_layer_id)
@@ -1075,16 +1079,17 @@ class KMZExporterDialog(QDialog):
         self._updating_ui = False
         self._on_settings_layer_changed()
 
-    def _on_layer_item_clicked(self, item):
+    def _on_layer_checkbox_changed(self, state):
         if self._updating_ui:
             return
 
-        is_checked_before_toggle = item.checkState() == QtCompat.checkstate(True)
-        item.setCheckState(QtCompat.checkstate(not is_checked_before_toggle))
+        checkbox = self.sender()
+        layer_id = checkbox.property("layer_id")
 
-        layer_id = item.data(QtCompat.user_role())
+        self._refresh_settings_combo()
 
-        if not is_checked_before_toggle:
+        # If checkbox was just checked, select it in the combo
+        if state == QtCompat.checkstate(True):
             idx = self.settings_layer_combo.findData(layer_id)
             if idx != -1:
                 self.settings_layer_combo.setCurrentIndex(idx)
@@ -1132,17 +1137,19 @@ class KMZExporterDialog(QDialog):
         self.lst_desc_fields.blockSignals(False)
 
     def _select_all(self):
-        self.lst_layers.blockSignals(True)
-        for i in range(self.lst_layers.count()):
-            self.lst_layers.item(i).setCheckState(QtCompat.checkstate(True))
-        self.lst_layers.blockSignals(False)
+        self._updating_ui = True
+        for checkbox in self.findChildren(QCheckBox):
+            if checkbox.property("layer_id"):
+                checkbox.setChecked(True)
+        self._updating_ui = False
         self._refresh_settings_combo()
 
     def _select_none(self):
-        self.lst_layers.blockSignals(True)
-        for i in range(self.lst_layers.count()):
-            self.lst_layers.item(i).setCheckState(QtCompat.checkstate(False))
-        self.lst_layers.blockSignals(False)
+        self._updating_ui = True
+        for checkbox in self.findChildren(QCheckBox):
+            if checkbox.property("layer_id"):
+                checkbox.setChecked(False)
+        self._updating_ui = False
         self._refresh_settings_combo()
 
     def _save_label_fields(self, item=None):
@@ -1290,17 +1297,34 @@ class KMZExporterDialog(QDialog):
             self.lbl_link.setText("")
             return
         folder = os.path.dirname(self.output_path)
+        filename = os.path.basename(self.output_path)
         if os.path.exists(folder):
             self.lbl_link.setText(
-                f'<a href="file:///{folder}">Open folder: {folder}</a>')
+                f'<a href="file:///{folder}">📁 {self.output_path}</a>')
         else:
             self.lbl_link.setText(
-                f'<span style="color:#dc3545;">Folder does not exist: {folder}</span>')
+                f'<span style="color:#dc3545;">⚠ Folder does not exist: {folder}</span>')
 
     def _open_folder(self, url):
         folder = os.path.dirname(self.output_path)
         if os.path.exists(folder):
-            QDesktopServices.openUrl(QUrl.fromLocalFile(folder))
+            # If the file exists, select it in Explorer/Finder
+            if os.path.exists(self.output_path):
+                import subprocess
+                import platform
+                if platform.system() == 'Windows':
+                    # Windows: Open Explorer and select the file
+                    subprocess.run(
+                        ['explorer', '/select,', os.path.normpath(self.output_path)])
+                elif platform.system() == 'Darwin':
+                    # macOS: Open Finder and select the file
+                    subprocess.run(['open', '-R', self.output_path])
+                else:
+                    # Linux/Other: Just open the folder
+                    QDesktopServices.openUrl(QUrl.fromLocalFile(folder))
+            else:
+                # File doesn't exist yet, just open the folder
+                QDesktopServices.openUrl(QUrl.fromLocalFile(folder))
         else:
             QMessageBox.warning(self, "Invalid Path",
                                 "The folder does not exist yet.")
@@ -1315,12 +1339,10 @@ class KMZExporterDialog(QDialog):
 
     def _start_export(self):
         selected_layers = []
-        for idx in range(self.lst_layers.count()):
-            item = self.lst_layers.item(idx)
-            if item.checkState() == QtCompat.checkstate(True):
-                layer_id = item.data(QtCompat.user_role())
-                if layer_id in self.layers_dict:
-                    selected_layers.append(self.layers_dict[layer_id])
+        for checkbox in self.findChildren(QCheckBox):
+            layer_id = checkbox.property("layer_id")
+            if layer_id and checkbox.isChecked() and layer_id in self.layers_dict:
+                selected_layers.append(self.layers_dict[layer_id])
 
         if not selected_layers:
             QMessageBox.warning(self, "No layers",
@@ -1354,7 +1376,10 @@ class KMZExporterDialog(QDialog):
         self.stat.show()
         self.btn_export.setEnabled(False)
         self.btn_browse.setEnabled(False)
-        self.lst_layers.setEnabled(False)
+        # Disable all layer checkboxes during export
+        for checkbox in self.findChildren(QCheckBox):
+            if checkbox.property("layer_id"):
+                checkbox.setEnabled(False)
         self.btn_cancel.show()
 
         self.thread = ExportThread(selected_layers, self.output_path, self.label_mode_map, self.label_field_map, self.desc_field_map,
@@ -1375,7 +1400,10 @@ class KMZExporterDialog(QDialog):
     def _on_export_finished(self, success, message):
         self.btn_export.setEnabled(True)
         self.btn_browse.setEnabled(True)
-        self.lst_layers.setEnabled(True)
+        # Re-enable all layer checkboxes after export
+        for checkbox in self.findChildren(QCheckBox):
+            if checkbox.property("layer_id"):
+                checkbox.setEnabled(True)
         self.btn_cancel.hide()
         self.prog.hide()
         self.prog.setValue(0)

@@ -1,6 +1,7 @@
 from qgis.gui import QgsMapTool, QgsRubberBand, QgsSnapIndicator
 from qgis.core import (QgsWkbTypes, QgsGeometry, QgsPointXY, QgsProject,
-                       QgsSnappingConfig, Qgis, QgsMapLayer, QgsTolerance)
+                       QgsSnappingConfig, Qgis, QgsMapLayer, QgsTolerance,
+                       QgsRectangle, QgsFeatureRequest)
 from qgis.PyQt import QtCore
 from qgis.PyQt.QtCore import Qt, pyqtSignal
 from qgis.PyQt.QtGui import QColor
@@ -8,6 +9,7 @@ from qgis.PyQt.QtWidgets import QInputDialog, QMessageBox, QToolBar, QAction
 import math
 from qgis.utils import iface
 from .qt_compat import QtCompat
+
 
 class AlignTool(QgsMapTool):
     def __init__(self, iface, source_layer):
@@ -76,6 +78,8 @@ class AlignTool(QgsMapTool):
             try:
                 self.project.snappingConfigChanged.connect(
                     self.on_snapping_config_changed)
+                self.iface.currentLayerChanged.connect(
+                    self.on_active_layer_changed)
                 self.signals_connected = True
             except Exception as e:
                 print(f"Failed to connect signals: {e}")
@@ -86,9 +90,32 @@ class AlignTool(QgsMapTool):
             try:
                 self.project.snappingConfigChanged.disconnect(
                     self.on_snapping_config_changed)
+                self.iface.currentLayerChanged.disconnect(
+                    self.on_active_layer_changed)
                 self.signals_connected = False
             except Exception as e:
                 print(f"Failed to disconnect signals: {e}")
+
+    def on_active_layer_changed(self, layer):
+        """Handle active layer change"""
+        if not layer:
+            return
+
+        if not self.is_active:
+            return
+
+        # Check if it's a valid vector layer for this tool
+        if (layer.type() == QgsMapLayer.VectorLayer and
+                layer.geometryType() in (QgsWkbTypes.LineGeometry, QgsWkbTypes.PolygonGeometry)):
+
+            if layer != self.source_layer:
+                self.source_layer = layer
+                self.reset_operation()
+                self.iface.messageBar().pushMessage(
+                    "Align Tool", f"Active layer changed to '{layer.name()}'. Tool ready.", Qgis.Info, 2)
+        else:
+            self.iface.messageBar().pushMessage(
+                "Align Tool", f"Layer '{layer.name()}' is not a valid line or polygon layer. Tool paused.", Qgis.Warning, 3)
 
     def on_snapping_config_changed(self):
         """Handle snapping configuration changes - only when tool is active"""
@@ -119,7 +146,7 @@ class AlignTool(QgsMapTool):
             self.iface.messageBar().pushMessage(
                 "Align Tool", "Operation reset. Click to select the first source vertex.", Qgis.Info, 3)
             return
-        
+
         if event.button() != QtCompat.LeftButton or not self.is_active:
             return
 
@@ -224,8 +251,15 @@ class AlignTool(QgsMapTool):
         closest_vertex = None
         min_distance = tolerance
 
-        # Search all features in source layer
-        for feature in self.source_layer.getFeatures():
+        # Search features in source layer within tolerance
+        rect = QgsRectangle(click_point.x() - tolerance,
+                            click_point.y() - tolerance,
+                            click_point.x() + tolerance,
+                            click_point.y() + tolerance)
+
+        request = QgsFeatureRequest().setFilterRect(rect)
+
+        for feature in self.source_layer.getFeatures(request):
             vertices = self.extract_vertices(feature.geometry())
             for vertex in vertices:
                 distance = math.sqrt((click_point.x() - vertex.x())**2 +
@@ -410,22 +444,46 @@ class AlignTool(QgsMapTool):
         try:
             dx1, dy1, rotation_angle = self.process_selected_features()
 
-            self.source_layer.startEditing()
+            if not self.source_layer.isEditable():
+                if not self.source_layer.startEditing():
+                    error_msg = self.source_layer.dataProvider().error().message(
+                    ) or "Check file permissions or layer capabilities."
+                    self.iface.messageBar().pushMessage(
+                        "Align Tool", f"Could not start editing: {error_msg}", Qgis.Critical, 5)
+                    self.reset_operation()
+                    return
+
             features_to_process = self.source_layer.selectedFeatures() or [
                 self.selected_feature]
 
             processed_count = 0
+            error_count = 0
+
             for feature in features_to_process:
                 if feature is not None:
                     new_geom = self.transform_geometry(
                         feature.geometry(), dx1, dy1, rotation_angle)
-                    if new_geom and new_geom.isGeosValid():
-                        self.source_layer.changeGeometry(
-                            feature.id(), new_geom)
-                        processed_count += 1
 
-            self.iface.messageBar().pushMessage(
-                "Align Tool", f"Successfully aligned {processed_count} feature(s). Ready for next alignment.", Qgis.Success, 3)
+                    if new_geom:
+                        if new_geom.isGeosValid():
+                            if self.source_layer.changeGeometry(feature.id(), new_geom):
+                                processed_count += 1
+                            else:
+                                error_count += 1
+                        else:
+                            self.iface.messageBar().pushMessage(
+                                "Align Tool", f"Invalid geometry generated for feature {feature.id()}. Skipped.", Qgis.Warning, 3)
+                            error_count += 1
+                    else:
+                        error_count += 1
+
+            if processed_count > 0:
+                self.iface.messageBar().pushMessage(
+                    "Align Tool", f"Successfully aligned {processed_count} feature(s). Ready for next alignment.", Qgis.Success, 3)
+
+            if error_count > 0:
+                self.iface.messageBar().pushMessage(
+                    "Align Tool", f"Failed to align {error_count} feature(s) due to geometry errors.", Qgis.Warning, 4)
 
             # Automatically reset for next operation
             self.reset_operation()
@@ -456,22 +514,46 @@ class AlignTool(QgsMapTool):
 
             scale_factor = target_distance / original_distance if original_distance != 0 else 1
 
-            self.source_layer.startEditing()
+            if not self.source_layer.isEditable():
+                if not self.source_layer.startEditing():
+                    error_msg = self.source_layer.dataProvider().error().message(
+                    ) or "Check file permissions or layer capabilities."
+                    self.iface.messageBar().pushMessage(
+                        "Align Tool", f"Could not start editing: {error_msg}", Qgis.Critical, 5)
+                    self.reset_operation()
+                    return
+
             features_to_process = self.source_layer.selectedFeatures() or [
                 self.selected_feature]
 
             processed_count = 0
+            error_count = 0
+
             for feature in features_to_process:
                 if feature is not None:
                     new_geom = self.transform_geometry(
                         feature.geometry(), dx1, dy1, rotation_angle, scale_factor)
-                    if new_geom and new_geom.isGeosValid():
-                        self.source_layer.changeGeometry(
-                            feature.id(), new_geom)
-                        processed_count += 1
 
-            self.iface.messageBar().pushMessage(
-                "Align Tool", f"Successfully scaled and aligned {processed_count} feature(s). Scale factor: {scale_factor:.3f}. Ready for next alignment.", Qgis.Success, 4)
+                    if new_geom:
+                        if new_geom.isGeosValid():
+                            if self.source_layer.changeGeometry(feature.id(), new_geom):
+                                processed_count += 1
+                            else:
+                                error_count += 1
+                        else:
+                            self.iface.messageBar().pushMessage(
+                                "Align Tool", f"Invalid geometry generated for feature {feature.id()}. Skipped.", Qgis.Warning, 3)
+                            error_count += 1
+                    else:
+                        error_count += 1
+
+            if processed_count > 0:
+                self.iface.messageBar().pushMessage(
+                    "Align Tool", f"Successfully scaled and aligned {processed_count} feature(s). Scale factor: {scale_factor:.3f}. Ready for next alignment.", Qgis.Success, 4)
+
+            if error_count > 0:
+                self.iface.messageBar().pushMessage(
+                    "Align Tool", f"Failed to scale {error_count} feature(s) due to geometry errors.", Qgis.Warning, 4)
 
             # Automatically reset for next operation
             self.reset_operation()
