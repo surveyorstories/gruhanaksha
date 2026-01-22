@@ -549,7 +549,7 @@ class TrianglePointTool(QgsMapTool):
         unit_combo.setCurrentText(self.widget.unit_combo.currentText())
         layout.addWidget(length_input)
         layout.addWidget(unit_combo)
-        btn_box = QDialogButtonBox(QtCompat.Ok | QtCompat.Cancel)
+        btn_box = QDialogButtonBox(QtCompat.DialogOk | QtCompat.DialogCancel)
         btn_box.accepted.connect(dialog.accept)
         btn_box.rejected.connect(dialog.reject)
         layout.addWidget(btn_box)
@@ -1250,7 +1250,7 @@ class PlotterWidget(QWidget):
 
     def on_auto_increment_changed(self, state):
         """Toggle auto-increment behavior"""
-        self.auto_increment = (state == Qt.Checked)
+        self.auto_increment = (state == QtCompat.checked())
 
     def get_highest_label_from_layer(self):
         """Get the highest label from the existing Plotted Points layer and increment it"""

@@ -433,9 +433,7 @@ class LabelIncrementer(QgsMapToolIdentify):
                 if not self.layer.isEditable():
                     self.layer.startEditing()
 
-                provider = self.layer.dataProvider()
-                provider.addAttributes([QgsField(self.label, QVariant.Int)])
-                self.layer.updateFields()
+                self.layer.addAttribute(QgsField(self.label, QVariant.Int))
                 print(f"Created field: {self.label}")
 
             # Check and create STATUS field if it doesn't exist
@@ -443,9 +441,7 @@ class LabelIncrementer(QgsMapToolIdentify):
                 if not self.layer.isEditable():
                     self.layer.startEditing()
 
-                provider = self.layer.dataProvider()
-                provider.addAttributes([QgsField('STATUS', QVariant.String)])
-                self.layer.updateFields()
+                self.layer.addAttribute(QgsField('STATUS', QVariant.String))
                 print(f"Created field: STATUS")
 
             if self.layer.isEditable():
@@ -592,10 +588,7 @@ class LabelIncrementer(QgsMapToolIdentify):
             field_names = [field.name() for field in self.layer.fields()]
             if self.label not in field_names:
                 self.layer.startEditing()
-                layer_provider = self.layer.dataProvider()
-                layer_provider.addAttributes(
-                    [QgsField(self.label, QVariant.Int)])
-                self.layer.updateFields()
+                self.layer.addAttribute(QgsField(self.label, QVariant.Int))
 
     def createStatusFields(self):
         """Create fields to track label status"""
@@ -604,9 +597,7 @@ class LabelIncrementer(QgsMapToolIdentify):
             field_names = [field.name() for field in self.layer.fields()]
 
             if 'STATUS' not in field_names:
-                self.layer.dataProvider().addAttributes(
-                    [QgsField('STATUS', QVariant.String)])
-                self.layer.updateFields()
+                self.layer.addAttribute(QgsField('STATUS', QVariant.String))
 
     def apply_styling(self):
         """Apply rule-based styling for status visualization"""
@@ -1031,6 +1022,8 @@ class LabelIncrementer(QgsMapToolIdentify):
                         )
 
                         if ok:
+                            old_value = current_value
+
                             if not self.layer.isEditable():
                                 self.layer.startEditing()
 
@@ -1074,6 +1067,29 @@ class LabelIncrementer(QgsMapToolIdentify):
                             # Trigger repaint to show red status immediately
                             self.layer.triggerRepaint()
                             # self.updateSymbology()
+
+                            # --- Fix for updating previous duplicates ---
+                            if old_value is not None:
+                                try:
+                                    # Find remaining features with the old value
+                                    expr_old = QgsExpression(
+                                        f'"{self.label}" = {old_value}')
+                                    req_old = QgsFeatureRequest(expr_old)
+                                    old_peers = [
+                                        f for f in self.layer.getFeatures(req_old)]
+
+                                    # If exactly one remains, it is now unique
+                                    if len(old_peers) == 1:
+                                        peer = old_peers[0]
+                                        # Only update if it was marked as duplicate
+                                        if peer['STATUS'] == 'duplicate':
+                                            if status_idx != -1:
+                                                self.layer.changeAttributeValue(
+                                                    peer.id(), status_idx, 'cleared')
+                                except Exception as e:
+                                    print(
+                                        f"Error updating old peer status: {e}")
+                            # --------------------------------------------
 
                             messagebar = MessageBar(self.canvas)
                             if is_duplicate:
@@ -1835,9 +1851,7 @@ class LpmCanvas(QMainWindow):
                 self.layer.startEditing()
 
             # Create field immediately
-            self.layer.dataProvider().addAttributes(
-                [QgsField(field_name, QVariant.Int)])
-            self.layer.updateFields()
+            self.layer.addAttribute(QgsField(field_name, QVariant.Int))
             # Verify creation
             idx = self.layer.fields().indexFromName(field_name)
             if idx == -1:
@@ -1852,9 +1866,7 @@ class LpmCanvas(QMainWindow):
             if not self.layer.isEditable():
                 self.layer.startEditing()
 
-            self.layer.dataProvider().addAttributes(
-                [QgsField('STATUS', QVariant.String)])
-            self.layer.updateFields()
+            self.layer.addAttribute(QgsField('STATUS', QVariant.String))
             print("Created STATUS field for auto-numbering")
 
         # Check for existing values in the selected features

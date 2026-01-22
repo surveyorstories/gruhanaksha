@@ -10,7 +10,7 @@ supportsQt6=True
 
 description= Gruhanaksha is developed specifically to support the deliverables of the SVAMITVA by offering various tools Polygon adjuster, Plotter, auto backup and save , free hand adjuster, ppm generation, other tools for geometry adjustments and manipulation
 
-version=3.0.0
+version=3.1.0
 
 author=Surveyor Stories
 email=surveyorstories@gmail.com
