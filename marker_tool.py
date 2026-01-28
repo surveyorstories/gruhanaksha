@@ -1,5 +1,5 @@
 from qgis.gui import QgsMapToolEdit, QgsSnapIndicator
-from qgis.core import QgsDistanceArea, QgsProject, QgsPointXY
+from qgis.core import QgsDistanceArea, QgsProject, QgsPointXY, QgsExpression
 from .qt_compat import Qt, QtCompat, QGraphicsTextItem, QInputDialog, QDialog, QLabel, QLineEdit, QVBoxLayout, QDialogButtonBox, QPointF
 import math
 
@@ -29,7 +29,10 @@ class MarkerMapTool(QgsMapToolEdit):
         self.calculator = QgsDistanceArea()
         self.calculator.setSourceCrs(
             self.layer.crs(), QgsProject.instance().transformContext())
-        self.calculator.setEllipsoid(QgsProject.instance().ellipsoid())
+        if self.layer.crs().isGeographic():
+            self.calculator.setEllipsoid(QgsProject.instance().ellipsoid())
+        else:
+            self.calculator.setEllipsoid('')
 
     def update_unit(self, factor, label, linear_factor=1.0, linear_label="m"):
         self.unit_factor = linear_factor
@@ -218,10 +221,14 @@ class MarkerMapTool(QgsMapToolEdit):
             try:
                 # Safe eval function
                 def safe_eval(expr):
-                    allowed_chars = "0123456789.+-*/() "
-                    if not all(c in allowed_chars for c in expr):
-                        raise ValueError
-                    return float(eval(expr, {"__builtins__": None}, {}))
+                    # Use QgsExpression for safe evaluation of math
+                    exp = QgsExpression(expr)
+                    if exp.hasParserError():
+                        raise ValueError(exp.parserErrorString())
+                    result = exp.evaluate()
+                    if exp.hasEvalError():
+                        raise ValueError(exp.evalErrorString())
+                    return float(result)
 
                 new_dist = safe_eval(input1.text())
                 new_dist2 = safe_eval(input2.text())

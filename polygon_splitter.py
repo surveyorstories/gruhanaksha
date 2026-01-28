@@ -22,8 +22,8 @@ import inspect
 import threading
 import qgis.utils
 from .addon_functions import undo, redo
-from qgis.core import QgsVectorLayer, QgsProject, QgsDistanceArea, QgsPoint, QgsPointXY, QgsGeometry, QgsWkbTypes
-from qgis.gui import QgsMessageBar, QgsMapToolEdit, QgsRubberBand
+from qgis.core import QgsVectorLayer, QgsProject, QgsDistanceArea, QgsPoint, QgsPointXY, QgsGeometry, QgsWkbTypes, Qgis
+from qgis.gui import QgsMessageBar, QgsMapToolEdit, QgsRubberBand, QgsVertexMarker
 from qgis.utils import iface
 import sys
 import os
@@ -257,6 +257,7 @@ class MyWnd(QMainWindow):
         central_widget.setLayout(main_layout)
         self.setCentralWidget(central_widget)
 
+        self.vertex_markers = []
         self.createCanvasActions()
 
         # Initialize markers state
@@ -300,6 +301,9 @@ class MyWnd(QMainWindow):
 
         # Reset markers
         self.reset_markers()
+        for marker in self.vertex_markers:
+            self.canvas.scene().removeItem(marker)
+        self.vertex_markers = []
 
         super(MyWnd, self).closeEvent(event)
 
@@ -384,6 +388,7 @@ class MyWnd(QMainWindow):
     def onSelectionChanged(self, selected, deselected, clearAndSelect):
         self.markers = []
         self.redrawMarkers()
+        self.updatePolygonVertices()
 
         if self.mapTool:
             if hasattr(self.mapTool, 'stopCapturing'):
@@ -418,10 +423,22 @@ class MyWnd(QMainWindow):
         if self.selected_layers:
             self.canvas.setLayers(self.selected_layers)
 
-            # If needed, adjust the extent to the main canvas
-            # if not self.canvas.layers():
-            main_canvas_extent = self.iface.mapCanvas().extent()
-            self.canvas.setExtent(main_canvas_extent)
+            # Determine the primary layer to use for extent
+            layer = self.iface.activeLayer()
+            if not layer or layer not in self.selected_layers:
+                layer = self.selected_layers[0]
+
+            extent = layer.extent()
+
+            # Check for selection if it's a vector layer
+            if layer.type() == QgsMapLayer.VectorLayer and layer.selectedFeatureCount() > 0:
+                extent = layer.boundingBoxOfSelected()
+
+            # Ensure extent is not null/empty (e.g. single point)
+            if extent.width() == 0 or extent.height() == 0:
+                extent.grow(0.001)  # Small buffer
+
+            self.canvas.setExtent(extent)
             self.canvas.refresh()
 
     def createCanvasActions(self):
@@ -644,6 +661,7 @@ class MyWnd(QMainWindow):
             self.canvas.unsetMapTool(self.mapTool)
             self.mapTool = None
             self.actionAddMarker.setChecked(False)  # Turn off Marker button
+            self.enableTool()  # Re-enable based on current selection
             return
         layer = self.iface.activeLayer()
         if layer == None or not isinstance(layer, QgsVectorLayer) or (layer.wkbType() != QgsWkbTypes.Polygon and layer.wkbType() != QgsWkbTypes.MultiPolygon and layer.wkbType() != QgsWkbTypes.Polygon25D and layer.wkbType() != QgsWkbTypes.MultiPolygon25D):
@@ -804,12 +822,53 @@ class MyWnd(QMainWindow):
                 self.canvas.scene().addItem(label)
                 self.markerItems.append(label)
 
+    def updatePolygonVertices(self):
+        # Safety check for initialization
+        if not hasattr(self, 'vertex_markers'):
+            self.vertex_markers = []
+
+        # Clear existing
+        for marker in self.vertex_markers:
+            self.canvas.scene().removeItem(marker)
+        self.vertex_markers = []
+
+        layer = self.iface.activeLayer()
+        if not layer or not isinstance(layer, QgsVectorLayer):
+            return
+
+        selected_features = layer.selectedFeatures()
+        if not selected_features:
+            return
+
+        for feature in selected_features:
+            geom = feature.geometry()
+            if not geom:
+                continue
+
+            vertices = []
+            if geom.isMultipart():
+                for part in geom.asGeometryCollection():
+                    vertices.extend(part.vertices())
+            else:
+                vertices.extend(geom.vertices())
+
+            for v in vertices:
+                marker = QgsVertexMarker(self.canvas)
+                marker.setCenter(QgsPointXY(v.x(), v.y()))
+                marker.setColor(QColor("black"))
+                marker.setFillColor(QColor("black"))
+                marker.setIconSize(5)
+                marker.setIconType(QgsVertexMarker.ICON_CIRCLE)
+                marker.setPenWidth(1)
+                self.vertex_markers.append(marker)
+
     def onClickAddMarker(self):
         if not self.actionAddMarker.isChecked():
             # Deactivate tool if needed, switch to Pan or previous
             if self.mapTool:
                 self.mapTool.deactivate()
             self.canvas.unsetMapTool(self.mapTool)
+            self.enableTool()  # Re-enable based on current selection
             return
 
         self.disableAll()
@@ -882,9 +941,11 @@ class MyWnd(QMainWindow):
     def enableTool(self):
         self.disableAll()
         self.action.setEnabled(True)
+        self.updatePolygonVertices()
         layer = self.iface.activeLayer()
 
         if layer != None and isinstance(layer, QgsVectorLayer):
+            self.actionAddMarker.setEnabled(True)
             selectedFeatures = layer.selectedFeatures()
             isPolygon = (layer.wkbType() == QgsWkbTypes.Polygon or layer.wkbType() == QgsWkbTypes.MultiPolygon or layer.wkbType(
             ) == QgsWkbTypes.Polygon25D or layer.wkbType() == QgsWkbTypes.MultiPolygon25D)
@@ -892,7 +953,6 @@ class MyWnd(QMainWindow):
                 selectedFeatures) > 0
 
             if isPolygon and hasSelection:
-                self.actionAddMarker.setEnabled(True)
                 # Keep action enabled logic consistent
                 if layer.isEditable():
                     self.action.setEnabled(True)
@@ -950,7 +1010,10 @@ class SplitMapTool(QgsMapToolEdit):
         self.calculator.setSourceCrs(self.layer.dataProvider(
         ).crs(), QgsProject.instance().transformContext())
         # self.layer.dataProvider().crs().ellipsoidAcronym()
-        self.calculator.setEllipsoid(None)
+        if self.layer.dataProvider().crs().isGeographic():
+            self.calculator.setEllipsoid(QgsProject.instance().ellipsoid())
+        else:
+            self.calculator.setEllipsoid('')
         self.drawingLine = False
         self.movingVertices = False
         self.addingVertices = False
@@ -1173,8 +1236,19 @@ class SplitMapTool(QgsMapToolEdit):
                         pt2 = (round(p_prev.x(), 4), round(p_prev.y(), 4))
                         skip_segments.add(frozenset([pt1, pt2]))
 
+                # Deduplicate points to prevent crash
+                cleaned_points = []
+                if len(movingPoints) > 0:
+                    cleaned_points.append(movingPoints[0])
+                    for pt in movingPoints[1:]:
+                        if pt != cleaned_points[-1]:
+                            cleaned_points.append(pt)
+
+                if len(cleaned_points) < 2:
+                    return
+
                 result, newGeometries, topoTestPoints = geometry.splitGeometry(
-                    movingPoints, self.proj.topologicalEditing())
+                    cleaned_points, self.proj.topologicalEditing())
 
                 self.addLabel(geometry)
                 self.addSegmentLabels(
@@ -1364,8 +1438,21 @@ class SplitMapTool(QgsMapToolEdit):
                     # If still not editable (e.g. failed to start editing), return
                     return
 
+            # Deduplicate points to prevent crash
+            cleaned_points = []
+            if len(self.capturedPoints) > 0:
+                cleaned_points.append(self.capturedPoints[0])
+                for pt in self.capturedPoints[1:]:
+                    if pt != cleaned_points[-1]:
+                        cleaned_points.append(pt)
+
+            if len(cleaned_points) < 2:
+                iface.messageBar().pushMessage("Invalid Split",
+                                               "Split line must have at least 2 distinct points.", level=Qgis.Warning)
+                return
+
             self.layer.splitFeatures(
-                self.capturedPoints, self.proj.topologicalEditing())
+                cleaned_points, self.proj.topologicalEditing())
 
     def startCapturing(self):
         self.prepareRubberBand()

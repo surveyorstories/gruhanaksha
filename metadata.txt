@@ -10,7 +10,7 @@ supportsQt6=True
 
 description= Gruhanaksha is developed specifically to support the deliverables of the SVAMITVA by offering various tools Polygon adjuster, Plotter, auto backup and save , free hand adjuster, ppm generation, other tools for geometry adjustments and manipulation
 
-version=3.1.0
+version=3.2.0
 
 author=Surveyor Stories
 email=surveyorstories@gmail.com
@@ -27,8 +27,16 @@ hasProcessingProvider=yes
 # Uncomment the following line and add your changelog:
 changelog= <a href=https://surveyorstories.github.io/gruhanakshaweb/releases>Visit Releases page </a>
 
+    Release Notes 3.2.0
+    - Improvement in autosave and backup tool Layer selection
+    - Added Vertices to selected polygon in splitter tool
+    - Added categorised symbology support in KMZ
+    - Added no pin in KMZ
+    - Bug fix in polygon splitter tool
+    - Bug fix in KMZ 
+
 # Tags are comma separated with spaces allowed
-tags=svamitva,resurvey,ppm, polygon adjuster, triangle, autocad aligner,csv importer, geometry,auto backup and auto save 
+tags=svamitva,resurvey,ppm, polygon adjuster, triangle, autocad aligner,csv importer, geometry,auto backup and auto save, auto lpnumbering
 
 homepage=https://surveyorstories.github.io/gruhanakshaweb
 category=Analysis, vector, Raster

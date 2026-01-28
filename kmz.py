@@ -300,6 +300,34 @@ class StyleManager:
             self._add_polygon_style(style, layer, custom_sym)
         self._create_label_only_style(doc, style_id, custom_lbl)
 
+    def create_categorized_styles(self, doc, base_style_id, layer):
+        renderer = layer.renderer()
+        categories = renderer.categories()
+        custom_sym = self.symbology_settings.get(layer.id(), {})
+        custom_lbl = self.label_settings.get(layer.id(), {})
+
+        # Create base label style
+        self._create_label_only_style(doc, base_style_id, custom_lbl)
+
+        geom = layer.geometryType()
+        # Create a style for each category
+        for i, cat in enumerate(categories):
+            style_id = f"{base_style_id}_cat_{i}"
+            style = SubElement(doc, "Style", id=style_id)
+            self._add_label_style(style, custom_lbl)
+
+            # Use the category's symbol
+            symbol = cat.symbol()
+            if geom == QgsWkbTypes.PointGeometry:
+                self._add_point_style(style, layer, custom_sym, symbol)
+            elif geom == QgsWkbTypes.LineGeometry:
+                self._add_line_style(style, layer, custom_sym, symbol)
+            elif geom == QgsWkbTypes.PolygonGeometry:
+                self._add_polygon_style(style, layer, custom_sym, symbol)
+
+            # Create corresponding label style for this category
+            self._create_label_only_style(doc, style_id, custom_lbl)
+
     def _add_label_style(self, style, custom_lbl):
         lbl_scale = custom_lbl.get('scale', 1.0)
         lbl_color = custom_lbl.get('color', QColor(255, 255, 255))
@@ -307,11 +335,11 @@ class StyleManager:
         SubElement(ls, "scale").text = str(lbl_scale)
         SubElement(ls, "color").text = KMLBuilder.color_to_kml(lbl_color)
 
-    def _add_point_style(self, style, layer, custom_sym):
+    def _add_point_style(self, style, layer, custom_sym, symbol=None):
         ic = SubElement(style, "IconStyle")
-        if custom_sym.get('use_qgis', True):
-            sym = layer.renderer().symbol() if hasattr(
-                layer.renderer(), 'symbol') else None
+        if custom_sym.get('use_qgis', True) or symbol:
+            sym = symbol if symbol else (layer.renderer().symbol(
+            ) if hasattr(layer.renderer(), 'symbol') else None)
             col = sym.color() if sym else QColor(255, 255, 0)
             scale = sym.size() / 10.0 if sym else 1.0
             href = "http://maps.google.com/mapfiles/kml/pushpin/ylw-pushpin.png"
@@ -320,15 +348,20 @@ class StyleManager:
             scale = custom_sym.get('size', 1.0)
             href = custom_sym.get(
                 'icon_url', "http://maps.google.com/mapfiles/kml/pushpin/ylw-pushpin.png")
+
+        # Handle "No Pin" case (empty href) or fully transparent color
+        if not href or col.alpha() == 0:
+            scale = 0.0
+
         SubElement(ic, "scale").text = str(scale)
         SubElement(ic, "color").text = KMLBuilder.color_to_kml(col)
         SubElement(SubElement(ic, "Icon"), "href").text = href
 
-    def _add_line_style(self, style, layer, custom_sym):
+    def _add_line_style(self, style, layer, custom_sym, symbol=None):
         ln = SubElement(style, "LineStyle")
-        if custom_sym.get('use_qgis', True):
-            sym = layer.renderer().symbol() if hasattr(
-                layer.renderer(), 'symbol') else None
+        if custom_sym.get('use_qgis', True) or symbol:
+            sym = symbol if symbol else (layer.renderer().symbol(
+            ) if hasattr(layer.renderer(), 'symbol') else None)
             col = sym.color() if sym else QColor(255, 255, 0)
             w = sym.width() if sym else 2.0
         else:
@@ -337,14 +370,14 @@ class StyleManager:
         SubElement(ln, "color").text = KMLBuilder.color_to_kml(col)
         SubElement(ln, "width").text = str(w)
 
-    def _add_polygon_style(self, style, layer, custom_sym):
+    def _add_polygon_style(self, style, layer, custom_sym, symbol=None):
         poly = SubElement(style, "PolyStyle")
         ln = SubElement(style, "LineStyle")
-        if custom_sym.get('use_qgis', True):
+        if custom_sym.get('use_qgis', True) or symbol:
             fill_color, outline_color, outline_width, has_fill = self._extract_polygon_symbology(
-                layer)
+                layer, symbol)
         else:
-            fill_color = custom_sym.get('fill_color', QColor(255, 255, 0, 128))
+            fill_color = custom_sym.get('fill_color', QColor(255, 255, 0, 255))
             outline_color = custom_sym.get(
                 'outline_color', QColor(255, 255, 0))
             outline_width = custom_sym.get('outline_width', 1.0)
@@ -355,13 +388,13 @@ class StyleManager:
         SubElement(ln, "color").text = KMLBuilder.color_to_kml(outline_color)
         SubElement(ln, "width").text = str(outline_width)
 
-    def _extract_polygon_symbology(self, layer):
+    def _extract_polygon_symbology(self, layer, symbol=None):
         has_fill = False
         fill_color = QColor(0, 0, 0, 0)
         outline_color = QColor(0, 0, 0)
         outline_width = 1.0
-        sym = layer.renderer().symbol() if hasattr(
-            layer.renderer(), 'symbol') else None
+        sym = symbol if symbol else (layer.renderer().symbol(
+        ) if hasattr(layer.renderer(), 'symbol') else None)
         if sym and sym.symbolLayerCount() > 0:
             for i in range(sym.symbolLayerCount()):
                 sl = sym.symbolLayer(i)
@@ -604,7 +637,24 @@ class KMZExporter:
         style_id = f"s_{layer.id()}"
         style_manager = StyleManager(
             self.symbology_settings, self.label_settings)
-        style_manager.create_style(doc, style_id, layer)
+
+        is_categorized = False
+        cat_attr_idx = -1
+        categories = []
+
+        # Check for categorized symbology
+        custom_sym = self.symbology_settings.get(layer.id(), {})
+        use_qgis = custom_sym.get('use_qgis', True)
+
+        if use_qgis and layer.renderer().type() == 'categorizedSymbol':
+            is_categorized = True
+            style_manager.create_categorized_styles(doc, style_id, layer)
+            cat_attr_name = layer.renderer().classAttribute()
+            cat_attr_idx = layer.fields().indexOf(cat_attr_name)
+            categories = layer.renderer().categories()
+        else:
+            style_manager.create_style(doc, style_id, layer)
+
         transform = None
         if layer.crs() != self.crs_wgs84:
             transform = QgsCoordinateTransform(
@@ -614,7 +664,18 @@ class KMZExporter:
         features = layer.selectedFeatures(
         ) if selected_only and layer.selectedFeatureCount() > 0 else layer.getFeatures()
         for feature in features:
-            self._export_feature(feature, folder, style_id,
+            final_style_id = style_id
+            if is_categorized and cat_attr_idx != -1:
+                val = feature.attributes()[cat_attr_idx]
+                # Find matching category
+                for i, cat in enumerate(categories):
+                    # Check for equality, handling potential type differences if necessary
+                    # Assuming strict equality for now as usually returned by renderer
+                    if str(cat.value()) == str(val):  # Compare as string to be safe
+                        final_style_id = f"{style_id}_cat_{i}"
+                        break
+
+            self._export_feature(feature, folder, final_style_id,
                                  transform, layer, label_mode, processor)
 
     def _export_feature(self, feature, folder, style_id, transform, layer, label_mode, processor):
@@ -686,7 +747,7 @@ class SymbologyWidget:
         h = QHBoxLayout()
         h.addWidget(QLabel("Icon:"))
         cb_icon = QComboBox()
-        icons = [("Yellow pushpin", "http://maps.google.com/mapfiles/kml/pushpin/ylw-pushpin.png"), ("Red pushpin", "http://maps.google.com/mapfiles/kml/pushpin/red-pushpin.png"),
+        icons = [("No Pin", ""), ("Yellow pushpin", "http://maps.google.com/mapfiles/kml/pushpin/ylw-pushpin.png"), ("Red pushpin", "http://maps.google.com/mapfiles/kml/pushpin/red-pushpin.png"),
                  ("Blue pushpin", "http://maps.google.com/mapfiles/kml/pushpin/blue-pushpin.png"), ("Green pushpin", "http://maps.google.com/mapfiles/kml/pushpin/grn-pushpin.png")]
         for txt, url in icons:
             cb_icon.addItem(txt, url)
@@ -741,7 +802,7 @@ class SymbologyWidget:
         layout = QVBoxLayout(widget)
         layout.addWidget(QLabel("Fill color:"))
         picker_fill = ColorPickerWidget(
-            QColor(255, 255, 0, 128), show_alpha=True)
+            QColor(255, 255, 0, 255), show_alpha=True)
         picker_fill.colorChanged.connect(lambda: save_callback())
         layout.addWidget(picker_fill)
         h = QHBoxLayout()
@@ -1261,7 +1322,7 @@ class KMZExporterDialog(QDialog):
         if layer_id in self.symbology_settings:
             s = self.symbology_settings[layer_id]
             self.w_poly.picker_fill.set_color(
-                s.get('fill_color', QColor(255, 255, 0, 128)))
+                s.get('fill_color', QColor(255, 255, 0, 255)))
             self.w_poly.picker_outline.set_color(
                 s.get('outline_color', QColor(255, 255, 0)))
             self.w_poly.sp_width.setValue(s.get('outline_width', 1.0))

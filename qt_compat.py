@@ -190,6 +190,29 @@ class QtCompat:
         """Return DoubleClick for QSystemTrayIcon."""
         return cls._get_attr(QSystemTrayIcon, 'DoubleClick', 'ActivationReason.DoubleClick')
 
+    @classmethod
+    def frame_shape(cls, shape):
+        """Get frame shape by name (e.g. 'styledpanel', 'hline', 'box')."""
+        # Map common names to QFrame attributes
+        shape = shape.lower()
+        mapping = {
+            'hline': 'HLine',
+            'vline': 'VLine',
+            'styledpanel': 'StyledPanel',
+            'plain': 'Plain',
+            'raised': 'Raised',
+            'sunken': 'Sunken',
+            'box': 'Box',
+            'panel': 'Panel',
+            'noframe': 'NoFrame'
+        }
+
+        qt_name = mapping.get(shape, 'NoFrame')
+
+        # Try finding it in QFrame.Shape (Qt6) or QFrame (Qt5)
+        # Note: Some might be shapes, some shadows, but typically frame_shape is used for Shape.
+        return cls._get_attr(QFrame, qt_name, f'Shape.{qt_name}')
+
 
 # --- Attributes (Values) ---
 # Populated dynamically to ensure they are values, not methods/properties

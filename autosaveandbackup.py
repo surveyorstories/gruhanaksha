@@ -12,7 +12,7 @@ from qgis.PyQt.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QSpinBox, QPushButton,
     QMessageBox, QFileDialog, QRadioButton, QButtonGroup, QListWidget,
     QListWidgetItem, QCheckBox, QFrame, QSystemTrayIcon, QWidgetAction,
-    QTextEdit, QTabWidget
+    QTextEdit, QTabWidget, QScrollArea, QGroupBox, QSpacerItem, QSizePolicy
 )
 from qgis.PyQt.QtGui import QFont, QIcon
 from qgis.core import QgsProject, QgsVectorLayer, Qgis
@@ -218,16 +218,31 @@ class ComprehensiveProjectBackupWidget(QWidget):
         settings_layout.addWidget(self.create_separator())
 
         # Layer selection section
-        settings_layout.addWidget(QLabel("Select Layers to Backup:"))
-        self.selectAllCheckbox = QCheckBox("Select All Layers")
-        settings_layout.addWidget(self.selectAllCheckbox)
+        # Layer selection section
+        group = QGroupBox("Select Layers to Backup")
+        layout = QVBoxLayout()
+        btn_layout = QHBoxLayout()
+        self.btn_all = QPushButton("Select All")
+        self.btn_none = QPushButton("Select None")
+        self.btn_all.clicked.connect(self._select_all)
+        self.btn_none.clicked.connect(self._select_none)
+        btn_layout.addWidget(self.btn_all)
+        btn_layout.addWidget(self.btn_none)
+        btn_layout.addStretch()
+        layout.addLayout(btn_layout)
 
-        self.layerListWidget = QListWidget()
-        self.layerListWidget.setMinimumHeight(150)
-        self.layerListWidget.setAlternatingRowColors(True)
-        self.layerListWidget.setToolTip(
-            "Check layers you want to include in backup")
-        settings_layout.addWidget(self.layerListWidget)
+        # Scrollable area for layer checkboxes
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QtCompat.frame_shape('styledpanel'))
+        scroll.setMinimumHeight(150)
+        scroll_widget = QWidget()
+        self.layers_layout = QVBoxLayout(scroll_widget)
+        self.layers_layout.setSpacing(4)
+        scroll.setWidget(scroll_widget)
+        layout.addWidget(scroll)
+        group.setLayout(layout)
+        settings_layout.addWidget(group)
 
         infoLabel = QLabel("Note: Project file is always included in backup")
         infoLabel.setStyleSheet("color: #666; font-style: italic;")
@@ -327,8 +342,7 @@ class ComprehensiveProjectBackupWidget(QWidget):
         """Setup signal connections"""
         self.timer.timeout.connect(self.backup_project)
         self.countdown_timer.timeout.connect(self.update_countdown)
-        self.selectAllCheckbox.stateChanged.connect(
-            self.toggle_select_all_layers)
+
         self.multipleRadio.toggled.connect(self.on_mode_changed)
         self.singleRadio.toggled.connect(self.on_mode_changed)
         self.selectFolderButton.clicked.connect(self.select_backup_folder)
@@ -455,69 +469,52 @@ class ComprehensiveProjectBackupWidget(QWidget):
 
     def load_layers(self):
         """Load vector layers into the layer list"""
-        # Block signals to prevent triggering stateChanged during load
-        self.selectAllCheckbox.blockSignals(True)
-        self.layerListWidget.blockSignals(True)
+        # Clear existing items
+        while self.layers_layout.count():
+            child = self.layers_layout.takeAt(0)
+            if child.widget():
+                child.widget().deleteLater()
 
-        self.layerListWidget.clear()
         self.current_layers.clear()
         project = QgsProject.instance()
 
         for layer in project.mapLayers().values():
             if isinstance(layer, QgsVectorLayer):
                 self.current_layers.add(layer.id())
-                item = QListWidgetItem(layer.name())
-                item.setData(QtCompat.user_role(), layer.id())
-                item.setCheckState(QtCompat.unchecked())
-                self.layerListWidget.addItem(item)
+                checkbox = QCheckBox(layer.name())
+                checkbox.setProperty("layer_id", layer.id())
+                checkbox.setChecked(False)  # Default unchecked
+                self.layers_layout.addWidget(checkbox)
 
-        # Restore signal blocking
-        self.selectAllCheckbox.blockSignals(False)
-        self.layerListWidget.blockSignals(False)
+        self.layers_layout.addStretch()
 
-        # Reset select all checkbox state
-        self.selectAllCheckbox.setChecked(False)
+    def _select_all(self):
+        """Select all layers"""
+        for i in range(self.layers_layout.count()):
+            widget = self.layers_layout.itemAt(i).widget()
+            if isinstance(widget, QCheckBox):
+                widget.setChecked(True)
 
-    def toggle_select_all_layers(self, state):
-        """Toggle all layer checkboxes"""
-        checked_state = QtCompat.checked()
-        unchecked_state = QtCompat.unchecked()
-
-        # Block signals during batch update
-        self.layerListWidget.blockSignals(True)
-
-        try:
-            is_checked = state == checked_state or (
-                hasattr(checked_state, 'value') and state == checked_state.value)
-        except AttributeError:
-            is_checked = state == checked_state
-
-        for index in range(self.layerListWidget.count()):
-            item = self.layerListWidget.item(index)
-            item.setCheckState(
-                checked_state if is_checked else unchecked_state)
-
-        self.layerListWidget.blockSignals(False)
+    def _select_none(self):
+        """Deselect all layers"""
+        for i in range(self.layers_layout.count()):
+            widget = self.layers_layout.itemAt(i).widget()
+            if isinstance(widget, QCheckBox):
+                widget.setChecked(False)
 
     def get_selected_layers(self):
-        """Get list of selected layer names - FIXED BUG"""
-        """Get list of selected layer IDs"""
+        """Get list of selected layer names and IDs"""
         selected_layers = []
-        checked_state = QtCompat.checked()
 
-        for i in range(self.layerListWidget.count()):
-            item = self.layerListWidget.item(i)
-            try:
-                is_checked = item.checkState() == checked_state or (
-                    hasattr(checked_state, 'value') and item.checkState(
-                    ) == checked_state.value
-                )
-            except AttributeError:
-                is_checked = item.checkState() == checked_state
-
-            if is_checked:
-                selected_layers.append(item.text())
-                selected_layers.append(item.data(QtCompat.user_role()))
+        for i in range(self.layers_layout.count()):
+            widget = self.layers_layout.itemAt(i).widget()
+            if isinstance(widget, QCheckBox) and widget.isChecked():
+                layer_id = widget.property("layer_id")
+                # Find layer by ID to get the name (or use checkbox text)
+                layer = QgsProject.instance().mapLayer(layer_id)
+                if layer:
+                    selected_layers.append(layer.name())
+                    selected_layers.append(layer_id)
 
         return selected_layers
 

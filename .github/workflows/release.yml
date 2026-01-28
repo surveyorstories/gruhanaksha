@@ -41,12 +41,14 @@ jobs:
           fi
           echo "RELEASE_NOTE<<EOF" >> $GITHUB_ENV
           cat CHANGELOG.md >> $GITHUB_ENV
+          echo "" >> $GITHUB_ENV
           echo "EOF" >> $GITHUB_ENV
       - name: Compress repository
         run: |
           cd ..
           zip -r gruhanaksha/gruhanaksha_${{ env.version }}.zip gruhanaksha \
-            -x "gruhanaksha/.git*" "gruhanaksha/.github/*" "gruhanaksha/*.html" "gruhanaksha/release.zip" "gruhanaksha/gruha.zip"
+            -x "gruhanaksha/.git*" "gruhanaksha/.github/*" "gruhanaksha/*.html" "gruhanaksha/release.zip" "gruhanaksha/gruha.zip" \
+            "gruhanaksha/__pycache__/*" "*/__pycache__/*" "*.pyc"
           cd gruhanaksha
       - name: Create GitHub Release
         uses: ncipollo/release-action@v1
