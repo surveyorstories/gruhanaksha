@@ -1,27 +1,17 @@
-from qgis.core import QgsProject
-from qgis.PyQt.QtGui import QFont, QColor
-from qgis.core import (QgsMapLayer, Qgis, QgsTextFormat, QgsTextBufferSettings, QgsLabelPlacementSettings,
-                       QgsSymbol, QgsRuleBasedRenderer, QgsStyle, QgsWkbTypes, QgsRendererCategory, QgsCategorizedSymbolRenderer,
-                       QgsProcessing, QgsProcessingAlgorithm, QgsProcessingMultiStepFeedback,
-                       QgsProcessingParameterVectorLayer, QgsProcessingParameterField,
-                       QgsProcessingParameterString, QgsProcessingParameterFeatureSink,
-                       QgsProcessingException, QgsProject, QgsVectorLayer,
-                       QgsPalLayerSettings, QgsVectorLayerSimpleLabeling
-                       )
-from qgis.PyQt.QtGui import QColor
-from qgis.PyQt.QtCore import Qt
-import processing
-import os
-from qgis.core import QgsPalLayerSettings, QgsVectorLayerSimpleLabeling, QgsFeatureRequest
-# Get the path to the current project folder
-from qgis.utils import iface
-from qgis.PyQt.QtWidgets import (
-    QAction, QFileDialog, QMessageBox
+from qgis.core import (
+    QgsProject, QgsMapLayer, Qgis, QgsTextFormat, QgsTextBufferSettings, QgsLabelPlacementSettings,
+    QgsSymbol, QgsRuleBasedRenderer, QgsStyle, QgsWkbTypes, QgsRendererCategory, QgsCategorizedSymbolRenderer,
+    QgsVectorLayer, QgsPalLayerSettings, QgsVectorLayerSimpleLabeling, QgsFeatureRequest,
+    QgsPrintLayout, QgsLayoutItemMap, QgsLayoutItemLabel, QgsLayoutItemPage, QgsReadWriteContext,
+    QgsLayoutSize, QgsLayoutPoint, QgsUnitTypes, QgsVectorFileWriter, QgsField, QgsFeature, QgsMarkerSymbol,
+    QgsLayoutItemManualTable, QgsTableCell
 )
+from qgis.PyQt.QtGui import QFont, QColor
+from qgis.PyQt.QtCore import Qt
+from qgis.PyQt.QtWidgets import QAction, QFileDialog, QMessageBox
 from qgis.PyQt.QtXml import QDomDocument
-from qgis.PyQt.QtGui import QFont
-from qgis.core import QgsPrintLayout, QgsLayoutItemMap, QgsLayoutItemLabel, QgsLayoutItemPage, QgsReadWriteContext, QgsLayoutSize, QgsLayoutItemPage, QgsLayoutPoint, QgsUnitTypes, QgsVectorLayer, QgsVectorFileWriter, QgsField, QgsWkbTypes, QgsFeature, QgsMarkerSymbol
-
+from qgis.utils import iface
+import os
 
 from .qt_compat import QtCompat
 
@@ -203,7 +193,8 @@ def apply_custom_symbol(layer: QgsVectorLayer, symbol_xml_path: str, symbol_name
 def load_template_and_setup_atlas_with_text(
     template_path, template_name,
     coverage_layer, page_name_field,
-    text1="Label 1", text2="Label 2", text3="Label 3"
+    text1="Label 1", text2="Label 2", text3="Label 3",
+    f1=None, f2=None, f3=None
 ):
     """
     Loads a layout template (.qpt), sets up atlas, and adds two text items (with provided text).
@@ -647,17 +638,29 @@ def delete_small_parcels(layer_name: str, area_threshold: float = 0.02):
         layer.rollBack()
 
 
-def undo(layer):
+def asksaveProject():
     """
-    Undo the last operation on the given layer.
-    """
-    if layer.isEditable():
-        layer.undoStack().undo()
+    Version that uses QGIS built-in save functionality.
 
+    Returns:
+        bool: True if project was saved successfully, False otherwise.
+    """
+    project = QgsProject.instance()
 
-def redo(layer):
-    """
-    Redo the last operation on the given layer.
-    """
-    if layer.isEditable():
-        layer.undoStack().redo()
+    if project.fileName():
+        # Project has filename, save directly
+        return project.write()
+    else:
+        # Use QGIS built-in save as functionality
+        from qgis.utils import iface
+        iface.actionSaveProjectAs().trigger()  # This opens the Save As dialog
+
+        # Check if project now has a filename (user saved it)
+        if project.fileName():
+            iface.messageBar().pushMessage("Success", "Project saved successfully.",
+                                           level=Qgis.MessageLevel.Success, duration=2)
+            return True
+        else:
+            iface.messageBar().pushMessage("Warning", "Project was not saved.",
+                                           level=Qgis.MessageLevel.Warning, duration=2)
+            return False

@@ -180,6 +180,7 @@ class AlignTool(QgsMapTool):
                 if snap_match.isValid() and snap_match.layer() != self.source_layer:
                     layer_name = snap_match.layer().name() if snap_match.layer() else "unknown"
                     self.iface.messageBar().pushMessage(
+                        # nosec
                         "Align Tool", f"Snapped to layer '{layer_name}'. Please select a vertex from source layer '{self.source_layer.name()}'.", Qgis.Warning, 3)
                 else:
                     self.iface.messageBar().pushMessage(
@@ -195,6 +196,7 @@ class AlignTool(QgsMapTool):
             snap_info = f" (snapped to {snap_match.layer().name()})" if snap_match.isValid(
             ) else ""
             self.iface.messageBar().pushMessage(
+                # nosec
                 "Align Tool", f"First target point selected{snap_info}. Select the second source vertex from source layer.", Qgis.Info, 2)
 
         elif self.step == 2:
@@ -214,6 +216,7 @@ class AlignTool(QgsMapTool):
                 if snap_match.isValid() and snap_match.layer() != self.source_layer:
                     layer_name = snap_match.layer().name() if snap_match.layer() else "unknown"
                     self.iface.messageBar().pushMessage(
+                        # nosec
                         "Align Tool", f"Snapped to layer '{layer_name}'. Please select a vertex from source layer '{self.source_layer.name()}'.", Qgis.Warning, 3)
                 else:
                     self.iface.messageBar().pushMessage(

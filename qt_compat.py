@@ -330,6 +330,8 @@ QtCompat.DialogOk = QtCompat._get_attr(
     QDialogButtonBox, 'Ok', 'StandardButton.Ok')
 QtCompat.DialogCancel = QtCompat._get_attr(
     QDialogButtonBox, 'Cancel', 'StandardButton.Cancel')
+QtCompat.DialogClose = QtCompat._get_attr(
+    QDialogButtonBox, 'Close', 'StandardButton.Close')
 QtCompat.DialogButtonDestructiveRole = QtCompat._get_attr(
     QDialogButtonBox, 'DestructiveRole', 'ButtonRole.DestructiveRole')
 

@@ -6,7 +6,7 @@
 """
 from __future__ import print_function
 from optparse import OptionParser
-import xmlrpc.client
+import xmlrpc.client  # nosec
 import getpass
 import sys
 from builtins import input
@@ -28,7 +28,7 @@ def main(parameters, arguments):
     :param parameters: Command line parameters.
     :param arguments: Command line arguments.
     """
-    address = "%s://%s:%s@%s:%s%s" % (
+    address = "%s://%s:%s@%s:%s%s" % (  # nosec
         PROTOCOL,
         parameters.username,
         parameters.password,

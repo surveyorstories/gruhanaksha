@@ -32,12 +32,6 @@ __revision__ = '$Format:%H$'
 from qgis.core import QgsProject
 
 import os.path
-from qgis.PyQt.QtCore import (
-    QSettings,
-    QTranslator,
-    qVersion,
-    QCoreApplication
-)
 
 
 import os
@@ -45,17 +39,18 @@ import sys
 import inspect
 from qgis.utils import iface
 from qgis.PyQt.QtWidgets import QAction, QMenu, QLabel
-from .autosaveandbackup import BackupPlugin, ComprehensiveProjectBackupWidget
+from .autosaveandbackup import BackupPlugin
 from qgis.PyQt.QtGui import QIcon
-import processing
 
-from qgis.core import QgsProcessingAlgorithm, QgsApplication, Qgis
+
+from qgis.core import QgsApplication
 from .Gruhanaksha_provider import SvamitvaPPMProvider
-from qgis.PyQt.QtCore import Qt
+
 from .master import MasterWidget
 from .tools import ToolWidget
 from .advanced_line import activate_tool, ProfessionalLineTool
 from .atlas_export import show_atlas_export_dialog
+from .addon_functions import asksaveProject
 
 
 cmd_folder = os.path.split(inspect.getfile(inspect.currentframe()))[0]
@@ -77,6 +72,7 @@ class GruhanakshaPlugin(object):
         self.backup_plugin = None
         self.backup_widget_instance = None
         self.current_tool = None
+        self.ppm_dialog = None
         # self.tools.setParent(iface.mainWindow(), Qt.WindowType.Window)
 
     def initProcessing(self):
@@ -192,20 +188,20 @@ class GruhanakshaPlugin(object):
         if hasattr(self, 'canvas') and self.canvas:
             try:
                 self.canvas.mapToolSet.disconnect()
-            except:
+            except Exception:
                 pass
 
         # Close any open widgets/dialogs
         if hasattr(self, 'tools') and self.tools:
             try:
                 self.tools.close()
-            except:
+            except Exception:
                 pass
 
         if hasattr(self, 'backup_widget_instance') and self.backup_widget_instance:
             try:
                 self.backup_widget_instance.close()
-            except:
+            except Exception:
                 pass
 
         # Close master widget
@@ -242,14 +238,14 @@ class GruhanakshaPlugin(object):
                 try:
                     self.iface.unregisterMainWindowAction(
                         getattr(self, action_name))
-                except:
+                except Exception:
                     pass
 
         # Clean up toolbar
         if hasattr(self, 'toolbar'):
             try:
                 self.iface.mainWindow().removeToolBar(self.toolbar)
-            except:
+            except Exception:
                 pass
             del self.toolbar
 
@@ -257,7 +253,7 @@ class GruhanakshaPlugin(object):
         if hasattr(self, 'backup_plugin') and self.backup_plugin:
             try:
                 self.backup_plugin.unload()  # Add cleanup method if exists
-            except:
+            except Exception:
                 pass
             self.backup_plugin = None
 
@@ -269,7 +265,12 @@ class GruhanakshaPlugin(object):
 
     def run_svamitva_algorithm(self):
         """Trigger custom logic or Processing algorithm"""
-        processing.execAlgorithmDialog("Gruhanaksha:ppm_new_model")
+        if not self.ppm_dialog:
+            from .ppm_dialog import PPMDialog
+            self.ppm_dialog = PPMDialog(self.iface.mainWindow())
+        self.ppm_dialog.show()
+        self.ppm_dialog.raise_()
+        self.ppm_dialog.activateWindow()
 
     def master_data(self):
         if QgsProject.instance().fileName():
@@ -358,31 +359,3 @@ class GruhanakshaPlugin(object):
 
     # def hide_backup_timer(self):
     #     self.backup_timer_label.setVisible(False)
-
-
-def asksaveProject():
-    """
-    Version that uses QGIS built-in save functionality.
-
-    Returns:
-        bool: True if project was saved successfully, False otherwise.
-    """
-    project = QgsProject.instance()
-
-    if project.fileName():
-        # Project has filename, save directly
-        return project.save()
-    else:
-        # Use QGIS built-in save as functionality
-        from qgis.utils import iface
-        iface.actionSaveProjectAs().trigger()  # This opens the Save As dialog
-
-        # Check if project now has a filename (user saved it)
-        if project.fileName():
-            iface.messageBar().pushMessage("Success", "Project saved successfully.",
-                                           level=Qgis.MessageLevel.Success, duration=2)
-            return True
-        else:
-            iface.messageBar().pushMessage("Warning", "Project was not saved.",
-                                           level=Qgis.MessageLevel.Warning, duration=2)
-            return False

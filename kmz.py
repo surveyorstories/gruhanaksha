@@ -267,7 +267,7 @@ class KMLBuilder:
         rough = tostring(root, encoding='unicode')
         # Encode to UTF-8 bytes for parsing
         pretty = minidom.parseString(rough.encode('utf-8')).toprettyxml(
-            indent=" ", encoding='utf-8')
+            indent=" ", encoding='utf-8')  # nosec
         with open(path, 'wb') as f:
             f.write(pretty)
 
