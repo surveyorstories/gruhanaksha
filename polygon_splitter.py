@@ -178,8 +178,7 @@ class LayerSelectDialog(QDialog):
 
         # Get layers from the Layer Tree to maintain the order as in the Layers Panel
         layer_tree = QgsProject.instance().layerTreeRoot()
-        layers_in_panel_order = [layer.layer() for layer in layer_tree.children(
-        ) if isinstance(layer.layer(), QgsMapLayer)]
+        layers_in_panel_order = [node.layer() for node in layer_tree.findLayers() if node.layer()]
 
         # Add checkboxes for each layer in the same order as the layer panel
         for layer in layers_in_panel_order:

@@ -266,8 +266,8 @@ class KMLBuilder:
         # Use 'unicode' encoding to preserve Telugu and other Unicode characters
         rough = tostring(root, encoding='unicode')
         # Encode to UTF-8 bytes for parsing
-        pretty = minidom.parseString(rough.encode('utf-8')).toprettyxml(
-            indent=" ", encoding='utf-8')  # nosec
+        pretty = minidom.parseString(rough.encode('utf-8')).toprettyxml(  # nosec
+            indent=" ", encoding='utf-8')
         with open(path, 'wb') as f:
             f.write(pretty)
 
@@ -1098,8 +1098,8 @@ class KMZExporterDialog(QDialog):
 
         # Get layers in panel order
         layers_in_panel_order = []
-        for node in layer_tree.children():
-            if hasattr(node, 'layer') and node.layer():
+        for node in layer_tree.findLayers():
+            if node.layer():
                 layer = node.layer()
                 if isinstance(layer, QgsVectorLayer) and layer.isValid():
                     layers_in_panel_order.append((layer, node.isVisible()))
