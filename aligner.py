@@ -47,6 +47,12 @@ class AlignTool(QgsMapTool):
         self.mapping_band_2.setWidth(1)
         self.mapping_band_2.setLineStyle(QtCompat.DashLine)
 
+        self.mapping_band_3 = QgsRubberBand(
+            self.canvas, QgsWkbTypes.LineGeometry)
+        self.mapping_band_3.setColor(QColor(0, 0, 255, 150))
+        self.mapping_band_3.setWidth(1)
+        self.mapping_band_3.setLineStyle(QtCompat.DashLine)
+
         self.selected_points = []
         self.selected_vertices = []
         self.selected_feature = None
@@ -66,8 +72,8 @@ class AlignTool(QgsMapTool):
         # Show initial instruction
         self.iface.messageBar().pushMessage(
             "Align Tool",
-            f"Tool activated on layer '{self.source_layer.name()}'. Left-click to select points, right-click to reset.",
-            Qgis.Info, 3)
+            f"Tool activated on layer '{self.source_layer.name()}'. Left-click to pick points, right-click to reset.",
+            Qgis.Info, 3)  # nosec B608
 
         # Set cursor
         self.canvas.setCursor(QtCompat.cross_cursor())
@@ -140,11 +146,14 @@ class AlignTool(QgsMapTool):
         return project.snappingConfig()
 
     def canvasPressEvent(self, event):
-        # Handle right-click to reset
+        # Handle right-click
         if event.button() == QtCompat.RightButton and self.is_active:
-            self.reset_operation()
-            self.iface.messageBar().pushMessage(
-                "Align Tool", "Operation reset. Click to select the first source vertex.", Qgis.Info, 3)
+            if self.step >= 4:  # If we have at least 2 pairs and are starting or in the middle of a 3rd
+                self.perform_alignment()
+            else:
+                self.reset_operation()
+                self.iface.messageBar().pushMessage(
+                    "Align Tool", "Operation reset. Click to select the first source vertex.", Qgis.Info, 3)
             return
 
         if event.button() != QtCompat.LeftButton or not self.is_active:
@@ -175,12 +184,12 @@ class AlignTool(QgsMapTool):
                 detection_method = "snapped" if (snap_match.isValid(
                 ) and snap_match.layer() == self.source_layer) else "detected"
                 self.iface.messageBar().pushMessage(
-                    "Align Tool", f"First source vertex {detection_method} from source layer. Select the corresponding target point.", Qgis.Info, 3)
+                    "Align Tool", f"First source vertex {detection_method}. Pick the corresponding target point.", Qgis.Info, 3)  # nosec B608
             else:
                 if snap_match.isValid() and snap_match.layer() != self.source_layer:
                     layer_name = snap_match.layer().name() if snap_match.layer() else "unknown"
                     self.iface.messageBar().pushMessage(
-                        "Align Tool", f"Snapped to layer '{layer_name}'. Please choose a vertex in source layer '{self.source_layer.name()}'.", Qgis.Warning, 3)
+                        "Align Tool", f"Snapped to layer '{layer_name}'. Please pick a vertex in source layer '{self.source_layer.name()}'.", Qgis.Warning, 3)  # nosec B608
                 else:
                     self.iface.messageBar().pushMessage(
                         "Align Tool", "No vertex found from source layer. Click closer to a vertex.", Qgis.Warning, 3)
@@ -195,7 +204,7 @@ class AlignTool(QgsMapTool):
             snap_info = f" (snapped to {snap_match.layer().name()})" if snap_match.isValid(
             ) else ""
             self.iface.messageBar().pushMessage(
-                "Align Tool", f"First target point selected{snap_info}. Choose the second source vertex in source layer.", Qgis.Info, 2)
+                "Align Tool", f"First target point picked{snap_info}. Choose the second source vertex.", Qgis.Info, 2)  # nosec B608
 
         elif self.step == 2:
             # Step 2: Second source vertex selection - prioritize source layer
@@ -209,7 +218,7 @@ class AlignTool(QgsMapTool):
                 detection_method = "snapped" if (snap_match.isValid(
                 ) and snap_match.layer() == self.source_layer) else "detected"
                 self.iface.messageBar().pushMessage(
-                    "Align Tool", f"Second source vertex {detection_method} from source layer. Select the second target point.", Qgis.Info, 2)
+                    "Align Tool", f"Second source vertex {detection_method}. Pick the second target point.", Qgis.Info, 2)  # nosec B608
             else:
                 if snap_match.isValid() and snap_match.layer() != self.source_layer:
                     layer_name = snap_match.layer().name() if snap_match.layer() else "unknown"
@@ -220,12 +229,63 @@ class AlignTool(QgsMapTool):
                         "Align Tool", "No vertex found from source layer. Click closer to a vertex.", Qgis.Warning, 3)
 
         elif self.step == 3:
-            # Step 3: Second target point selection - can snap to any layer
+            # Step 3: Second target point selection
             self.selected_points.append(click_point)
             self.mapping_band_2.reset(QgsWkbTypes.LineGeometry)
             self.mapping_band_2.addPoint(self.selected_vertices[1])
             self.mapping_band_2.addPoint(click_point)
+            self.step += 1
+            snap_info = f" (snapped to {snap_match.layer().name()})" if snap_match.isValid(
+            ) else ""
+            self.iface.messageBar().pushMessage(
+                "Align Tool", f"Second target point picked{snap_info}. Choose third source vertex OR Press ENTER/Right-Click to finish.", Qgis.Info, 4)  # nosec B608
+
+        elif self.step == 4:
+            # Step 4: Third source vertex selection
+            source_vertex_match = self.find_source_layer_vertex(click_point)
+
+            if source_vertex_match:
+                vertex, feature = source_vertex_match
+                self.selected_vertices.append(vertex)
+                self.point_band.addPoint(vertex)
+                self.step += 1
+                detection_method = "snapped" if (snap_match.isValid(
+                ) and snap_match.layer() == self.source_layer) else "detected"
+                self.iface.messageBar().pushMessage(
+                    "Align Tool", f"Third source vertex {detection_method}. Pick the third target point.", Qgis.Info, 2)  # nosec B608
+            else:
+                self.iface.messageBar().pushMessage(
+                    "Align Tool", "No vertex found from source layer. Click closer to a vertex.", Qgis.Warning, 3)
+
+        elif self.step == 5:
+            # Step 5: Third target point selection
+            self.selected_points.append(click_point)
+            self.mapping_band_3.reset(QgsWkbTypes.LineGeometry)
+            self.mapping_band_3.addPoint(self.selected_vertices[2])
+            self.mapping_band_3.addPoint(click_point)
+            self.perform_alignment()
+
+    def keyPressEvent(self, event):
+        """Handle Enter key to finish selection early"""
+        if not self.is_active or self.operation_in_progress:
+            return
+
+        if event.key() in (Qt.Key_Return, Qt.Key_Enter):
+            if self.step >= 4:  # At least 2 pairs selected
+                self.perform_alignment()
+            elif self.step == 2: # Only 1 pair
+                self.perform_alignment()
+
+    def perform_alignment(self):
+        """Determine if 2-point or 3-point alignment should be performed"""
+        if len(self.selected_points) == 3:
+            self.align_feature_3_points()
+        elif len(self.selected_points) == 2:
             self.prompt_user_for_alignment()
+        elif len(self.selected_points) == 1:
+            self.move_feature()
+        else:
+            self.reset_operation()
 
     def find_source_layer_vertex(self, click_point):
         """Find the best vertex match from the source layer, prioritizing snapped points"""
@@ -394,6 +454,142 @@ class AlignTool(QgsMapTool):
         new_x = cos_angle * dx - sin_angle * dy + origin.x()
         new_y = sin_angle * dx + cos_angle * dy + origin.y()
         return QgsPointXY(new_x, new_y)
+
+    def solve_affine(self):
+        """
+        Calculate affine transformation coefficients (a, b, c, d, e, f)
+        x' = ax + by + c
+        y' = dx + ey + f
+        """
+        try:
+            # Matrices for solving systems of linear equations
+            # S = [[x1, y1, 1], [x2, y2, 1], [x3, y3, 1]]
+            # T_x = [x1', x2', x3']
+            # T_y = [y1', y2', y3']
+
+            s1, s2, s3 = self.selected_vertices
+            d1, d2, d3 = self.selected_points
+
+            matrix = [
+                [s1.x(), s1.y(), 1],
+                [s2.x(), s2.y(), 1],
+                [s3.x(), s3.y(), 1]
+            ]
+
+            # Use Cramer's rule or simple matrix inversion to solve
+            def det3x3(m):
+                return (m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1]) -
+                        m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0]) +
+                        m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]))
+
+            D = det3x3(matrix)
+
+            if abs(D) < 1e-10:
+                return None  # Collinear points or degenerate
+
+            def solve_system(target_vals):
+                # Replace columns with target_vals to find unknowns
+                m1 = [row[:] for row in matrix]
+                for i in range(3): m1[i][0] = target_vals[i]
+                
+                m2 = [row[:] for row in matrix]
+                for i in range(3): m2[i][1] = target_vals[i]
+                
+                m3 = [row[:] for row in matrix]
+                for i in range(3): m3[i][2] = target_vals[i]
+                
+                return det3x3(m1) / D, det3x3(m2) / D, det3x3(m3) / D
+
+            a, b, c = solve_system([d1.x(), d2.x(), d3.x()])
+            d, e, f = solve_system([d1.y(), d2.y(), d3.y()])
+
+            return (a, b, c, d, e, f)
+        except Exception as err:
+            print(f"Error solving affine: {err}")
+            return None
+
+    def transform_geometry_affine(self, geometry, coeffs):
+        """Transform a geometry using affine coefficients"""
+        a, b, c, d, e, f = coeffs
+        
+        def transform_v(v):
+            nx = a * v.x() + b * v.y() + c
+            ny = d * v.x() + e * v.y() + f
+            return QgsPointXY(nx, ny)
+
+        if geometry.isMultipart():
+            parts = []
+            for part in geometry.constParts():
+                transformed_part = [transform_v(v) for v in part.vertices()]
+                parts.append(transformed_part)
+            
+            if geometry.type() == QgsWkbTypes.LineGeometry:
+                return QgsGeometry.fromMultiPolylineXY(parts)
+            elif geometry.type() == QgsWkbTypes.PolygonGeometry:
+                return QgsGeometry.fromMultiPolygonXY([parts])
+        else:
+            transformed_part = [transform_v(v) for v in geometry.vertices()]
+            if geometry.type() == QgsWkbTypes.LineGeometry:
+                return QgsGeometry.fromPolylineXY(transformed_part)
+            elif geometry.type() == QgsWkbTypes.PolygonGeometry:
+                return QgsGeometry.fromPolygonXY([transformed_part])
+        
+        return None
+
+    def move_feature(self):
+        """Move feature (1-point alignment)"""
+        self.operation_in_progress = True
+        try:
+            dx = self.selected_points[0].x() - self.selected_vertices[0].x()
+            dy = self.selected_points[0].y() - self.selected_vertices[0].y()
+
+            if not self.source_layer.isEditable() and not self.source_layer.startEditing():
+                self.reset_operation()
+                return
+
+            features_to_process = self.source_layer.selectedFeatures() or [self.selected_feature]
+            for feature in features_to_process:
+                if feature is not None:
+                    geom = feature.geometry()
+                    geom.translate(dx, dy)
+                    self.source_layer.changeGeometry(feature.id(), geom)
+            
+            self.iface.messageBar().pushMessage("Align Tool", f"Successfully moved {len(features_to_process)} feature(s).", Qgis.Success, 2)
+            self.reset_operation()
+        except Exception as e:
+            self.iface.messageBar().pushMessage("Align Tool", f"Error during move: {str(e)}", Qgis.Critical, 5)
+            self.reset_operation()
+
+    def align_feature_3_points(self):
+        """Align feature using 3-point affine transformation"""
+        self.operation_in_progress = True
+        try:
+            coeffs = self.solve_affine()
+            if not coeffs:
+                self.iface.messageBar().pushMessage("Align Tool", "Three points are collinear or invalid. Alignment failed.", Qgis.Warning, 4)
+                self.reset_operation()
+                return
+
+            if not self.source_layer.isEditable() and not self.source_layer.startEditing():
+                self.reset_operation()
+                return
+
+            features_to_process = self.source_layer.selectedFeatures() or [self.selected_feature]
+            processed_count = 0
+
+            for feature in features_to_process:
+                if feature is not None:
+                    new_geom = self.transform_geometry_affine(feature.geometry(), coeffs)
+                    if new_geom and new_geom.isGeosValid():
+                        if self.source_layer.changeGeometry(feature.id(), new_geom):
+                            processed_count += 1
+
+            self.iface.messageBar().pushMessage("Align Tool", f"Successfully 3-point aligned {processed_count} feature(s).", Qgis.Success, 3)
+            self.reset_operation()
+
+        except Exception as e:
+            self.iface.messageBar().pushMessage("Align Tool", f"Error during 3-point alignment: {str(e)}", Qgis.Critical, 5)
+            self.reset_operation()
 
     def prompt_user_for_alignment(self):
         """Prompt user to choose between scaling and alignment only"""
@@ -601,6 +797,7 @@ class AlignTool(QgsMapTool):
         self.point_band.reset(QgsWkbTypes.PointGeometry)
         self.mapping_band_1.reset(QgsWkbTypes.LineGeometry)
         self.mapping_band_2.reset(QgsWkbTypes.LineGeometry)
+        self.mapping_band_3.reset(QgsWkbTypes.LineGeometry)
 
     def finish_tool(self):
         """Properly finish and deactivate the tool"""

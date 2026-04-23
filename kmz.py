@@ -265,9 +265,19 @@ class KMLBuilder:
     def write_kml(root, path):
         # Use 'unicode' encoding to preserve Telugu and other Unicode characters
         rough = tostring(root, encoding='unicode')
-        # Encode to UTF-8 bytes for parsing
-        pretty = minidom.parseString(rough.encode('utf-8')).toprettyxml(  # nosec
-            indent=" ", encoding='utf-8')
+        
+        # Try to use defusedxml to satisfy security scanners (Bandit B318)
+        try:
+            from defusedxml import minidom as dminidom
+            pretty = dminidom.parseString(rough.encode('utf-8')).toprettyxml(
+                indent=" ", encoding='utf-8')
+        except ImportError:
+            # Fallback to standard minidom if defusedxml is not available.
+            # This is safe because 'rough' is generated internally by ElementTree
+            # and does not contain untrusted entity definitions.
+            pretty = minidom.parseString(rough.encode('utf-8')).toprettyxml(  # nosec B318
+                indent=" ", encoding='utf-8')
+        
         with open(path, 'wb') as f:
             f.write(pretty)
 

@@ -87,68 +87,87 @@ class GeometryHelper:
 
     @staticmethod
     def calculate_triangle_apex(start, end, len1, len2, orientation, crs):
-        """✅ ACCURATE TRIANGLE CALCULATION ON WGS84"""
+        """✅ ROBUST TRIANGLE CALCULATION WITH CONSISTENT COORDINATE SPACE"""
         try:
-            # ✅ STEP 1: Get ACCURATE base distance
-            base = GeometryHelper.calculate_distance(start, end, crs)
-            if base == 0:
-                return None
+            # ✅ STEP 1: Transformation context
+            context = QgsProject.instance().transformContext()
 
-            # ✅ STEP 2: Triangle inequality check
-            if not (len1 + len2 > base and abs(len1 - len2) < base):
-                return None
-
-            # ✅ STEP 3: Transform to LOCAL UTM for calculations
+            # ✅ STEP 2: Transform to LOCAL UTM for ALL calculations if geographic
+            # This ensures we are doing geometry in a flat, metric-based space
             if crs.isGeographic():
-                avg = QgsPointXY((start.x() + end.x()) / 2,
-                                 (start.y() + end.y()) / 2)
+                avg = QgsPointXY((start.x() + end.x()) / 2, (start.y() + end.y()) / 2)
                 utm_crs = GeometryHelper.get_local_utm_crs(avg, crs)
-                tr_fwd = QgsCoordinateTransform(
-                    crs, utm_crs, QgsProject.instance())
-                tr_back = QgsCoordinateTransform(
-                    utm_crs, crs, QgsProject.instance())
+                tr_fwd = QgsCoordinateTransform(crs, utm_crs, context)
+                tr_back = QgsCoordinateTransform(utm_crs, crs, context)
                 startu = tr_fwd.transform(start)
                 endu = tr_fwd.transform(end)
             else:
                 startu, endu = start, end
                 tr_back = None
 
-            # ✅ STEP 4: Calculate in FLAT UTM space
+            # ✅ STEP 3: Calculate base distance in the CALCULATION space (UTM)
             dx, dy = endu.x() - startu.x(), endu.y() - startu.y()
-            ux, uy = dx / base, dy / base
-            perp = (-uy, ux) if orientation == "Right" else (uy, -ux)
+            base_sq = dx * dx + dy * dy
+            base = math.sqrt(base_sq)
 
-            cos_a = (len1**2 + base**2 - len2**2) / (2 * len1 * base)
-            if not -1 <= cos_a <= 1:
+            if base == 0:
                 return None
+
+            # ✅ STEP 4: Triangle inequality check with epsilon
+            # Uses a small tolerance (1mm) to prevent failures due to precision
+            epsilon = 0.001 
+            if not (len1 + len2 + epsilon >= base and abs(len1 - len2) - epsilon <= base):
+                return None
+
+            # ✅ STEP 5: Law of Cosines with clamping
+            # Clamping prevents acos(1.0000000000002) from crashing
+            cos_a = (len1**2 + base**2 - len2**2) / (2 * len1 * base)
+            cos_a = max(-1.0, min(1.0, cos_a))
             angle = math.acos(cos_a)
 
-            apex_x = startu.x() + len1 * (ux * math.cos(angle) -
-                                          perp[0] * math.sin(angle))
-            apex_y = startu.y() + len1 * (uy * math.cos(angle) -
-                                          perp[1] * math.sin(angle))
+            # ✅ STEP 6: Directional Vector Logic
+            ux, uy = dx / base, dy / base
+            # Perpendicular vector rotation
+            if orientation == "Right":
+                # Rotate (ux, uy) by -angle (clockwise)
+                # Vx = ux*cos(-a) - uy*sin(-a) = ux*cos(a) + uy*sin(a)
+                # Vy = uy*cos(-a) + ux*sin(-a) = uy*cos(a) - ux*sin(a)
+                apex_x = startu.x() + len1 * (ux * math.cos(angle) + uy * math.sin(angle))
+                apex_y = startu.y() + len1 * (uy * math.cos(angle) - ux * math.sin(angle))
+            else:
+                # Rotate (ux, uy) by +angle (counter-clockwise)
+                # Vx = ux*cos(a) - uy*sin(a)
+                # Vy = uy*cos(a) + ux*sin(a)
+                apex_x = startu.x() + len1 * (ux * math.cos(angle) - uy * math.sin(angle))
+                apex_y = startu.y() + len1 * (uy * math.cos(angle) + ux * math.sin(angle))
+            
             apex_u = QgsPointXY(apex_x, apex_y)
 
-            # ✅ STEP 5: Transform back to ORIGINAL CRS
-            if crs.isGeographic():
-                # tr_back can be None in some static analysis or unexpected flows; guard against it.
-                return tr_back.transform(apex_u) if tr_back is not None else apex_u
-            else:
-                return apex_u
+            # ✅ STEP 7: Transform back to ORIGINAL CRS
+            if tr_back:
+                return tr_back.transform(apex_u)
+            return apex_u
 
-        except (ValueError, ZeroDivisionError):
+        except Exception:
+            # Catch all (QgsCsException, ZeroDivision, etc.) to prevent plugin crash
             return None
 
     @staticmethod
     def get_local_utm_crs(point, crs):
         """✅ Get precise UTM zone for point"""
-        if not crs.isGeographic():
+        if not crs or not crs.isGeographic():
             return crs
-        lon = point.x()
-        lat = point.y()
-        zone = math.floor((lon + 180) / 6) + 1
-        epsg = 32600 + zone if lat >= 0 else 32700 + zone
-        return QgsCoordinateReferenceSystem(f"EPSG:{epsg}")
+        try:
+            lon = point.x()
+            lat = point.y()
+            # Basic sanity check for degrees
+            if abs(lon) > 181 or abs(lat) > 91:
+                return crs
+            zone = math.floor((lon + 180) / 6) + 1
+            epsg = 32600 + zone if lat >= 0 else 32700 + zone
+            return QgsCoordinateReferenceSystem(f"EPSG:{epsg}")
+        except:
+            return crs
 
     @staticmethod
     def interpolate_line(start, end, distance, crs):
@@ -1079,7 +1098,7 @@ class TriangleWidget(QWidget):
             self.end_length_input.value(), self.unit_combo.currentText())
         if len1 <= 0 or len2 <= 0:
             return
-        crs = LayerManager.get_project_crs()
+        crs = iface.mapCanvas().mapSettings().destinationCrs()
         apex = GeometryHelper.calculate_triangle_apex(
             self.start_point, self.end_point, len1, len2, self.orientation_combo.currentText(), crs
         )
@@ -1096,7 +1115,7 @@ class TriangleWidget(QWidget):
                 self, "Error", "Please select two points first.")
             return
 
-        crs = LayerManager.get_project_crs()
+        crs = iface.mapCanvas().mapSettings().destinationCrs()
         len1 = UnitConverter.to_meters(
             self.start_length_input.value(), self.unit_combo.currentText())
         len2 = UnitConverter.to_meters(
@@ -1114,34 +1133,48 @@ class TriangleWidget(QWidget):
             "Triangle Lines", QgsWkbTypes.LineGeometry, crs, [
                 QgsField("Type", QVariant.String)]
         )
-        if not layer.isEditable():
-            layer.startEditing()
 
         def add_line(start, end, line_type):
-            feat = QgsFeature(layer.fields())
-            geom = QgsGeometry.fromPolylineXY([start, end])
-            if geom.isNull() or not geom.isGeosValid():
+            try:
+                feat = QgsFeature(layer.fields())
+                geom = QgsGeometry.fromPolylineXY([start, end])
+                if geom.isNull() or not geom.isGeosValid():
+                    return False
+                feat.setGeometry(geom)
+                feat.setAttributes([line_type])
+                return layer.addFeature(feat)
+            except Exception as e:
+                print(f"Error adding triangle line: {e}")
                 return False
-            feat.setGeometry(geom)
-            feat.setAttributes([line_type])
-            return layer.addFeature(feat)
 
-        add_line(self.start_point, apex, "Start Side")
-        add_line(self.end_point, apex, "End Side")
-        add_line(self.start_point, self.end_point, "Base Line")
+        try:
+            if not layer.isEditable():
+                layer.startEditing()
 
-        LayerManager.update_layer_extent(layer)
-        self.triangle_rubber_band.reset()
-        self.lines_drawn = True
-        self.start_length_input.setValue(0.0)
-        self.end_length_input.setValue(0.0)
-        # self.unit_combo.setCurrentText("Meters")
-        # self.orientation_combo.setCurrentText("Left")
-        self.clear_points()
-        self.status_label.setText("Triangle added to 'Triangle Lines' layer.")
-        self.start_length_input.setFocus()
-        self.start_length_input.selectAll()
-        layer.triggerRepaint()
+            success = True
+            success &= add_line(self.start_point, apex, "Start Side")
+            success &= add_line(self.end_point, apex, "End Side")
+            success &= add_line(self.start_point, self.end_point, "Base Line")
+
+            if success:
+                layer.commitChanges()
+                LayerManager.update_layer_extent(layer)
+                self.triangle_rubber_band.reset()
+                self.lines_drawn = True
+                self.start_length_input.setValue(0.0)
+                self.end_length_input.setValue(0.0)
+                self.clear_points()
+                self.status_label.setText("Triangle added to 'Triangle Lines' layer.")
+                self.start_length_input.setFocus()
+                self.start_length_input.selectAll()
+                layer.triggerRepaint()
+            else:
+                layer.rollBack()
+                QMessageBox.warning(self, "Drawing Failed", "Failed to add one or more triangle lines to the layer.")
+        except Exception as e:
+            if layer:
+                layer.rollBack()
+            QMessageBox.critical(self, "Error", f"An unexpected error occurred while drawing the triangle: {str(e)}")
 
     def keyPressEvent(self, event):
         if event.key() in [QtCompat.get_key('Key_Enter'), QtCompat.get_key('Key_Return')] and self.draw_button.isEnabled():
@@ -1479,30 +1512,39 @@ class PlotterWidget(QWidget):
         if not current_label:
             current_label = self.current_label
 
-        # Track if we actually added a labeled point
-        label_was_used = self._process_line_part(
-            self.current_segment, layer, cut_m, offset_m, choice, current_label)
+        try:
+            # Track if we actually added a labeled point
+            label_was_used = self._process_line_part(
+                self.current_segment, layer, cut_m, offset_m, choice, current_label)
 
-        LayerManager.update_layer_extent(layer)
-        self.points_drawn = True
+            if layer.commitChanges():
+                LayerManager.update_layer_extent(layer)
+                self.points_drawn = True
 
-        # Only auto-increment label if it was actually used on a point
-        if self.auto_increment and label_was_used:
-            existing_labels = set()
-            for feature in layer.getFeatures():
-                label = feature.attribute("Label")
-                if label:
-                    existing_labels.add(str(label))
+                # Only auto-increment label if it was actually used on a point
+                if self.auto_increment and label_was_used:
+                    existing_labels = set()
+                    for feature in layer.getFeatures():
+                        label = feature.attribute("Label")
+                        if label:
+                            existing_labels.add(str(label))
 
-            next_label = self.increment_label(current_label, existing_labels)
-            self.current_label = next_label
-            self.label_input.setText(next_label)
+                    next_label = self.increment_label(current_label, existing_labels)
+                    self.current_label = next_label
+                    self.label_input.setText(next_label)
 
-        self.cut_point_input.setValue(0.0)
-        self.offset_input.setValue(0.0)
-        self.status_label.setText("Points added to 'Plotted Points' layer.")
-        self.cut_point_input.setFocus()
-        self.cut_point_input.selectAll()
+                self.cut_point_input.setValue(0.0)
+                self.offset_input.setValue(0.0)
+                self.status_label.setText("Points added to 'Plotted Points' layer.")
+                self.cut_point_input.setFocus()
+                self.cut_point_input.selectAll()
+            else:
+                layer.rollBack()
+                QMessageBox.warning(self, "Plotting Failed", "Failed to commit changes to the Plotted Points layer.")
+        except Exception as e:
+            if layer:
+                layer.rollBack()
+            QMessageBox.critical(self, "Error", f"An unexpected error occurred while plotting: {str(e)}")
 
     def _process_line_part(self, part, layer, cut_m, offset_m, choice_idx, label):
         crs = LayerManager.get_project_crs()
@@ -1553,13 +1595,17 @@ class PlotterWidget(QWidget):
 
     def _add_point(self, layer, point, ptype, label=""):
         """Add point with Type and Label attributes"""
-        feat = QgsFeature(layer.fields())
-        geom = QgsGeometry.fromPointXY(point)
-        if geom.isNull() or not geom.isGeosValid():
+        try:
+            feat = QgsFeature(layer.fields())
+            geom = QgsGeometry.fromPointXY(point)
+            if geom.isNull() or not geom.isGeosValid():
+                return False
+            feat.setGeometry(geom)
+            feat.setAttributes([ptype, label])
+            return layer.addFeature(feat)
+        except Exception as e:
+            print(f"Error adding point: {e}")
             return False
-        feat.setGeometry(geom)
-        feat.setAttributes([ptype, label])
-        return layer.addFeature(feat)
 
     def keyPressEvent(self, event):
         # Import QtCompat from your original code

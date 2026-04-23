@@ -26,11 +26,11 @@ from qgis.PyQt.QtWidgets import (
     QToolBar, QAction, QGraphicsItem, QGraphicsView, QGraphicsScene
 )
 from qgis.PyQt.QtCore import (
-    Qt, QThread, pyqtSignal, QTimer, QSize, QPointF, QRectF
+    Qt, QThread, pyqtSignal, QTimer, QSize, QPointF, QRectF, QUrl
 )
 from qgis.PyQt.QtGui import (
     QFont, QPalette, QPixmap, QIcon, QPainter, QImage,
-    QCursor
+    QCursor, QDesktopServices
 )
 
 from qgis.core import (
@@ -118,6 +118,7 @@ class ExportSettings:
     create_subdirs: bool = False
     is_atlas_layout: bool = True
     export_as_single_pdf: bool = False
+    crop_to_content: bool = False
 
     # Advanced options
     force_vector: bool = False
@@ -649,6 +650,8 @@ class AtlasExportWorker(QThread):
         fmt = self.settings.export_format
         if fmt == ExportFormat.PDF:
             s = QgsLayoutExporter.PdfExportSettings()
+            if hasattr(s, "cropToContents"):
+                s.cropToContents = self.settings.crop_to_content
             s.forceVectorOutput = (self.settings.force_vector and
                                    not self.settings.rasterize_whole)
             s.rasterizeWholeImage = self.settings.rasterize_whole
@@ -684,6 +687,8 @@ class AtlasExportWorker(QThread):
 
         elif fmt in (ExportFormat.PNG, ExportFormat.JPG, ExportFormat.TIFF):
             s = QgsLayoutExporter.ImageExportSettings()
+            if hasattr(s, "cropToContents"):
+                s.cropToContents = self.settings.crop_to_content
             s.dpi = self.settings.dpi
             if self.settings.width and self.settings.height:
                 s.imageSize = QSize(self.settings.width, self.settings.height)
@@ -695,6 +700,8 @@ class AtlasExportWorker(QThread):
 
         else:  # SVG
             s = QgsLayoutExporter.SvgExportSettings()
+            if hasattr(s, "cropToContents"):
+                s.cropToContents = self.settings.crop_to_content
             tr = (self.settings.text_render or "Always outlines").lower()
             if hasattr(s, "textRenderFormat"):
                 if "prefer" in tr:
@@ -999,6 +1006,9 @@ class EnhancedAtlasExportDialog(QDialog):
 
         self.subdir_check = QCheckBox("Create Subdirectories")
         adv_lay.addWidget(self.subdir_check, 0, 1)
+        
+        self.crop_content_check = QCheckBox("Crop to content")
+        adv_lay.addWidget(self.crop_content_check, 0, 2)
 
         self.force_vector_check = QCheckBox("Export as vectors")
         self.force_vector_check.setChecked(True)
@@ -1106,6 +1116,11 @@ class EnhancedAtlasExportDialog(QDialog):
         stand_btn.clicked.connect(self.open_standalone_preview)
         stand_btn.setMaximumWidth(120)
         ctrl_lay.addWidget(stand_btn)
+        
+        self.preview_pdf_btn = QPushButton("Open PDF Preview")
+        self.preview_pdf_btn.clicked.connect(self.open_pdf_preview)
+        self.preview_pdf_btn.setMaximumWidth(120)
+        ctrl_lay.addWidget(self.preview_pdf_btn)
         ctrl_lay.addStretch()
         cont_lay.addLayout(ctrl_lay)
 
@@ -1165,6 +1180,49 @@ class EnhancedAtlasExportDialog(QDialog):
                                            self.is_atlas_layout,
                                            page)
         self.standalone_preview.show()
+
+    # ------------------------------------------------------------------
+    def open_pdf_preview(self):
+        if not self.current_layout:
+            QMessageBox.warning(self, "Warning", "No layout selected")
+            return
+
+        page_idx = max(0, self.preview_page_spin.value() - 1)
+        import tempfile
+
+        tmp_dir = tempfile.gettempdir()
+        tmp_pdf = os.path.join(tmp_dir, f"preview_atlas_page_{page_idx+1}.pdf")
+
+        exporter = QgsLayoutExporter(self.current_layout)
+        settings = QgsLayoutExporter.PdfExportSettings()
+
+        if hasattr(settings, "cropToContents"):
+            settings.cropToContents = self.crop_content_check.isChecked()
+
+        try:
+            if self.is_atlas_layout:
+                atlas = self.current_layout.atlas()
+                if atlas.enabled():
+                    if not atlas.beginRender():
+                        raise RuntimeError("Could not begin atlas rendering")
+                    try:
+                        if atlas.seekTo(page_idx):
+                            res = exporter.exportToPdf(tmp_pdf, settings)
+                            if res != QgsLayoutExporter.ExportResult.Success:
+                                raise RuntimeError(f"Export failed with code {res}")
+                    finally:
+                        atlas.endRender()
+                else:
+                    exporter.exportToPdf(tmp_pdf, settings)
+            else:
+                exporter.exportToPdf(tmp_pdf, settings)
+
+            QDesktopServices.openUrl(QUrl.fromLocalFile(tmp_pdf))
+            self.log_text.append(f"Generated PDF preview: {tmp_pdf}")
+
+        except Exception as e:
+            QMessageBox.warning(self, "Preview Error", f"Failed to generate PDF preview:\n{e}")
+            self.log_text.append(f"PDF Preview error: {e}")
 
     # ------------------------------------------------------------------
     def load_layouts(self):
@@ -1538,6 +1596,7 @@ Output Settings:
   Filename pattern: {settings.filename_pattern}
   DPI: {settings.dpi}
   JPG Quality: {settings.quality}%
+  Crop to content: {'Yes' if settings.crop_to_content else 'No'}
 """
         if settings.width and settings.height:
             txt += f" Custom size: {settings.width} × {settings.height} px\n"
@@ -1656,6 +1715,7 @@ Output Settings:
             create_subdirs=self.subdir_check.isChecked(),
             is_atlas_layout=self.is_atlas_layout,
             export_as_single_pdf=self.single_pdf_check.isChecked(),
+            crop_to_content=self.crop_content_check.isChecked(),
             force_vector=self.force_vector_check.isChecked(),
             rasterize_whole=self.rasterize_check.isChecked(),
             text_render=self.text_export_combo.currentText(),

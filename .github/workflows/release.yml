@@ -48,7 +48,10 @@ jobs:
           cd ..
           zip -r gruhanaksha/gruhanaksha_${{ env.version }}.zip gruhanaksha \
             -x "gruhanaksha/.git*" "gruhanaksha/.github/*" "gruhanaksha/*.html" "gruhanaksha/release.zip" "gruhanaksha/gruha.zip" \
-            "gruhanaksha/__pycache__/*" "*/__pycache__/*" "*.pyc"
+            "gruhanaksha/__pycache__/*" "*/__pycache__/*" "*.pyc" \
+            "gruhanaksha/scripts/*" "gruhanaksha/help/*" "gruhanaksha/test/*" \
+            "gruhanaksha/.qgis-plugin-ci" "gruhanaksha/pb_tool.cfg" "gruhanaksha/pylintrc" \
+            "gruhanaksha/.vscode/*" "gruhanaksha/.pytest_cache/*" "gruhanaksha/.env" "gruhanaksha/.gitignore"
           cd gruhanaksha
       - name: Create GitHub Release
         uses: ncipollo/release-action@v1
