@@ -2,16 +2,13 @@ from qgis.core import (
     QgsProject, QgsMapLayer, Qgis, QgsTextFormat, QgsTextBufferSettings, QgsLabelPlacementSettings,
     QgsSymbol, QgsRuleBasedRenderer, QgsStyle, QgsWkbTypes, QgsRendererCategory, QgsCategorizedSymbolRenderer,
     QgsVectorLayer, QgsPalLayerSettings, QgsVectorLayerSimpleLabeling, QgsFeatureRequest,
-    QgsPrintLayout, QgsLayoutItemMap, QgsLayoutItemLabel, QgsLayoutItemPage, QgsReadWriteContext,
-    QgsLayoutSize, QgsLayoutPoint, QgsUnitTypes, QgsVectorFileWriter, QgsField, QgsFeature, QgsMarkerSymbol,
-    QgsLayoutItemManualTable, QgsTableCell
+    QgsPrintLayout, QgsLayoutItemLabel, QgsReadWriteContext,
+    QgsLayoutSize, QgsLayoutPoint, QgsUnitTypes, QgsVectorFileWriter
 )
 from qgis.PyQt.QtGui import QFont, QColor
-from qgis.PyQt.QtCore import Qt
-from qgis.PyQt.QtWidgets import QAction, QFileDialog, QMessageBox
+from qgis.PyQt.QtWidgets import QFileDialog, QMessageBox
 from qgis.PyQt.QtXml import QDomDocument
 from qgis.utils import iface
-import os
 
 from .qt_compat import QtCompat
 
@@ -401,8 +398,8 @@ def districtlist():
 
 
 def districttuple():
-    districts_dup = {'Alluri Sitharama Raju': 'అల్లూరి సీతారామ రాజు', 'Anakapalli': 'అనకాపల్లి',  'Anantapuram': 'అనంతపురం',  'Annamayya': 'అన్నమయ్య',  'Bapatla': 'బాపట్ల',  'Chittoor': 'చిత్తూరు',  'East Godavari': 'తూర్పు గోదావరి',  'Eluru': 'ఏలూరు',  'Guntur': 'గుంటూరు ',  'Kakinada': 'కాకినాడ',  'Dr. B. R. Ambedkar Konaseema': 'కోనసీమ',  'Krishna': 'కృష్ణా', 'Kurnool': 'కర్నూలు',
-                     'Nandyal': 'నంద్యాల',  'NTR': 'యన్.టి.ఆర్',  'Palnadu': 'పల్నాడు',  'Parvathipuram Manyam': 'పార్వతీపురం మన్యం',  'Prakasam': 'ప్రకాశం ',  'Sri Potti Sriramulu Nellore': 'నెల్లూరు',  'Sri Sathya Sai': 'శ్రీ సత్య సాయి',  'Srikakulam': 'శ్రీకాకుళం ',  'Tirupati': 'తిరుపతి',  'Visakhapatnam': 'విశాఖపట్నం ',  'Vizianagaram': 'విజయనగరం ',  'West Godavari': 'పశ్చిమ గోదావరి',  'YSR Kadapa': 'వై.యస్.ర్ కడప'}
+    districts_dup = {'Alluri Sitharama Raju': 'అల్లూరి సీతారామ రాజు', 'Anakapalli': 'అనకాపల్లి', 'Anantapuram': 'అనంతపురం', 'Annamayya': 'అన్నమయ్య', 'Bapatla': 'బాపట్ల', 'Chittoor': 'చిత్తూరు', 'East Godavari': 'తూర్పు గోదావరి', 'Eluru': 'ఏలూరు', 'Guntur': 'గుంటూరు ', 'Kakinada': 'కాకినాడ', 'Dr. B. R. Ambedkar Konaseema': 'కోనసీమ', 'Krishna': 'కృష్ణా', 'Kurnool': 'కర్నూలు',
+                     'Nandyal': 'నంద్యాల', 'NTR': 'యన్.టి.ఆర్', 'Palnadu': 'పల్నాడు', 'Parvathipuram Manyam': 'పార్వతీపురం మన్యం', 'Prakasam': 'ప్రకాశం ', 'Sri Potti Sriramulu Nellore': 'నెల్లూరు', 'Sri Sathya Sai': 'శ్రీ సత్య సాయి', 'Srikakulam': 'శ్రీకాకుళం ', 'Tirupati': 'తిరుపతి', 'Visakhapatnam': 'విశాఖపట్నం ', 'Vizianagaram': 'విజయనగరం ', 'West Godavari': 'పశ్చిమ గోదావరి', 'YSR Kadapa': 'వై.యస్.ర్ కడప'}
     return districts_dup
 
 

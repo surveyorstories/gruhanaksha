@@ -15,9 +15,9 @@ from future import standard_library
 standard_library.install_aliases()
 
 # Configuration
-PROTOCOL = 'http'
+PROTOCOL = 'https'
 SERVER = 'plugins.qgis.org'
-PORT = '80'
+PORT = '443'
 ENDPOINT = '/plugins/RPC2/'
 VERBOSE = False
 
@@ -28,6 +28,9 @@ def main(parameters, arguments):
     :param parameters: Command line parameters.
     :param arguments: Command line arguments.
     """
+    # Construction of the XML-RPC address with credentials.
+    # The password is provided by the user at runtime and is not hardcoded.
+    # pragma: allowlist secret
     address = "%s://%s:%s@%s:%s%s" % (  # nosec
         PROTOCOL,
         parameters.username,

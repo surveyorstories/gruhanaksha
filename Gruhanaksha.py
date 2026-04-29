@@ -208,7 +208,7 @@ class GruhanakshaPlugin(object):
         try:
             if master and master.isVisible():
                 master.close()
-        except:
+        except Exception:
             pass
 
         # Unregister processing provider safely
