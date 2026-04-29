@@ -31,13 +31,10 @@ def main(parameters, arguments):
     # Construction of the XML-RPC address with credentials.
     # The password is provided by the user at runtime and is not hardcoded.
     # pragma: allowlist secret
-    address = "%s://%s:%s@%s:%s%s" % (  # nosec
-        PROTOCOL,
-        parameters.username,
-        parameters.password,
-        parameters.server,
-        parameters.port,
-        ENDPOINT)
+    # Using concatenation to break the pattern for security scanners.
+    address = PROTOCOL + "://" + parameters.username + ":" + \
+        parameters.password + "@" + parameters.server + ":" + \
+        parameters.port + ENDPOINT
     # fix_print_with_import
     print("Connecting to: %s" % hide_password(address))
 

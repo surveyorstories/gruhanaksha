@@ -52,7 +52,6 @@ SOURCES = \
 	lpm_canvas.py \
 	marker_tool.py \
 	master.py \
-	plugin_upload.py \
 	pointinput.py \
 	polygon_adjuster.py \
 	polygon_splitter.py \
@@ -79,7 +78,6 @@ PY_FILES = \
 	lpm_canvas.py \
 	marker_tool.py \
 	master.py \
-	plugin_upload.py \
 	pointinput.py \
 	polygon_adjuster.py \
 	polygon_splitter.py \
@@ -115,7 +113,7 @@ QGISDIR=$(USERPROFILE)/AppData/Roaming/QGIS/QGIS3/profiles/default/python/plugin
 
 HELP = help/build/html
 
-PLUGIN_UPLOAD = $(c)/plugin_upload.py
+PLUGIN_UPLOAD = python plugin_upload.py
 
 RESOURCE_SRC=$(shell grep '^ *<file'  | sed 's@</file>@@g;s/.*>//g' | tr '\n' ' ')
 
