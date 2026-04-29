@@ -21,7 +21,13 @@ from qgis.core import (
     QgsProject, QgsVectorLayer, QgsWkbTypes, QgsCoordinateReferenceSystem,
     QgsCoordinateTransform, QgsVectorLayerSimpleLabeling
 )
-from qgis.PyQt.QtWidgets import *
+from qgis.PyQt.QtWidgets import (
+    QSizePolicy, QMessageBox, QFrame, QWidget, QHBoxLayout, QVBoxLayout,
+    QPushButton, QLineEdit, QLabel, QSlider, QColorDialog, QTabWidget,
+    QComboBox, QDoubleSpinBox, QDialog, QGroupBox, QProgressBar, QCheckBox,
+    QScrollArea, QGridLayout, QRadioButton, QListWidget, QListWidgetItem,
+    QSpacerItem, QFileDialog
+)
 from qgis.PyQt.QtCore import Qt, QThread, pyqtSignal, QUrl
 from qgis.PyQt.QtGui import QColor, QPalette, QDesktopServices
 
@@ -1337,8 +1343,9 @@ class KMZExporterDialog(QDialog):
                 s.get('outline_color', QColor(255, 255, 0)))
             self.w_poly.sp_width.setValue(s.get('outline_width', 1.0))
 
-    def _toggle_custom_symbology(self, use_qgis): self.w_custom.setEnabled(
-        not use_qgis); self._save_symbology()
+    def _toggle_custom_symbology(self, use_qgis):
+        self.w_custom.setEnabled(not use_qgis)
+        self._save_symbology()
 
     def _save_symbology(self):
         layer_id = self.settings_layer_combo.currentData()

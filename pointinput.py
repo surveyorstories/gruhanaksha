@@ -34,10 +34,10 @@ class PointInputDialog(QDialog):
         super().__init__(iface.mainWindow())
         # Force it as a top-level window that stays on top of QGIS
         self.setWindowFlags(
-            QtCompat.Window |
-            QtCompat.WindowTitleHint |
-            QtCompat.CustomizeWindowHint |
-            QtCompat.WindowCloseButtonHint
+            QtCompat.Window
+            | QtCompat.WindowTitleHint
+            | QtCompat.CustomizeWindowHint
+            | QtCompat.WindowCloseButtonHint
         )
         self.iface = iface
         self.setWindowTitle("Enhanced Points Creator")

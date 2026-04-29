@@ -2,20 +2,22 @@
 Shared Qt5/Qt6 compatibility layer for Gruhanaksha plugin.
 """
 from qgis.PyQt import QtCore, QtGui, QtWidgets
-try:
-    from qgis.PyQt.QtCore import Qt, QObject, pyqtSignal, QTimer, QSize, QEvent, QVariant, QPointF
-except ImportError:
-    from qgis.PyQt.QtCore import Qt, QObject, pyqtSignal, QTimer, QSize, QEvent, QPointF
-    QVariant = None
+from qgis.PyQt.QtCore import (
+    Qt, QObject, pyqtSignal, QTimer, QSize, QEvent, QVariant, QPointF,
+    QThread
+)
 from qgis.PyQt.QtWidgets import (
     QAction, QMessageBox, QMenu, QSystemTrayIcon, QFrame,
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QSpinBox, QPushButton,
     QFileDialog, QRadioButton, QButtonGroup, QListWidget,
     QListWidgetItem, QCheckBox, QTextEdit, QTabWidget, QGraphicsTextItem,
     QMainWindow, QToolBar, QSizePolicy, QDialog, QComboBox, QLineEdit,
-    QInputDialog, QDialogButtonBox, QFormLayout, QActionGroup
+    QInputDialog, QDialogButtonBox, QFormLayout, QActionGroup,
+    QGridLayout, QProgressBar, QDoubleSpinBox, QShortcut, QSpacerItem
 )
-from qgis.PyQt.QtGui import QIcon, QFont, QColor, QPen, QBrush
+from qgis.PyQt.QtGui import (
+    QIcon, QFont, QColor, QPen, QBrush, QKeySequence
+)
 
 
 class QtCompat:
@@ -44,22 +46,31 @@ class QtCompat:
     def window_flags(cls):
         """Return standard window flags (Qt5/Qt6 compatible)."""
         if hasattr(Qt, 'WindowType'):  # Qt6
-            return (Qt.WindowType.Window | Qt.WindowType.WindowTitleHint |
-                    Qt.WindowType.WindowMinimizeButtonHint | Qt.WindowType.WindowCloseButtonHint |
-                    Qt.WindowType.CustomizeWindowHint)
+            return (Qt.WindowType.Window
+                    | Qt.WindowType.WindowTitleHint
+                    | Qt.WindowType.WindowMinimizeButtonHint
+                    | Qt.WindowType.WindowCloseButtonHint
+                    | Qt.WindowType.CustomizeWindowHint)
         # Qt5
-        return (Qt.Window | Qt.WindowTitleHint | Qt.WindowMinimizeButtonHint |
-                Qt.WindowCloseButtonHint | Qt.CustomizeWindowHint)
+        return (Qt.Window
+                | Qt.WindowTitleHint
+                | Qt.WindowMinimizeButtonHint
+                | Qt.WindowCloseButtonHint
+                | Qt.CustomizeWindowHint)
 
     @classmethod
     def tool_window_flags(cls):
         """Return tool window flags (Qt5/Qt6 compatible)."""
         if hasattr(Qt, 'WindowType'):  # Qt6
-            return (Qt.WindowType.Tool | Qt.WindowType.WindowTitleHint |
-                    Qt.WindowType.WindowCloseButtonHint | Qt.WindowType.CustomizeWindowHint)
+            return (Qt.WindowType.Tool
+                    | Qt.WindowType.WindowTitleHint
+                    | Qt.WindowType.WindowCloseButtonHint
+                    | Qt.WindowType.CustomizeWindowHint)
         else:  # Qt5
-            return (Qt.Tool | Qt.WindowTitleHint |
-                    Qt.WindowCloseButtonHint | Qt.CustomizeWindowHint)
+            return (Qt.Tool
+                    | Qt.WindowTitleHint
+                    | Qt.WindowCloseButtonHint
+                    | Qt.CustomizeWindowHint)
 
     @classmethod
     def stay_on_top(cls):

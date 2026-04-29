@@ -1712,9 +1712,9 @@ class CombinedMainWidget(QWidget):
                 reply = QtCompat.message_box_question(
                     self, f"Save {info['name']}",
                     f"Do you want to save the {info['name']} Layer before closing?",
-                    QtCompat.Yes |
-                    QtCompat.No |
-                    QtCompat.Cancel,
+                    QtCompat.Yes
+                    | QtCompat.No
+                    | QtCompat.Cancel,
                     QtCompat.Cancel
                 )
                 if reply == QtCompat.Yes:

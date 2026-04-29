@@ -2,8 +2,12 @@ import math
 import time
 from qgis.PyQt.QtCore import Qt, pyqtSignal, QPointF, QTimer
 from qgis.PyQt.QtGui import QColor, QPainter
-from qgis.PyQt.QtWidgets import *
-from qgis.core import *
+from qgis.PyQt.QtWidgets import (QWidget, QDialog, QVBoxLayout, QHBoxLayout,
+                                QLabel, QComboBox, QCheckBox, QDoubleSpinBox,
+                                QGridLayout, QPushButton, QApplication)
+from qgis.core import (QgsProject, QgsGeometry, QgsPointXY, QgsWkbTypes,
+                       QgsDistanceArea, QgsCoordinateTransform, QgsUnitTypes,
+                       Qgis, QgsFeature, QgsPointLocator, QgsMapLayer)
 from qgis.gui import QgsMapTool, QgsRubberBand, QgsVertexMarker, QgsSnapIndicator
 from qgis.utils import iface
 
@@ -17,11 +21,11 @@ class CursorInfo(QWidget):
 
         if hasattr(Qt, 'WindowType'):
             self.setWindowFlags(
-                Qt.WindowType.Tool |
-                Qt.WindowType.FramelessWindowHint |
-                Qt.WindowType.WindowStaysOnTopHint |
-                Qt.WindowType.WindowDoesNotAcceptFocus |
-                Qt.WindowType.WindowTransparentForInput
+                Qt.WindowType.Tool
+                | Qt.WindowType.FramelessWindowHint
+                | Qt.WindowType.WindowStaysOnTopHint
+                | Qt.WindowType.WindowDoesNotAcceptFocus
+                | Qt.WindowType.WindowTransparentForInput
             )
             self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
             self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
@@ -29,11 +33,11 @@ class CursorInfo(QWidget):
             self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         else:
             self.setWindowFlags(
-                Qt.Tool |
-                Qt.FramelessWindowHint |
-                Qt.WindowStaysOnTopHint |
-                Qt.WindowDoesNotAcceptFocus |
-                Qt.WindowTransparentForInput
+                Qt.Tool
+                | Qt.FramelessWindowHint
+                | Qt.WindowStaysOnTopHint
+                | Qt.WindowDoesNotAcceptFocus
+                | Qt.WindowTransparentForInput
             )
             self.setAttribute(Qt.WA_TranslucentBackground)
             self.setAttribute(Qt.WA_DeleteOnClose)
@@ -87,7 +91,7 @@ class CursorInfo(QWidget):
                 self.text_lines.append(f"{label}: {length:.3f}{unit_suffix}")
             else:
                 if unit_suffix == "m":
-                    self.text_lines.append(f"{label}: {length/1000:.4f}km")
+                    self.text_lines.append(f"{label}: {length / 1000:.4f}km")
                 else:
                     self.text_lines.append(
                         f"{label}: {length:.3f}{unit_suffix}")
@@ -99,7 +103,7 @@ class CursorInfo(QWidget):
                 self.text_lines.append(f"Width: {width:.3f}{unit_suffix}")
             else:
                 if unit_suffix == "m":
-                    self.text_lines.append(f"Width: {width/1000:.4f}km")
+                    self.text_lines.append(f"Width: {width / 1000:.4f}km")
                 else:
                     self.text_lines.append(f"Width: {width:.3f}{unit_suffix}")
 
@@ -110,7 +114,7 @@ class CursorInfo(QWidget):
                 self.text_lines.append(f"Height: {height:.3f}{unit_suffix}")
             else:
                 if unit_suffix == "m":
-                    self.text_lines.append(f"Height: {height/1000:.4f}km")
+                    self.text_lines.append(f"Height: {height / 1000:.4f}km")
                 else:
                     self.text_lines.append(
                         f"Height: {height:.3f}{unit_suffix}")
@@ -596,7 +600,7 @@ class ProfessionalLineTool(QgsMapTool):
         self.angle_mode = False
         self.last_angle = 0
         self.angle_lock = {'active': False, 'index': 0,
-                           'angles': [math.pi/2, math.pi], 'last_press': 0}
+                           'angles': [math.pi / 2, math.pi], 'last_press': 0}
 
         self.circle_mode = False
         self.circle_center = None
@@ -1536,8 +1540,8 @@ class ProfessionalLineTool(QgsMapTool):
         locked_delta = self.angle_lock['angles'][self.angle_lock['index']]
 
         if len(self.points) < 2:
-            if locked_delta == math.pi/2:
-                cardinal_angles = [0, math.pi/2, math.pi, 3*math.pi/2]
+            if locked_delta == math.pi / 2:
+                cardinal_angles = [0, math.pi / 2, math.pi, 3*math.pi / 2]
                 normalized_mouse = (mouse_angle + 2*math.pi) % (2*math.pi)
 
                 best_angle = cardinal_angles[0]
@@ -1554,7 +1558,7 @@ class ProfessionalLineTool(QgsMapTool):
 
             else:
                 normalized_mouse = (mouse_angle + 2*math.pi) % (2*math.pi)
-                ns_angles = [math.pi/2, 3*math.pi/2]
+                ns_angles = [math.pi / 2, 3*math.pi / 2]
                 ew_angles = [0, math.pi]
 
                 min_ns_diff = min(abs((normalized_mouse - ang + math.pi) %
@@ -1563,8 +1567,8 @@ class ProfessionalLineTool(QgsMapTool):
                                   (2*math.pi) - math.pi) for ang in ew_angles)
 
                 if min_ns_diff < min_ew_diff:
-                    final_angle = math.pi/2 if abs((normalized_mouse - math.pi/2 + math.pi) % (2*math.pi) - math.pi) < abs(
-                        (normalized_mouse - 3*math.pi/2 + math.pi) % (2*math.pi) - math.pi) else 3*math.pi/2
+                    final_angle = math.pi / 2 if abs((normalized_mouse - math.pi / 2 + math.pi) % (2*math.pi) - math.pi) < abs(
+                        (normalized_mouse - 3*math.pi / 2 + math.pi) % (2*math.pi) - math.pi) else 3*math.pi / 2
                 else:
                     final_angle = 0 if abs((normalized_mouse - 0 + math.pi) % (2*math.pi) - math.pi) < abs(
                         (normalized_mouse - math.pi + math.pi) % (2*math.pi) - math.pi) else math.pi
@@ -1575,9 +1579,9 @@ class ProfessionalLineTool(QgsMapTool):
             dy_ref = prev.y() - prev_prev.y()
             reference_angle = math.atan2(dx_ref, dy_ref)
 
-            if locked_delta == math.pi/2:
-                angle_positive = (reference_angle + math.pi/2) % (2 * math.pi)
-                angle_negative = (reference_angle - math.pi/2) % (2 * math.pi)
+            if locked_delta == math.pi / 2:
+                angle_positive = (reference_angle + math.pi / 2) % (2 * math.pi)
+                angle_negative = (reference_angle - math.pi / 2) % (2 * math.pi)
                 normalized_mouse = (mouse_angle + 2*math.pi) % (2*math.pi)
 
                 diff_positive = abs(
@@ -1678,9 +1682,9 @@ class ProfessionalLineTool(QgsMapTool):
                 dy_mouse = self.current_point.y() - ref.y()
                 mouse_angle = math.atan2(dx_mouse, dy_mouse)
 
-                if locked_delta == math.pi/2:
-                    angle_positive = (base_angle + math.pi/2) % (2 * math.pi)
-                    angle_negative = (base_angle - math.pi/2) % (2 * math.pi)
+                if locked_delta == math.pi / 2:
+                    angle_positive = (base_angle + math.pi / 2) % (2 * math.pi)
+                    angle_negative = (base_angle - math.pi / 2) % (2 * math.pi)
                     normalized_mouse = (mouse_angle + 2*math.pi) % (2*math.pi)
                     diff_positive = abs(
                         (normalized_mouse - angle_positive + math.pi) % (2 * math.pi) - math.pi)
@@ -2008,8 +2012,8 @@ class ProfessionalLineTool(QgsMapTool):
         if self._add_to_layer():
             total_meters = sum(
                 self._calculate_distance_in_layer_crs(
-                    self.points[i], self.points[i+1])
-                for i in range(len(self.points)-1)
+                    self.points[i], self.points[i + 1])
+                for i in range(len(self.points) - 1)
             )
             total_display = total_meters / \
                 self.units[self.current_unit_key]['factor']
@@ -2136,7 +2140,7 @@ class ProfessionalLineTool(QgsMapTool):
         self.angle_lock = {
             'active': False,
             'index': 0,
-            'angles': [math.pi/2, math.pi],
+            'angles': [math.pi / 2, math.pi],
             'last_press': 0
         }
         if not circle_toggle:

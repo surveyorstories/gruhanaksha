@@ -1,30 +1,33 @@
 from .addon_functions import enable_label, rule_based_symbology, undo, redo
 from .qt_compat import Qt, QtCompat, QColor
-from qgis.PyQt.QtCore import QPointF
-from qgis.gui import QgsMapTool, QgsRubberBand, QgsMapToolZoom, QgsMapCanvas, QgsMapToolPan
-from qgis.gui import QgsMapTool, QgsMapMouseEvent
+from qgis.PyQt.QtCore import QPointF, QVariant, QEvent, QSize
+from qgis.gui import (
+    QgsMapTool, QgsRubberBand, QgsMapToolZoom, QgsMapCanvas,
+    QgsMapToolPan, QgsMapMouseEvent, QgsMessageBar, QgsMapToolIdentify
+)
 from qgis.PyQt.QtGui import QPainter, QIcon
 
-from qgis.core import QgsSymbol, QgsGeometry, QgsPointXY, QgsRuleBasedRenderer, QgsRectangle, QgsWkbTypes, QgsFeatureRequest, QgsSpatialIndex, QgsField, QgsSingleSymbolRenderer, QgsExpression, Qgis, QgsMapLayer, NULL, QgsAggregateCalculator
+from qgis.core import (
+    QgsSymbol, QgsGeometry, QgsPointXY, QgsRuleBasedRenderer, QgsRectangle,
+    QgsWkbTypes, QgsFeatureRequest, QgsSpatialIndex, QgsField,
+    QgsSingleSymbolRenderer, QgsExpression, Qgis, QgsMapLayer, NULL,
+    QgsAggregateCalculator, QgsApplication, QgsMapLayerStyle, QgsProject,
+    QgsVectorLayer
+)
 
-
-from qgis.gui import QgsMessageBar
-from .qt_compat import QVBoxLayout, QMainWindow, QWidget, QSizePolicy, QInputDialog
 from qgis.utils import iface
-from qgis.gui import *
-from qgis.core import *
-from qgis.core import QgsApplication
-from .qt_compat import QEvent, QSize, QVariant
 from .qt_compat import (
-    QMainWindow, QVBoxLayout, QWidget, QPushButton, QAction, QDialog,
-    QCheckBox, QMessageBox, QLabel, QComboBox, QSpinBox, QDialogButtonBox,
-    QFormLayout, QActionGroup, QListWidget, QListWidgetItem
+    QVBoxLayout, QMainWindow, QWidget, QSizePolicy, QInputDialog,
+    QDialog, QAction, QGridLayout, QHBoxLayout, QLabel, QComboBox,
+    QDoubleSpinBox, QCheckBox, QListWidget, QListWidgetItem, QProgressBar,
+    QPushButton, QKeySequence, QShortcut, QTimer, QThread, pyqtSignal,
+    QSpacerItem, QSpinBox, QDialogButtonBox, QFormLayout, QActionGroup,
+    QMessageBox
 )
 import sys
 import os
 import inspect
-from qgis.core import QgsMapLayerStyle, QgsProject
-from qgis.gui import QgsMapToolIdentify
+
 cmd_folder = os.path.split(inspect.getfile(inspect.currentframe()))[0]
 icon = QIcon(os.path.join(os.path.join(cmd_folder, 'images/crosshair.svg')))
 
