@@ -273,16 +273,15 @@ class LayerManager:
         # Check existing layer
         for lyr in QgsProject.instance().mapLayers().values():
             if lyr.name() == name and lyr.geometryType() == geom_type:
-                # Ensure Label field exists for Plotted Points
-                if name == "Plotted Points":
-                    field_names = [f.name() for f in lyr.fields()]
-                    if "Label" not in field_names:
-                        if not lyr.isEditable():
-                            lyr.startEditing()
-                        lyr.dataProvider().addAttributes(
-                            [QgsField("Label", QVariant.String)])
-                        lyr.updateFields()
-                        lyr.commitChanges()
+                # Ensure all requested fields exist
+                existing_field_names = [f.name().lower() for f in lyr.fields()]
+                missing_fields = [f for f in fields if f.name().lower() not in existing_field_names]
+                
+                if missing_fields:
+                    if not lyr.isEditable():
+                        lyr.startEditing()
+                    lyr.dataProvider().addAttributes(missing_fields)
+                    lyr.updateFields()
                 return lyr
 
         # Create new layer
@@ -575,6 +574,14 @@ class TrianglePointTool(QgsMapTool):
         dialog.setLayout(layout)
         length_input.setFocus()
         length_input.selectAll()
+        def update_dlg_precision(unit):
+            decimals = 0 if "Links" in unit else 3
+            length_input.setDecimals(decimals)
+            length_input.setSingleStep(1.0 if decimals == 0 else 0.1)
+
+        unit_combo.currentTextChanged.connect(update_dlg_precision)
+        update_dlg_precision(unit_combo.currentText())
+
         if QtCompat.exec(dialog):
             self.widget.fixed_base_length = length_input.value()
             self.widget.unit_combo.setCurrentText(unit_combo.currentText())
@@ -1007,6 +1014,8 @@ class TriangleWidget(QWidget):
         self.unit_combo = QComboBox()
         self.unit_combo.addItems(list(UNIT_CONVERSIONS.keys()))
         self.unit_combo.currentTextChanged.connect(
+            self.update_input_precision)
+        self.unit_combo.currentTextChanged.connect(
             self.schedule_preview_update)
         layout.addWidget(self.unit_combo)
 
@@ -1041,7 +1050,16 @@ class TriangleWidget(QWidget):
 
         layout.setAlignment(QtCompat.AlignTop)
         self.setLayout(layout)
+        self.update_input_precision(self.unit_combo.currentText())
         self.clearFocus()
+
+    def update_input_precision(self, unit):
+        decimals = 0 if "Links" in unit else 3
+        step = 1.0 if decimals == 0 else 0.1
+        self.start_length_input.setDecimals(decimals)
+        self.start_length_input.setSingleStep(step)
+        self.end_length_input.setDecimals(decimals)
+        self.end_length_input.setSingleStep(step)
 
     def start_point_selection(self):
         self.clear_points()
@@ -1136,41 +1154,57 @@ class TriangleWidget(QWidget):
 
         def add_line(start, end, line_type):
             try:
+                if not start or not end:
+                    print(f"Error adding {line_type}: Invalid points (None)")
+                    return False
+                if start == end:
+                    print(f"Error adding {line_type}: Start and end points are identical")
+                    return False
+                    
                 feat = QgsFeature(layer.fields())
                 geom = QgsGeometry.fromPolylineXY([start, end])
-                if geom.isNull() or not geom.isGeosValid():
+                if geom.isNull():
+                    print(f"Error adding {line_type}: Null geometry")
                     return False
+                
                 feat.setGeometry(geom)
                 feat.setAttributes([line_type])
-                return layer.addFeature(feat)
+                res = layer.addFeature(feat)
+                if not res:
+                    print(f"Error adding {line_type}: layer.addFeature failed. Layer editable: {layer.isEditable()}")
+                return res
             except Exception as e:
-                print(f"Error adding triangle line: {e}")
+                print(f"Exception in add_line for {line_type}: {e}")
                 return False
 
         try:
             if not layer.isEditable():
-                layer.startEditing()
+                if not layer.startEditing():
+                    QMessageBox.critical(self, "Error", "Failed to put the layer in editing mode.")
+                    return
 
             success = True
-            success &= add_line(self.start_point, apex, "Start Side")
-            success &= add_line(self.end_point, apex, "End Side")
-            success &= add_line(self.start_point, self.end_point, "Base Line")
+            if not add_line(self.start_point, apex, "Start Side"): success = False
+            if not add_line(self.end_point, apex, "End Side"): success = False
+            if not add_line(self.start_point, self.end_point, "Base Line"): success = False
 
             if success:
-                layer.commitChanges()
-                LayerManager.update_layer_extent(layer)
-                self.triangle_rubber_band.reset()
-                self.lines_drawn = True
-                self.start_length_input.setValue(0.0)
-                self.end_length_input.setValue(0.0)
-                self.clear_points()
-                self.status_label.setText("Triangle added to 'Triangle Lines' layer.")
-                self.start_length_input.setFocus()
-                self.start_length_input.selectAll()
-                layer.triggerRepaint()
+                if layer.commitChanges():
+                    LayerManager.update_layer_extent(layer)
+                    self.triangle_rubber_band.reset()
+                    self.lines_drawn = True
+                    self.start_length_input.setValue(0.0)
+                    self.end_length_input.setValue(0.0)
+                    self.clear_points()
+                    self.status_label.setText("Triangle added to 'Triangle Lines' layer.")
+                    self.start_length_input.setFocus()
+                    self.start_length_input.selectAll()
+                    layer.triggerRepaint()
+                else:
+                    QMessageBox.warning(self, "Commit Failed", f"Failed to save changes to the layer: {layer.commitErrors()}")
             else:
                 layer.rollBack()
-                QMessageBox.warning(self, "Drawing Failed", "Failed to add one or more triangle lines to the layer.")
+                QMessageBox.warning(self, "Drawing Failed", "Failed to add one or more triangle lines to the layer. Check the Python console (Plugins -> Python Console) for details.")
         except Exception as e:
             if layer:
                 layer.rollBack()
@@ -1231,6 +1265,7 @@ class PlotterWidget(QWidget):
         self.unit_combo = QComboBox()
         # Make sure UNIT_CONVERSIONS is imported from your original code
         self.unit_combo.addItems(list(UNIT_CONVERSIONS.keys()))
+        self.unit_combo.currentTextChanged.connect(self.update_input_precision)
         layout.addWidget(self.unit_combo)
 
         layout.addWidget(QLabel("Choose Point:"))
@@ -1275,7 +1310,16 @@ class PlotterWidget(QWidget):
         # Import QtCompat from your original code
         layout.setAlignment(QtCompat.AlignTop)
         self.setLayout(layout)
+        self.update_input_precision(self.unit_combo.currentText())
         self.clearFocus()
+
+    def update_input_precision(self, unit):
+        decimals = 0 if "Links" in unit else 3
+        step = 1.0 if decimals == 0 else 0.1
+        self.cut_point_input.setDecimals(decimals)
+        self.cut_point_input.setSingleStep(step)
+        self.offset_input.setDecimals(decimals)
+        self.offset_input.setSingleStep(step)
 
     def on_label_changed(self, text):
         """Update current label when user changes it"""
