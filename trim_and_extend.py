@@ -30,14 +30,14 @@ def _extract_points(geom: QgsGeometry) -> list[QgsPointXY]:
         return pts
     try:
         t = geom.type()
-        if t == QgsWkbTypes.PointGeometry:
+        if t == QgsWkbTypes.GeometryType.PointGeometry:
             if geom.isMultipart():
                 for p in geom.asMultiPoint():
                     pts.append(QgsPointXY(p.x(), p.y()))
             else:
                 p = geom.asPoint()
                 pts.append(QgsPointXY(p.x(), p.y()))
-        elif t == QgsWkbTypes.LineGeometry:
+        elif t == QgsWkbTypes.GeometryType.LineGeometry:
             if geom.isMultipart():
                 for line in geom.asMultiPolyline():
                     for p in line:
@@ -45,7 +45,7 @@ def _extract_points(geom: QgsGeometry) -> list[QgsPointXY]:
             else:
                 for v in geom.vertices():
                     pts.append(QgsPointXY(v.x(), v.y()))
-        elif t == QgsWkbTypes.PolygonGeometry:
+        elif t == QgsWkbTypes.GeometryType.PolygonGeometry:
             # For polygons, we might want boundary vertices
             if geom.isMultipart():
                 for poly in geom.asMultiPolygon():
@@ -63,7 +63,7 @@ def _extract_points(geom: QgsGeometry) -> list[QgsPointXY]:
         return pts
     except Exception as e:
         QgsMessageLog.logMessage(
-            f"Error extracting points: {e}", "TrimExtendTool", Qgis.Warning)
+            f"Error extracting points: {e}", "TrimExtendTool", Qgis.MessageLevel.Warning)
         return []
 
 
@@ -76,13 +76,13 @@ class TrimExtendTool(QgsMapTool):
         self.layer = layer
         if not self.layer:
             raise ValueError("No active layer.")
-        if self.layer.geometryType() not in (QgsWkbTypes.LineGeometry, QgsWkbTypes.PolygonGeometry):
+        if self.layer.geometryType() not in (QgsWkbTypes.GeometryType.LineGeometry, QgsWkbTypes.GeometryType.PolygonGeometry):
             raise ValueError("Layer must be Line or Polygon type.")
         if not self.layer.isEditable():
             raise ValueError("Layer must be in editing mode (startEditing()).")
 
         self.is_polygon_layer = (
-            self.layer.geometryType() == QgsWkbTypes.PolygonGeometry)
+            self.layer.geometryType() == QgsWkbTypes.GeometryType.PolygonGeometry)
         self.pixel_tolerance = max(5, min(50, int(pixel_tolerance)))
 
         # State
@@ -95,7 +95,7 @@ class TrimExtendTool(QgsMapTool):
         self.is_dragging = False
         self.drag_path = []  # List of points in the drag path
         self.drag_features = []  # Features along the drag path
-        self.drag_rubber = QgsRubberBand(self.canvas, QgsWkbTypes.LineGeometry)
+        self.drag_rubber = QgsRubberBand(self.canvas, QgsWkbTypes.GeometryType.LineGeometry)
         self.drag_rubber.setColor(QColor(0, 0, 255, 150))
         self.drag_rubber.setWidth(2)
 
@@ -103,18 +103,18 @@ class TrimExtendTool(QgsMapTool):
         self.setCursor(QtCompat.cross_cursor())
 
         self.reference_rubber = QgsRubberBand(
-            self.canvas, QgsWkbTypes.LineGeometry)
+            self.canvas, QgsWkbTypes.GeometryType.LineGeometry)
         self.reference_rubber.setColor(QColor(255, 0, 0, 200))
         self.reference_rubber.setWidth(3)
 
         self.preview_rubber = QgsRubberBand(
-            self.canvas, QgsWkbTypes.PolygonGeometry)
+            self.canvas, QgsWkbTypes.GeometryType.PolygonGeometry)
         self.preview_rubber.setColor(QColor(0, 255, 0, 120))
         self.preview_rubber.setFillColor(QColor(0, 255, 0, 50))
         self.preview_rubber.setWidth(2)
 
         self.trim_rubber = QgsRubberBand(
-            self.canvas, QgsWkbTypes.PolygonGeometry)
+            self.canvas, QgsWkbTypes.GeometryType.PolygonGeometry)
         self.trim_rubber.setColor(QColor(255, 60, 60, 180))
         self.trim_rubber.setFillColor(QColor(255, 60, 60, 80))
         self.trim_rubber.setWidth(2)
@@ -133,11 +133,11 @@ class TrimExtendTool(QgsMapTool):
         super().activate()
         if self.is_polygon_layer:
             self.iface.messageBar().pushMessage("Trim/Extend",
-                                                "Click to select reference line/polygon (red), then click polygon vertex or side.", level=Qgis.Info)
+                                                "Click to select reference line/polygon (red), then click polygon vertex or side.", level=Qgis.MessageLevel.Info)
             print("Trim/Extend tool activated. Click to select reference line/polygon (red), then click polygon vertex or side.")
         else:
             self.iface.messageBar().pushMessage("Trim/Extend",
-                                                "Click to select reference (red), hover near line ends to preview.", level=Qgis.Info)
+                                                "Click to select reference (red), hover near line ends to preview.", level=Qgis.MessageLevel.Info)
             print(
                 "Trim/Extend tool activated. Click to select reference (red), hover near line ends to preview.")
 
@@ -154,7 +154,7 @@ class TrimExtendTool(QgsMapTool):
             QgsProject.instance().layerWillBeRemoved.disconnect(self._on_layers_changed)
             self.iface.currentLayerChanged.disconnect(
                 self._on_current_layer_changed)
-        except:
+        except:  # nosec B110
             pass
 
     def keyPressEvent(self, event):
@@ -170,10 +170,10 @@ class TrimExtendTool(QgsMapTool):
         self.press_point = None
         self.drag_path = []
         self.drag_features = []
-        self.reference_rubber.reset(QgsWkbTypes.LineGeometry)
-        self.preview_rubber.reset(QgsWkbTypes.PolygonGeometry)
-        self.trim_rubber.reset(QgsWkbTypes.PolygonGeometry)
-        self.drag_rubber.reset(QgsWkbTypes.LineGeometry)
+        self.reference_rubber.reset(QgsWkbTypes.GeometryType.LineGeometry)
+        self.preview_rubber.reset(QgsWkbTypes.GeometryType.PolygonGeometry)
+        self.trim_rubber.reset(QgsWkbTypes.GeometryType.PolygonGeometry)
+        self.drag_rubber.reset(QgsWkbTypes.GeometryType.LineGeometry)
 
         # Check if current layer is still valid
         current_layer = self.iface.activeLayer()
@@ -194,37 +194,37 @@ class TrimExtendTool(QgsMapTool):
 
     def _update_layer(self, new_layer):
         """Update the tool to work with a new layer"""
-        if not new_layer or new_layer.type() != QgsMapLayer.VectorLayer:
+        if not new_layer or new_layer.type() != QgsMapLayer.LayerType.VectorLayer:
             self.canvas.unsetMapTool(self)
             self.iface.messageBar().pushMessage(
-                "Error", "The active layer is not a vector layer. Tool deactivated.", level=Qgis.Critical)
+                "Error", "The active layer is not a vector layer. Tool deactivated.", level=Qgis.MessageLevel.Critical)
             return
 
-        if new_layer.geometryType() not in (QgsWkbTypes.LineGeometry, QgsWkbTypes.PolygonGeometry):
+        if new_layer.geometryType() not in (QgsWkbTypes.GeometryType.LineGeometry, QgsWkbTypes.GeometryType.PolygonGeometry):
             self.canvas.unsetMapTool(self)
             self.iface.messageBar().pushMessage("Error",
-                                                "The active layer is not a line or polygon layer. Tool deactivated.", level=Qgis.Critical)
+                                                "The active layer is not a line or polygon layer. Tool deactivated.", level=Qgis.MessageLevel.Critical)
             return
 
         if not new_layer.isEditable():
             self.canvas.unsetMapTool(self)
             self.iface.messageBar().pushMessage(
-                "Error", "The active layer is not in edit mode. Tool deactivated.", level=Qgis.Critical)
+                "Error", "The active layer is not in edit mode. Tool deactivated.", level=Qgis.MessageLevel.Critical)
             return
 
         # Update layer and reset state
         self.layer = new_layer
         self.is_polygon_layer = (
-            self.layer.geometryType() == QgsWkbTypes.PolygonGeometry)
+            self.layer.geometryType() == QgsWkbTypes.GeometryType.PolygonGeometry)
         self._reset()
 
         # Update rubber bands
         if self.is_polygon_layer:
-            self.preview_rubber.reset(QgsWkbTypes.PolygonGeometry)
-            self.trim_rubber.reset(QgsWkbTypes.PolygonGeometry)
+            self.preview_rubber.reset(QgsWkbTypes.GeometryType.PolygonGeometry)
+            self.trim_rubber.reset(QgsWkbTypes.GeometryType.PolygonGeometry)
         else:
-            self.preview_rubber.reset(QgsWkbTypes.LineGeometry)
-            self.trim_rubber.reset(QgsWkbTypes.LineGeometry)
+            self.preview_rubber.reset(QgsWkbTypes.GeometryType.LineGeometry)
+            self.trim_rubber.reset(QgsWkbTypes.GeometryType.LineGeometry)
 
         print(f"Switched to layer: {new_layer.name()}")
         self.activate()
@@ -248,14 +248,14 @@ class TrimExtendTool(QgsMapTool):
                 continue
 
             # Calculate distance based on geometry type
-            if g.type() == QgsWkbTypes.PolygonGeometry:
+            if g.type() == QgsWkbTypes.GeometryType.PolygonGeometry:
                 # For polygons, check if point is inside first
                 if g.contains(QgsGeometry.fromPointXY(point)):
                     # Point is inside polygon - very high priority
                     all_features.append((f, 0))
                 else:
                     # Point is outside - find distance to boundary
-                    boundary = g.convertToType(QgsWkbTypes.LineGeometry, True)
+                    boundary = g.convertToType(QgsWkbTypes.GeometryType.LineGeometry, True)
                     nearest = boundary.nearestPoint(
                         QgsGeometry.fromPointXY(point)).asPoint()
                     d = math.hypot(nearest.x() - point.x(),
@@ -656,7 +656,7 @@ class TrimExtendTool(QgsMapTool):
             parts = []
             if difference.isMultipart():
                 for part in difference.asGeometryCollection():
-                    if part.type() == QgsWkbTypes.PolygonGeometry:
+                    if part.type() == QgsWkbTypes.GeometryType.PolygonGeometry:
                         parts.append(part)
             else:
                 parts = [difference]
@@ -728,7 +728,7 @@ class TrimExtendTool(QgsMapTool):
 
         except Exception as e:
             QgsMessageLog.logMessage(
-                f"Polygon trim error: {e}", "TrimExtendTool", Qgis.Warning)
+                f"Polygon trim error: {e}", "TrimExtendTool", Qgis.MessageLevel.Warning)
             return None, None
 
     # ---------- NEW: Main polygon modification dispatcher ----------
@@ -930,7 +930,7 @@ class TrimExtendTool(QgsMapTool):
                 self.drag_path.append(pt)
 
             # Update drag rubber band with the full path
-            self.drag_rubber.reset(QgsWkbTypes.LineGeometry)
+            self.drag_rubber.reset(QgsWkbTypes.GeometryType.LineGeometry)
             if len(self.drag_path) > 1:
                 self.drag_rubber.addGeometry(
                     QgsGeometry.fromPolylineXY(self.drag_path), None)
@@ -943,17 +943,17 @@ class TrimExtendTool(QgsMapTool):
 
             # Set rubber band types based on layer geometry
             if self.is_polygon_layer:
-                self.preview_rubber.reset(QgsWkbTypes.PolygonGeometry)
-                self.trim_rubber.reset(QgsWkbTypes.PolygonGeometry)
+                self.preview_rubber.reset(QgsWkbTypes.GeometryType.PolygonGeometry)
+                self.trim_rubber.reset(QgsWkbTypes.GeometryType.PolygonGeometry)
             else:
-                self.preview_rubber.reset(QgsWkbTypes.LineGeometry)
-                self.trim_rubber.reset(QgsWkbTypes.LineGeometry)
+                self.preview_rubber.reset(QgsWkbTypes.GeometryType.LineGeometry)
+                self.trim_rubber.reset(QgsWkbTypes.GeometryType.LineGeometry)
 
             # Preview modifications for all drag features
             for f in self.drag_features:
                 g = f.geometry()
                 if g and not g.isEmpty():
-                    if g.type() == QgsWkbTypes.PolygonGeometry and self.is_polygon_layer:
+                    if g.type() == QgsWkbTypes.GeometryType.PolygonGeometry and self.is_polygon_layer:
                         new_g, op = self._modify_polygon(
                             g, pt, self.drag_path, drag_dx, drag_dy)
                         if new_g and not new_g.isEmpty():
@@ -964,7 +964,7 @@ class TrimExtendTool(QgsMapTool):
                                     if not removed.isEmpty():
                                         self.trim_rubber.addGeometry(
                                             removed, None)
-                                except:
+                                except:  # nosec B110
                                     pass
                             elif op in ("vertex_move", "side_move"):
                                 self.trim_rubber.addGeometry(g, None)
@@ -976,7 +976,7 @@ class TrimExtendTool(QgsMapTool):
                                 except:
                                     self.preview_rubber.addGeometry(
                                         new_g, None)
-                    elif g.type() == QgsWkbTypes.LineGeometry and not self.is_polygon_layer:
+                    elif g.type() == QgsWkbTypes.GeometryType.LineGeometry and not self.is_polygon_layer:
                         new_g, op = self._modify_line(
                             g, pt, self.drag_path, drag_dx, drag_dy)
                         if new_g and not new_g.isEmpty():
@@ -986,8 +986,8 @@ class TrimExtendTool(QgsMapTool):
 
         f = self._get_closest_feature(pt, exclude_reference=True)
 
-        self.preview_rubber.reset(QgsWkbTypes.PolygonGeometry)
-        self.trim_rubber.reset(QgsWkbTypes.PolygonGeometry)
+        self.preview_rubber.reset(QgsWkbTypes.GeometryType.PolygonGeometry)
+        self.trim_rubber.reset(QgsWkbTypes.GeometryType.PolygonGeometry)
 
         if not f:
             return
@@ -995,7 +995,7 @@ class TrimExtendTool(QgsMapTool):
         g = f.geometry()
 
         # Handle polygon preview
-        if g.type() == QgsWkbTypes.PolygonGeometry and self.is_polygon_layer:
+        if g.type() == QgsWkbTypes.GeometryType.PolygonGeometry and self.is_polygon_layer:
             new_g, op = self._modify_polygon(g, pt)
             if new_g and not new_g.isEmpty():
                 if op == "trim":
@@ -1004,7 +1004,7 @@ class TrimExtendTool(QgsMapTool):
                         removed = g.difference(new_g)
                         if not removed.isEmpty():
                             self.trim_rubber.setToGeometry(removed, None)
-                    except:
+                    except:  # nosec B110
                         pass
                 elif op in ("vertex_move", "side_move"):
                     self.trim_rubber.setToGeometry(g, None)
@@ -1017,7 +1017,7 @@ class TrimExtendTool(QgsMapTool):
             return
 
         # Handle line preview
-        if g.type() != QgsWkbTypes.LineGeometry:
+        if g.type() != QgsWkbTypes.GeometryType.LineGeometry:
             return
 
         new_g, op = self._modify_line(g, pt)
@@ -1027,8 +1027,8 @@ class TrimExtendTool(QgsMapTool):
         old_pts = [QgsPointXY(v.x(), v.y()) for v in g.vertices()]
         new_pts = [QgsPointXY(v.x(), v.y()) for v in new_g.vertices()]
 
-        self.preview_rubber.reset(QgsWkbTypes.LineGeometry)
-        self.trim_rubber.reset(QgsWkbTypes.LineGeometry)
+        self.preview_rubber.reset(QgsWkbTypes.GeometryType.LineGeometry)
+        self.trim_rubber.reset(QgsWkbTypes.GeometryType.LineGeometry)
 
         if op == "trim":
             if old_pts[0] != new_pts[0]:
@@ -1060,7 +1060,7 @@ class TrimExtendTool(QgsMapTool):
         if event.button() == QtCompat.RightButton:
             self._reset()
             self.iface.messageBar().pushMessage("Trim/Extend",
-                                                "Reference cleared. Click to select a new reference.", level=Qgis.Info)
+                                                "Reference cleared. Click to select a new reference.", level=Qgis.MessageLevel.Info)
             print("Reference cleared. Click to select a new reference.")
             return
 
@@ -1077,9 +1077,9 @@ class TrimExtendTool(QgsMapTool):
             req = QgsFeatureRequest().setFilterRect(rect)
 
             for lyr in layers:
-                if lyr.type() != QgsMapLayer.VectorLayer:
+                if lyr.type() != QgsMapLayer.LayerType.VectorLayer:
                     continue
-                if lyr.geometryType() not in (QgsWkbTypes.LineGeometry, QgsWkbTypes.PolygonGeometry):
+                if lyr.geometryType() not in (QgsWkbTypes.GeometryType.LineGeometry, QgsWkbTypes.GeometryType.PolygonGeometry):
                     continue
                 for f in lyr.getFeatures(req):
                     gg = f.geometry()
@@ -1088,13 +1088,13 @@ class TrimExtendTool(QgsMapTool):
 
                     # Check for containment (polygon)
                     pt_geom = QgsGeometry.fromPointXY(pt)
-                    if lyr.geometryType() == QgsWkbTypes.PolygonGeometry and gg.contains(pt_geom):
+                    if lyr.geometryType() == QgsWkbTypes.GeometryType.PolygonGeometry and gg.contains(pt_geom):
                         # Priority match: click is inside the polygon
                         d = -1.0
                     else:
                         # Fallback match: distance to boundary
-                        test = gg.convertToType(QgsWkbTypes.LineGeometry, True) if gg.type(
-                        ) == QgsWkbTypes.PolygonGeometry else gg
+                        test = gg.convertToType(QgsWkbTypes.GeometryType.LineGeometry, True) if gg.type(
+                        ) == QgsWkbTypes.GeometryType.PolygonGeometry else gg
                         np = test.nearestPoint(pt_geom).asPoint()
                         d = math.hypot(np.x() - pt.x(), np.y() - pt.y())
 
@@ -1103,30 +1103,30 @@ class TrimExtendTool(QgsMapTool):
 
             if not best_feat:
                 self.iface.messageBar().pushMessage(
-                    "Trim/Extend", "No line/polygon edge found near click.", level=Qgis.Warning)
+                    "Trim/Extend", "No line/polygon edge found near click.", level=Qgis.MessageLevel.Warning)
                 print("No line/polygon edge found near click.")
                 return
 
             g_ref = best_feat.geometry()
-            if g_ref.type() == QgsWkbTypes.PolygonGeometry:
-                g_ref = g_ref.convertToType(QgsWkbTypes.LineGeometry, True)
+            if g_ref.type() == QgsWkbTypes.GeometryType.PolygonGeometry:
+                g_ref = g_ref.convertToType(QgsWkbTypes.GeometryType.LineGeometry, True)
 
             self.reference_geom = g_ref
             self.reference_layer = best_layer
             self.reference_fid = best_feat.id()
             self.waiting_for_reference = False
 
-            self.reference_rubber.reset(QgsWkbTypes.LineGeometry)
+            self.reference_rubber.reset(QgsWkbTypes.GeometryType.LineGeometry)
             self.reference_rubber.addGeometry(g_ref, None)
 
             if self.is_polygon_layer:
                 self.iface.messageBar().pushMessage("Trim/Extend",
-                                                    f"Reference set (red) - Feature ID {best_feat.id()}. Click near vertex to move vertex, or near side to move side. Drag to multi-trim.", level=Qgis.Info)
+                                                    f"Reference set (red) - Feature ID {best_feat.id()}. Click near vertex to move vertex, or near side to move side. Drag to multi-trim.", level=Qgis.MessageLevel.Info)
                 print(
                     f"Reference set (red) - Feature ID {best_feat.id()}. Click near vertex to move vertex, or near side to move side. Drag to multi-trim.")
             else:
                 self.iface.messageBar().pushMessage("Trim/Extend",
-                                                    f"Reference set (red) - Feature ID {best_feat.id()}. Hover near line ends to preview, click to apply. Drag to multi-trim.", level=Qgis.Info)
+                                                    f"Reference set (red) - Feature ID {best_feat.id()}. Hover near line ends to preview, click to apply. Drag to multi-trim.", level=Qgis.MessageLevel.Info)
                 print(
                     f"Reference set (red) - Feature ID {best_feat.id()}. Hover near line ends to preview, click to apply. Drag to multi-trim.")
             return
@@ -1138,7 +1138,7 @@ class TrimExtendTool(QgsMapTool):
 
         # Handle drag release for multi-trim
         if is_drag and len(self.drag_path) > 1:
-            self.drag_rubber.reset(QgsWkbTypes.LineGeometry)
+            self.drag_rubber.reset(QgsWkbTypes.GeometryType.LineGeometry)
 
             # Add final point to path
             if len(self.drag_path) > 0 and (len(self.drag_path) == 1 or _dist(self.drag_path[-1], pt) > 5):
@@ -1146,7 +1146,7 @@ class TrimExtendTool(QgsMapTool):
 
             if not self.drag_features:
                 self.iface.messageBar().pushMessage(
-                    "Trim/Extend", "No features found along drag path.", level=Qgis.Warning)
+                    "Trim/Extend", "No features found along drag path.", level=Qgis.MessageLevel.Warning)
                 print("No features found along drag path.")
                 self.drag_path = []
                 self.is_dragging = False
@@ -1165,7 +1165,7 @@ class TrimExtendTool(QgsMapTool):
                 g = f.geometry()
 
                 # Handle polygon trim/extend/vertex/side operations
-                if g.type() == QgsWkbTypes.PolygonGeometry and self.is_polygon_layer:
+                if g.type() == QgsWkbTypes.GeometryType.PolygonGeometry and self.is_polygon_layer:
                     new_g, op = self._modify_polygon(
                         g, pt, self.drag_path, drag_dx, drag_dy)
                     if new_g and not new_g.isEmpty():
@@ -1173,7 +1173,7 @@ class TrimExtendTool(QgsMapTool):
                             success_count += 1
 
                 # Handle line trim/extend
-                elif g.type() == QgsWkbTypes.LineGeometry and not self.is_polygon_layer:
+                elif g.type() == QgsWkbTypes.GeometryType.LineGeometry and not self.is_polygon_layer:
                     new_g, op = self._modify_line(
                         g, pt, self.drag_path, drag_dx, drag_dy)
                     if new_g and not new_g.isEmpty():
@@ -1183,13 +1183,13 @@ class TrimExtendTool(QgsMapTool):
             if success_count > 0:
                 self.layer.endEditCommand()
                 self.iface.messageBar().pushMessage("Trim/Extend",
-                                                    f"Multi-Trim/Extend applied to {success_count} features. Undo/Redo available.", level=Qgis.Success)
+                                                    f"Multi-Trim/Extend applied to {success_count} features. Undo/Redo available.", level=Qgis.MessageLevel.Success)
                 print(
                     f"Multi-Trim/Extend applied to {success_count} features. Undo/Redo available.")
             else:
                 self.layer.destroyEditCommand()
                 self.iface.messageBar().pushMessage(
-                    "Trim/Extend", "Multi-Trim/Extend failed.", level=Qgis.Warning)
+                    "Trim/Extend", "Multi-Trim/Extend failed.", level=Qgis.MessageLevel.Warning)
                 print("Multi-Trim/Extend failed.")
 
             self.canvas.refresh()
@@ -1204,41 +1204,41 @@ class TrimExtendTool(QgsMapTool):
         self.drag_path = []
         self.drag_features = []
         self.press_point = None
-        self.drag_rubber.reset(QgsWkbTypes.LineGeometry)
+        self.drag_rubber.reset(QgsWkbTypes.GeometryType.LineGeometry)
 
         # Apply single feature edit (regular click behavior)
         f = self._get_closest_feature(pt, exclude_reference=True)
         if not f:
             self.iface.messageBar().pushMessage("Trim/Extend",
-                                                "No nearby feature found (excluding reference).", level=Qgis.Warning)
+                                                "No nearby feature found (excluding reference).", level=Qgis.MessageLevel.Warning)
             print("No nearby feature found (excluding reference).")
             return
 
         g = f.geometry()
 
         # Handle polygon trim/extend/vertex/side operations
-        if g.type() == QgsWkbTypes.PolygonGeometry and self.is_polygon_layer:
+        if g.type() == QgsWkbTypes.GeometryType.PolygonGeometry and self.is_polygon_layer:
             new_g, op = self._modify_polygon(g, pt)
             if not new_g or new_g.isEmpty():
                 if g.intersects(self.reference_geom):
                     self.iface.messageBar().pushMessage(
-                        "Trim/Extend", "No valid trim result.", level=Qgis.Warning)
+                        "Trim/Extend", "No valid trim result.", level=Qgis.MessageLevel.Warning)
                     print("No valid trim result.")
                 else:
                     detection_type, _, _ = self._detect_vertex_or_side(g, pt)
                     if detection_type == 'vertex':
                         self.iface.messageBar().pushMessage("Trim/Extend",
-                                                            "No valid vertex move. Ensure the adjacent sides can reach the reference.", level=Qgis.Warning)
+                                                            "No valid vertex move. Ensure the adjacent sides can reach the reference.", level=Qgis.MessageLevel.Warning)
                         print(
                             "No valid vertex move. Ensure the adjacent sides can reach the reference.")
                     elif detection_type == 'side':
                         self.iface.messageBar().pushMessage("Trim/Extend",
-                                                            "No valid side move. Ensure the side endpoints can reach the reference.", level=Qgis.Warning)
+                                                            "No valid side move. Ensure the side endpoints can reach the reference.", level=Qgis.MessageLevel.Warning)
                         print(
                             "No valid side move. Ensure the side endpoints can reach the reference.")
                     else:
                         self.iface.messageBar().pushMessage(
-                            "Trim/Extend", "Click closer to a vertex or side edge.", level=Qgis.Warning)
+                            "Trim/Extend", "Click closer to a vertex or side edge.", level=Qgis.MessageLevel.Warning)
                         print("Click closer to a vertex or side edge.")
                 return
 
@@ -1253,28 +1253,28 @@ class TrimExtendTool(QgsMapTool):
             if ok:
                 self.layer.endEditCommand()
                 self.iface.messageBar().pushMessage("Trim/Extend",
-                                                    f"Polygon {op_name.upper()} applied to feature {f.id()}. Undo/Redo available.", level=Qgis.Success)
+                                                    f"Polygon {op_name.upper()} applied to feature {f.id()}. Undo/Redo available.", level=Qgis.MessageLevel.Success)
                 print(
                     f"Polygon {op_name.upper()} applied to feature {f.id()}. Undo/Redo available.")
             else:
                 self.layer.destroyEditCommand()
                 self.iface.messageBar().pushMessage(
-                    "Trim/Extend", f"Polygon {op_name} failed.", level=Qgis.Warning)
+                    "Trim/Extend", f"Polygon {op_name} failed.", level=Qgis.MessageLevel.Warning)
                 print(f"Polygon {op_name} failed.")
             self.canvas.refresh()
             return
 
         # Handle line trim/extend
-        if g.type() != QgsWkbTypes.LineGeometry:
+        if g.type() != QgsWkbTypes.GeometryType.LineGeometry:
             self.iface.messageBar().pushMessage("Trim/Extend",
-                                                "Feature is not a line. Switch to line layer to edit lines.", level=Qgis.Warning)
+                                                "Feature is not a line. Switch to line layer to edit lines.", level=Qgis.MessageLevel.Warning)
             print("Feature is not a line. Switch to line layer to edit lines.")
             return
 
         new_g, op = self._modify_line(g, pt)
         if not new_g or new_g.isEmpty():
             self.iface.messageBar().pushMessage(
-                "Trim/Extend", "No valid intersection found.", level=Qgis.Warning)
+                "Trim/Extend", "No valid intersection found.", level=Qgis.MessageLevel.Warning)
             print("No valid intersection found.")
             return
 
@@ -1284,11 +1284,11 @@ class TrimExtendTool(QgsMapTool):
             self.layer.endEditCommand()
             print(f"{op.upper()} applied to feature {f.id()}. Undo/Redo available.")
             self.iface.messageBar().pushMessage("Trim/Extend",
-                                                f"{op.upper()} applied to feature {f.id()}. Undo/Redo available.", level=Qgis.Success)
+                                                f"{op.upper()} applied to feature {f.id()}. Undo/Redo available.", level=Qgis.MessageLevel.Success)
         else:
             self.layer.destroyEditCommand()
             self.iface.messageBar().pushMessage(
-                "Trim/Extend", "Edit failed.", level=Qgis.Critical)
+                "Trim/Extend", "Edit failed.", level=Qgis.MessageLevel.Critical)
             print("Edit failed.")
         self.canvas.refresh()
 
@@ -1300,17 +1300,17 @@ def activate_trim_extend_tool():
     layer = iface.activeLayer()
     if not isinstance(layer, QgsVectorLayer):
         iface.messageBar().pushMessage(
-            "Error", "Select a vector layer", level=Qgis.Critical)
+            "Error", "Select a vector layer", level=Qgis.MessageLevel.Critical)
         return
 
-    if layer.geometryType() not in (QgsWkbTypes.LineGeometry, QgsWkbTypes.PolygonGeometry):
+    if layer.geometryType() not in (QgsWkbTypes.GeometryType.LineGeometry, QgsWkbTypes.GeometryType.PolygonGeometry):
         iface.messageBar().pushMessage(
-            "Error", "Select an editable Line/Polygon layer.", level=Qgis.Critical)
+            "Error", "Select an editable Line/Polygon layer.", level=Qgis.MessageLevel.Critical)
         return
 
     if not layer.isEditable():
         iface.messageBar().pushMessage(
-            "Error", "Layer must be in edit mode.", level=Qgis.Critical)
+            "Error", "Layer must be in edit mode.", level=Qgis.MessageLevel.Critical)
         return
 
     canvas = iface.mapCanvas()

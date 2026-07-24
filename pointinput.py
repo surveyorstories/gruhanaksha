@@ -912,7 +912,7 @@ class PointInputDialog(QDialog):
         try:
             if level == "error":
                 try:
-                    msg_level = Qgis.Critical
+                    msg_level = Qgis.MessageLevel.Critical
                 except AttributeError:
                     try:
                         msg_level = Qgis.MessageLevel.Critical
@@ -921,7 +921,7 @@ class PointInputDialog(QDialog):
                 self.iface.messageBar().pushMessage("Error", message, msg_level, 5)
             elif level == "success":
                 try:
-                    msg_level = Qgis.Success
+                    msg_level = Qgis.MessageLevel.Success
                 except AttributeError:
                     try:
                         msg_level = Qgis.MessageLevel.Success
@@ -930,14 +930,14 @@ class PointInputDialog(QDialog):
                 self.iface.messageBar().pushMessage("Success", message, msg_level, 3)
             elif level == "warning":
                 try:
-                    msg_level = Qgis.Warning
+                    msg_level = Qgis.MessageLevel.Warning
                 except AttributeError:
                     try:
                         msg_level = Qgis.MessageLevel.Warning
                     except AttributeError:
                         msg_level = 1
                 self.iface.messageBar().pushMessage("Warning", message, msg_level, 4)
-        except Exception:
+        except Exception:  # nosec B110
             pass
 
     def clear_all(self):
@@ -1269,7 +1269,7 @@ class PointInputDialog(QDialog):
         # Check for existing compatible layer
         for layer in QgsProject.instance().mapLayers().values():
             if (layer.name() == layer_name and
-                    layer.type() == QgsVectorLayer.VectorLayer and
+                    layer.type() == QtCompat.VectorLayer and
                     layer.crs() == crs):
                 # Verify field structure matches
                 existing_fields = layer.fields()
@@ -1421,7 +1421,7 @@ class PointInputDialog(QDialog):
                                         )
                                         extent = transform.transformBoundingBox(
                                             extent)
-                                    except Exception:
+                                    except Exception:  # nosec B110
                                         pass
 
                                 canvas.setExtent(extent)
@@ -1457,7 +1457,7 @@ class PointInputDialog(QDialog):
         temp_layers = []
         for layer in QgsProject.instance().mapLayers().values():
             if (layer.providerType() == "memory"
-                    and layer.geometryType() == QgsWkbTypes.PointGeometry
+                    and layer.geometryType() == QgsWkbTypes.GeometryType.PointGeometry
                     and layer.name().startswith("Points_")):
                 temp_layers.append(layer)
         if temp_layers:

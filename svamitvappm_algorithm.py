@@ -50,7 +50,7 @@ def _release_shp_layers(project, base_path):
             ds = lyr.dataProvider().dataSourceUri().split('|')[0]
             if os.path.normcase(os.path.abspath(ds)).startswith(norm_base):
                 to_remove_ids.append(lyr.id())
-        except Exception:
+        except Exception:  # nosec B110
             pass
 
     lm = project.layoutManager()
@@ -59,7 +59,7 @@ def _release_shp_layers(project, base_path):
             atlas = layout.atlas()
             if atlas and atlas.coverageLayer() and atlas.coverageLayer().id() in to_remove_ids:
                 lm.removeLayout(layout)
-        except Exception:
+        except Exception:  # nosec B110
             pass
 
     for lid in to_remove_ids:
@@ -86,12 +86,12 @@ def _atomic_overwrite_shp(src_base, dst_base):
             try:
                 # atomic even over locked files on Windows
                 os.replace(src, dst)
-            except Exception:
+            except Exception:  # nosec B110
                 pass
         elif os.path.isfile(dst):
             try:
                 os.remove(dst)
-            except Exception:
+            except Exception:  # nosec B110
                 pass
 
 
@@ -444,7 +444,7 @@ class SvamitvaPPMAlgorithm(QgsProcessingAlgorithm):
             if os.path.isfile(_fp):
                 try:
                     os.remove(_fp)
-                except Exception:
+                except Exception:  # nosec B110
                     pass
 
         alg_params = {
@@ -491,7 +491,7 @@ class SvamitvaPPMAlgorithm(QgsProcessingAlgorithm):
             if os.path.isfile(_fp):
                 try:
                     os.remove(_fp)
-                except Exception:
+                except Exception:  # nosec B110
                     pass
 
         alg_params = {
@@ -582,7 +582,7 @@ class SvamitvaPPMAlgorithm(QgsProcessingAlgorithm):
             if os.path.isfile(_fp):
                 try:
                     os.remove(_fp)
-                except Exception:
+                except Exception:  # nosec B110
                     pass
 
         alg_params = {

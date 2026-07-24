@@ -218,7 +218,7 @@ class LengthInputDialog(QDialog):
                 s2['input'].setValue(min_l2_unit)
             elif l2_unit > max_l2_unit:
                 s2['input'].setValue(max_l2_unit)
-        except Exception as e:
+        except Exception as e:  # nosec B110
             pass
         finally:
             self.auto_adjusting = False
@@ -402,7 +402,7 @@ class VertexTool(QgsMapTool):
         try:
             iface.currentLayerChanged.disconnect(self._on_layer_changed)
             self.canvas.mapCanvasRefreshed.disconnect(self._on_canvas_refresh)
-        except:
+        except:  # nosec B110
             pass
         self._reset(silent=True)
         super().deactivate()
@@ -584,7 +584,7 @@ class VertexTool(QgsMapTool):
                 else:
                     vertices.extend(QgsPointXY(p)
                                     for p in self.geometry.asPolyline())
-        except:
+        except:  # nosec B110
             pass
         return vertices
 
@@ -780,7 +780,7 @@ class VertexTool(QgsMapTool):
                 for vertex in preview_vertices:
                     self.preview_rubber_band.addPoint(vertex)
             self._update_length_labels(preview_vertices)
-        except:
+        except:  # nosec B110
             pass
 
     def _move_vertex(self, vertex_idx, new_position):

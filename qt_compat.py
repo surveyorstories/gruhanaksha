@@ -13,11 +13,13 @@ from qgis.PyQt.QtWidgets import (
     QListWidgetItem, QCheckBox, QTextEdit, QTabWidget, QGraphicsTextItem,
     QMainWindow, QToolBar, QSizePolicy, QDialog, QComboBox, QLineEdit,
     QInputDialog, QDialogButtonBox, QFormLayout, QActionGroup,
-    QGridLayout, QProgressBar, QDoubleSpinBox, QShortcut, QSpacerItem
+    QGridLayout, QProgressBar, QDoubleSpinBox, QShortcut, QSpacerItem,
+    QGraphicsView, QGraphicsItem, QAbstractItemView
 )
 from qgis.PyQt.QtGui import (
-    QIcon, QFont, QColor, QPen, QBrush, QKeySequence
+    QIcon, QFont, QColor, QPen, QBrush, QKeySequence, QPainter
 )
+from qgis.PyQt.QtPrintSupport import QPrinter
 
 
 class QtCompat:
@@ -45,39 +47,24 @@ class QtCompat:
     @classmethod
     def window_flags(cls):
         """Return standard window flags (Qt5/Qt6 compatible)."""
-        if hasattr(Qt, 'WindowType'):  # Qt6
-            return (Qt.WindowType.Window
-                    | Qt.WindowType.WindowTitleHint
-                    | Qt.WindowType.WindowMinimizeButtonHint
-                    | Qt.WindowType.WindowCloseButtonHint
-                    | Qt.WindowType.CustomizeWindowHint)
-        # Qt5
-        return (Qt.Window
-                | Qt.WindowTitleHint
-                | Qt.WindowMinimizeButtonHint
-                | Qt.WindowCloseButtonHint
-                | Qt.CustomizeWindowHint)
+        return (cls.Window
+                | cls.WindowTitleHint
+                | cls.WindowMinimizeButtonHint
+                | cls.WindowCloseButtonHint
+                | cls.CustomizeWindowHint)
 
     @classmethod
     def tool_window_flags(cls):
         """Return tool window flags (Qt5/Qt6 compatible)."""
-        if hasattr(Qt, 'WindowType'):  # Qt6
-            return (Qt.WindowType.Tool
-                    | Qt.WindowType.WindowTitleHint
-                    | Qt.WindowType.WindowCloseButtonHint
-                    | Qt.WindowType.CustomizeWindowHint)
-        else:  # Qt5
-            return (Qt.Tool
-                    | Qt.WindowTitleHint
-                    | Qt.WindowCloseButtonHint
-                    | Qt.CustomizeWindowHint)
+        return (cls.Tool
+                | cls.WindowTitleHint
+                | cls.WindowCloseButtonHint
+                | cls.CustomizeWindowHint)
 
     @classmethod
     def stay_on_top(cls):
         """Return WindowStaysOnTopHint (Qt5/Qt6 compatible)."""
-        if hasattr(Qt, 'WindowType'):
-            return Qt.WindowType.WindowStaysOnTopHint
-        return Qt.WindowStaysOnTopHint
+        return cls.WindowStaysOnTopHint
 
     # --- CheckState (Methods) ---
     @classmethod
@@ -166,10 +153,8 @@ class QtCompat:
     @classmethod
     def exec(cls, obj):
         """Handle exec_ vs exec difference."""
-        if hasattr(obj, 'exec'):
-            return obj.exec()
-        else:
-            return obj.exec_()
+        exec_func = getattr(obj, 'exec', None) or getattr(obj, 'exec_')
+        return exec_func()
 
     @classmethod
     def hline(cls):
@@ -365,3 +350,59 @@ QtCompat.Expanding = QtCompat._get_attr(
 QtCompat.Preferred = QtCompat._get_attr(
     QSizePolicy, 'Preferred', 'Policy.Preferred')
 QtCompat.Minimum = QtCompat._get_attr(QSizePolicy, 'Minimum', 'Policy.Minimum')
+
+# Additional Window Types & Attributes
+QtCompat.Tool = QtCompat._get_attr(Qt, 'Tool', 'WindowType.Tool')
+QtCompat.FramelessWindowHint = QtCompat._get_attr(Qt, 'FramelessWindowHint', 'WindowType.FramelessWindowHint')
+QtCompat.WindowTransparentForInput = QtCompat._get_attr(Qt, 'WindowTransparentForInput', 'WindowType.WindowTransparentForInput')
+QtCompat.WindowDoesNotAcceptFocus = QtCompat._get_attr(Qt, 'WindowDoesNotAcceptFocus', 'WindowType.WindowDoesNotAcceptFocus')
+
+QtCompat.WA_TranslucentBackground = QtCompat._get_attr(Qt, 'WA_TranslucentBackground', 'WidgetAttribute.WA_TranslucentBackground')
+QtCompat.WA_DeleteOnClose = QtCompat._get_attr(Qt, 'WA_DeleteOnClose', 'WidgetAttribute.WA_DeleteOnClose')
+QtCompat.WA_ShowWithoutActivating = QtCompat._get_attr(Qt, 'WA_ShowWithoutActivating', 'WidgetAttribute.WA_ShowWithoutActivating')
+QtCompat.WA_TransparentForMouseEvents = QtCompat._get_attr(Qt, 'WA_TransparentForMouseEvents', 'WidgetAttribute.WA_TransparentForMouseEvents')
+
+QtCompat.WindowFullScreen = QtCompat._get_attr(Qt, 'WindowFullScreen', 'WindowState.WindowFullScreen')
+QtCompat.KeepAspectRatio = QtCompat._get_attr(Qt, 'KeepAspectRatio', 'AspectRatioMode.KeepAspectRatio')
+QtCompat.SmoothTransformation = QtCompat._get_attr(Qt, 'SmoothTransformation', 'TransformationMode.SmoothTransformation')
+
+QtCompat.PrinterResolution = QtCompat._get_attr(QPrinter, 'PrinterResolution', 'PrinterMode.PrinterResolution')
+QtCompat.PdfFormat = QtCompat._get_attr(QPrinter, 'PdfFormat', 'OutputFormat.PdfFormat')
+
+QtCompat.white = QtCompat._get_attr(Qt, 'white', 'GlobalColor.white')
+QtCompat.red = QtCompat._get_attr(Qt, 'red', 'GlobalColor.red')
+QtCompat.cyan = QtCompat._get_attr(Qt, 'cyan', 'GlobalColor.cyan')
+
+# Qt6 compatibility additions
+QtCompat.ScrollHandDrag = QtCompat._get_attr(QGraphicsView, 'ScrollHandDrag', 'DragMode.ScrollHandDrag')
+QtCompat.AnchorUnderMouse = QtCompat._get_attr(QGraphicsView, 'AnchorUnderMouse', 'ViewportAnchor.AnchorUnderMouse')
+QtCompat.AnchorViewCenter = QtCompat._get_attr(QGraphicsView, 'AnchorViewCenter', 'ViewportAnchor.AnchorViewCenter')
+QtCompat.ItemIsMovable = QtCompat._get_attr(QGraphicsItem, 'ItemIsMovable', 'GraphicsItemFlag.ItemIsMovable')
+QtCompat.Antialiasing = QtCompat._get_attr(QPainter, 'Antialiasing', 'RenderHint.Antialiasing')
+QtCompat.SmoothPixmapTransform = QtCompat._get_attr(QPainter, 'SmoothPixmapTransform', 'RenderHint.SmoothPixmapTransform')
+QtCompat.ExtendedSelection = QtCompat._get_attr(QAbstractItemView, 'ExtendedSelection', 'SelectionMode.ExtendedSelection')
+
+# QGIS Core additions
+try:
+    from qgis.core import QgsUnitTypes
+    QtCompat.DistanceMeters = QtCompat._get_attr(QgsUnitTypes, 'DistanceMeters', 'DistanceUnit.DistanceMeters')
+except (ImportError, AttributeError):
+    pass
+
+try:
+    from qgis.core import QgsPointLocator
+    QtCompat.PointLocator_Edge = QtCompat._get_attr(QgsPointLocator, 'Edge', 'Type.Edge')
+except (ImportError, AttributeError):
+    pass
+
+try:
+    from qgis.core import QgsMapLayerType
+    QtCompat.VectorLayer = QtCompat._get_attr(QgsMapLayerType, 'VectorLayer')
+except (ImportError, AttributeError):
+    try:
+        from qgis.core import QgsMapLayer
+        QtCompat.VectorLayer = QtCompat._get_attr(QgsMapLayer, 'VectorLayer')
+    except (ImportError, AttributeError):
+        pass
+
+

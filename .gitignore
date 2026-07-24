@@ -5,6 +5,10 @@ README.txt
 canvas.py
 123.py
 test.py
+*tests.py
+*test.py
+docs/*
+*.md
 *.pyc
 **/__pycache__
 __pycache__/

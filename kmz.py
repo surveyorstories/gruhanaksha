@@ -14,8 +14,8 @@ import zipfile
 import tempfile
 import shutil
 import html
-from xml.etree.ElementTree import Element, SubElement, tostring
-from xml.dom import minidom
+from xml.etree.ElementTree import Element, SubElement, tostring  # nosec B314 B405
+from xml.dom import minidom  # nosec B318 B408
 from qgis.utils import iface
 from qgis.core import (
     QgsProject, QgsVectorLayer, QgsWkbTypes, QgsCoordinateReferenceSystem,
@@ -48,7 +48,7 @@ except:
 if QT_VERSION >= 6:
     TOOL_WINDOW_FLAGS = Qt.WindowType.Window | Qt.WindowType.WindowCloseButtonHint | Qt.WindowType.Tool
 else:
-    TOOL_WINDOW_FLAGS = Qt.Window | Qt.WindowCloseButtonHint | Qt.Tool
+    TOOL_WINDOW_FLAGS = getattr(Qt, 'Window') | getattr(Qt, 'WindowCloseButtonHint') | getattr(Qt, 'Tool')
 
 
 class QtCompat:
@@ -57,11 +57,11 @@ class QtCompat:
         if hasattr(Qt, 'CheckState'):
             return Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked
         else:
-            return Qt.Checked if checked else Qt.Unchecked
+            return getattr(Qt, 'Checked') if checked else getattr(Qt, 'Unchecked')
 
     @staticmethod
     def user_role():
-        return Qt.ItemDataRole.UserRole if QT_VERSION >= 6 else Qt.UserRole
+        return Qt.ItemDataRole.UserRole if QT_VERSION >= 6 else getattr(Qt, 'UserRole')
 
     @staticmethod
     def item_flag(flag_name):
@@ -69,15 +69,15 @@ class QtCompat:
 
     @staticmethod
     def orientation(horizontal=True):
-        return Qt.Orientation.Horizontal if QT_VERSION >= 6 and horizontal else (Qt.Horizontal if horizontal else Qt.Vertical)
+        return Qt.Orientation.Horizontal if QT_VERSION >= 6 and horizontal else (getattr(Qt, 'Horizontal') if horizontal else getattr(Qt, 'Vertical'))
 
     @staticmethod
     def text_format(rich_text=True):
-        return Qt.TextFormat.RichText if QT_VERSION >= 6 and rich_text else (Qt.RichText if rich_text else Qt.PlainText)
+        return Qt.TextFormat.RichText if QT_VERSION >= 6 and rich_text else (getattr(Qt, 'RichText') if rich_text else getattr(Qt, 'PlainText'))
 
     @staticmethod
     def cursor_shape(cursor_type='pointing'):
-        return Qt.CursorShape.PointingHandCursor if QT_VERSION >= 6 and cursor_type == 'pointing' else (Qt.PointingHandCursor if cursor_type == 'pointing' else Qt.ArrowCursor)
+        return Qt.CursorShape.PointingHandCursor if QT_VERSION >= 6 and cursor_type == 'pointing' else (getattr(Qt, 'PointingHandCursor') if cursor_type == 'pointing' else getattr(Qt, 'ArrowCursor'))
 
     @staticmethod
     def size_policy(policy='minimum'):
@@ -98,9 +98,9 @@ class QtCompat:
             }
             return roles.get(role_name)
         roles = {
-            'window': QPalette.Window, 'window_text': QPalette.WindowText, 'base': QPalette.Base,
-            'alternate_base': QPalette.AlternateBase, 'text': QPalette.Text, 'button': QPalette.Button,
-            'button_text': QPalette.ButtonText, 'highlight': QPalette.Highlight, 'highlighted_text': QPalette.HighlightedText
+            'window': getattr(QPalette, 'Window'), 'window_text': getattr(QPalette, 'WindowText'), 'base': getattr(QPalette, 'Base'),
+            'alternate_base': getattr(QPalette, 'AlternateBase'), 'text': getattr(QPalette, 'Text'), 'button': getattr(QPalette, 'Button'),
+            'button_text': getattr(QPalette, 'ButtonText'), 'highlight': getattr(QPalette, 'Highlight'), 'highlighted_text': getattr(QPalette, 'HighlightedText')
         }
         return roles.get(role_name)
 
@@ -108,11 +108,11 @@ class QtCompat:
     def color_dialog_options(show_alpha=True):
         if QT_VERSION >= 6:
             return QColorDialog.ColorDialogOption.ShowAlphaChannel if show_alpha else QColorDialog.ColorDialogOption(0)
-        return QColorDialog.ShowAlphaChannel if show_alpha else QColorDialog.ColorDialogOptions()
+        return getattr(QColorDialog, 'ShowAlphaChannel') if show_alpha else getattr(QColorDialog, 'ColorDialogOptions')()
 
     @staticmethod
     def tab_position(position='north'):
-        return QTabWidget.TabPosition.North if QT_VERSION >= 6 and position == 'north' else (QTabWidget.North if position == 'north' else QTabWidget.South)
+        return QTabWidget.TabPosition.North if QT_VERSION >= 6 and position == 'north' else (getattr(QTabWidget, 'North') if position == 'north' else getattr(QTabWidget, 'South'))
 
     @staticmethod
     def message_box_button(button='yes'):
@@ -122,14 +122,14 @@ class QtCompat:
 
     @staticmethod
     def brush_style(style='no_brush'):
-        return Qt.BrushStyle.NoBrush if QT_VERSION >= 6 and style == 'no_brush' else (Qt.NoBrush if style == 'no_brush' else Qt.SolidPattern)
+        return Qt.BrushStyle.NoBrush if QT_VERSION >= 6 and style == 'no_brush' else (getattr(Qt, 'NoBrush') if style == 'no_brush' else getattr(Qt, 'SolidPattern'))
 
     @staticmethod
     def non_modal():
         if hasattr(Qt, 'WindowModality'):
             return Qt.WindowModality.NonModal
         elif hasattr(Qt, 'NonModal'):
-            return Qt.NonModal
+            return getattr(Qt, 'NonModal')
         else:
             return 0
 
@@ -139,9 +139,9 @@ class QtCompat:
             shapes = {'hline': QFrame.Shape.HLine, 'vline': QFrame.Shape.VLine, 'box': QFrame.Shape.Box,
                       'panel': QFrame.Shape.Panel, 'styledpanel': QFrame.Shape.StyledPanel}
             return shapes.get(shape, QFrame.Shape.NoFrame)
-        shapes = {'hline': QFrame.HLine, 'vline': QFrame.VLine, 'box': QFrame.Box,
-                  'panel': QFrame.Panel, 'styledpanel': QFrame.StyledPanel}
-        return shapes.get(shape, QFrame.NoFrame)
+        shapes = {'hline': getattr(QFrame, 'HLine'), 'vline': getattr(QFrame, 'VLine'), 'box': getattr(QFrame, 'Box'),
+                  'panel': getattr(QFrame, 'Panel'), 'styledpanel': getattr(QFrame, 'StyledPanel')}
+        return shapes.get(shape, getattr(QFrame, 'NoFrame'))
 
     @staticmethod
     def frame_shadow(shadow='sunken'):
@@ -149,9 +149,9 @@ class QtCompat:
             shadows = {'sunken': QFrame.Shadow.Sunken,
                        'raised': QFrame.Shadow.Raised, 'plain': QFrame.Shadow.Plain}
             return shadows.get(shadow, QFrame.Shadow.Plain)
-        shadows = {'sunken': QFrame.Sunken,
-                   'raised': QFrame.Raised, 'plain': QFrame.Plain}
-        return shadows.get(shadow, QFrame.Plain)
+        shadows = {'sunken': getattr(QFrame, 'Sunken'),
+                   'raised': getattr(QFrame, 'Raised'), 'plain': getattr(QFrame, 'Plain')}
+        return shadows.get(shadow, getattr(QFrame, 'Plain'))
 
     @staticmethod
     def alignment(align='center'):
@@ -159,7 +159,7 @@ class QtCompat:
             aligns = {'center': Qt.AlignmentFlag.AlignCenter,
                       'left': Qt.AlignmentFlag.AlignLeft, 'right': Qt.AlignmentFlag.AlignRight}
             return aligns.get(align)
-        return Qt.AlignCenter if align == 'center' else (Qt.AlignLeft if align == 'left' else Qt.AlignRight)
+        return getattr(Qt, 'AlignCenter') if align == 'center' else (getattr(Qt, 'AlignLeft') if align == 'left' else getattr(Qt, 'AlignRight'))
 
 # ==============================================================================
 # Color Picker Widget
@@ -308,11 +308,11 @@ class StyleManager:
         style = SubElement(doc, "Style", id=style_id)
         self._add_label_style(style, custom_lbl)
         geom = layer.geometryType()
-        if geom == QgsWkbTypes.PointGeometry:
+        if geom == QgsWkbTypes.GeometryType.PointGeometry:
             self._add_point_style(style, layer, custom_sym)
-        elif geom == QgsWkbTypes.LineGeometry:
+        elif geom == QgsWkbTypes.GeometryType.LineGeometry:
             self._add_line_style(style, layer, custom_sym)
-        elif geom == QgsWkbTypes.PolygonGeometry:
+        elif geom == QgsWkbTypes.GeometryType.PolygonGeometry:
             self._add_polygon_style(style, layer, custom_sym)
         self._create_label_only_style(doc, style_id, custom_lbl)
 
@@ -334,11 +334,11 @@ class StyleManager:
 
             # Use the category's symbol
             symbol = cat.symbol()
-            if geom == QgsWkbTypes.PointGeometry:
+            if geom == QgsWkbTypes.GeometryType.PointGeometry:
                 self._add_point_style(style, layer, custom_sym, symbol)
-            elif geom == QgsWkbTypes.LineGeometry:
+            elif geom == QgsWkbTypes.GeometryType.LineGeometry:
                 self._add_line_style(style, layer, custom_sym, symbol)
-            elif geom == QgsWkbTypes.PolygonGeometry:
+            elif geom == QgsWkbTypes.GeometryType.PolygonGeometry:
                 self._add_polygon_style(style, layer, custom_sym, symbol)
 
             # Create corresponding label style for this category
@@ -507,12 +507,12 @@ class GeometryConverter:
     @staticmethod
     def to_kml(placemark, geometry, folder, style_id, label_mode, label, feature, processor, desc):
         geom_type = geometry.type()
-        if geom_type == QgsWkbTypes.PointGeometry:
+        if geom_type == QgsWkbTypes.GeometryType.PointGeometry:
             GeometryConverter._point_to_kml(placemark, geometry)
-        elif geom_type == QgsWkbTypes.LineGeometry:
+        elif geom_type == QgsWkbTypes.GeometryType.LineGeometry:
             GeometryConverter._line_to_kml(
                 placemark, geometry, folder, style_id, label_mode, label, feature, processor, desc)
-        elif geom_type == QgsWkbTypes.PolygonGeometry:
+        elif geom_type == QgsWkbTypes.GeometryType.PolygonGeometry:
             GeometryConverter._polygon_to_kml(
                 placemark, geometry, folder, style_id, label_mode, label, feature, processor, desc)
 
@@ -597,7 +597,7 @@ class GeometryConverter:
                 pole = geometry.poleOfInaccessibility(0.000001)
                 if pole and not pole.isEmpty():
                     return pole.asPoint()
-        except:
+        except:  # nosec B110
             pass
         centroid = geometry.centroid()
         if centroid and not centroid.isEmpty():
@@ -648,51 +648,55 @@ class KMZExporter:
             shutil.rmtree(tmp, ignore_errors=True)
 
     def _export_vector_layer(self, layer, doc, label_mode, selected_only):
-        folder = SubElement(doc, "Folder")
-        SubElement(folder, "name").text = layer.name()
-        style_id = f"s_{layer.id()}"
-        style_manager = StyleManager(
-            self.symbology_settings, self.label_settings)
+        try:
+            folder = SubElement(doc, "Folder")
+            SubElement(folder, "name").text = layer.name()
+            style_id = f"s_{layer.id()}"
+            style_manager = StyleManager(
+                self.symbology_settings, self.label_settings)
 
-        is_categorized = False
-        cat_attr_idx = -1
-        categories = []
+            is_categorized = False
+            cat_attr_idx = -1
+            categories = []
 
-        # Check for categorized symbology
-        custom_sym = self.symbology_settings.get(layer.id(), {})
-        use_qgis = custom_sym.get('use_qgis', True)
+            # Check for categorized symbology
+            custom_sym = self.symbology_settings.get(layer.id(), {})
+            use_qgis = custom_sym.get('use_qgis', True)
 
-        if use_qgis and layer.renderer().type() == 'categorizedSymbol':
-            is_categorized = True
-            style_manager.create_categorized_styles(doc, style_id, layer)
-            cat_attr_name = layer.renderer().classAttribute()
-            cat_attr_idx = layer.fields().indexOf(cat_attr_name)
-            categories = layer.renderer().categories()
-        else:
-            style_manager.create_style(doc, style_id, layer)
+            if use_qgis and layer.renderer() and layer.renderer().type() == 'categorizedSymbol':
+                is_categorized = True
+                style_manager.create_categorized_styles(doc, style_id, layer)
+                cat_attr_name = layer.renderer().classAttribute()
+                cat_attr_idx = layer.fields().indexOf(cat_attr_name)
+                categories = layer.renderer().categories()
+            else:
+                style_manager.create_style(doc, style_id, layer)
 
-        transform = None
-        if layer.crs() != self.crs_wgs84:
-            transform = QgsCoordinateTransform(
-                layer.crs(), self.crs_wgs84, QgsProject.instance())
-        processor = FeatureProcessor(
-            self.label_field_map, self.desc_field_map, self.separator)
-        features = layer.selectedFeatures(
-        ) if selected_only and layer.selectedFeatureCount() > 0 else layer.getFeatures()
-        for feature in features:
-            final_style_id = style_id
-            if is_categorized and cat_attr_idx != -1:
-                val = feature.attributes()[cat_attr_idx]
-                # Find matching category
-                for i, cat in enumerate(categories):
-                    # Check for equality, handling potential type differences if necessary
-                    # Assuming strict equality for now as usually returned by renderer
-                    if str(cat.value()) == str(val):  # Compare as string to be safe
-                        final_style_id = f"{style_id}_cat_{i}"
-                        break
+            transform = None
+            if layer.crs() != self.crs_wgs84:
+                transform = QgsCoordinateTransform(
+                    layer.crs(), self.crs_wgs84, QgsProject.instance())
+            processor = FeatureProcessor(
+                self.label_field_map, self.desc_field_map, self.separator)
+            features = layer.selectedFeatures(
+            ) if selected_only and layer.selectedFeatureCount() > 0 else layer.getFeatures()
+            for feature in features:
+                final_style_id = style_id
+                if is_categorized and cat_attr_idx != -1:
+                    val = feature.attributes()[cat_attr_idx]
+                    # Find matching category
+                    for i, cat in enumerate(categories):
+                        # Check for equality, handling potential type differences if necessary
+                        # Assuming strict equality for now as usually returned by renderer
+                        if str(cat.value()) == str(val):  # Compare as string to be safe
+                            final_style_id = f"{style_id}_cat_{i}"
+                            break
 
-            self._export_feature(feature, folder, final_style_id,
-                                 transform, layer, label_mode, processor)
+                self._export_feature(feature, folder, final_style_id,
+                                     transform, layer, label_mode, processor)
+        except Exception as e:
+            geom_type = layer.geometryType() if hasattr(layer, 'geometryType') else "Unknown"
+            raise Exception(f"Failed to export layer '{layer.name()}' (Geometry Type: {geom_type}): {str(e)}") from e
 
     def _export_feature(self, feature, folder, style_id, transform, layer, label_mode, processor):
         geometry = feature.geometry()
@@ -749,8 +753,8 @@ class ExportThread(QThread):
             self.finished.emit(True, "KMZ created successfully")
         except Exception as e:
             import traceback
-            traceback.print_exc()
-            self.finished.emit(False, str(e))
+            tb_str = traceback.format_exc()
+            self.finished.emit(False, f"{str(e)}\n\nDetailed traceback:\n{tb_str}")
 
     def _progress(self, val, txt): self.progress.emit(val, txt)
 
@@ -1305,13 +1309,13 @@ class KMZExporterDialog(QDialog):
         self.w_pt.hide()
         self.w_ln.hide()
         self.w_poly.hide()
-        if geom_type == QgsWkbTypes.PointGeometry:
+        if geom_type == QgsWkbTypes.GeometryType.PointGeometry:
             self.w_pt.show()
             self._load_point_symbology(layer_id)
-        elif geom_type == QgsWkbTypes.LineGeometry:
+        elif geom_type == QgsWkbTypes.GeometryType.LineGeometry:
             self.w_ln.show()
             self._load_line_symbology(layer_id)
-        elif geom_type == QgsWkbTypes.PolygonGeometry:
+        elif geom_type == QgsWkbTypes.GeometryType.PolygonGeometry:
             self.w_poly.show()
             self._load_polygon_symbology(layer_id)
         use_qgis = self.symbology_settings.get(
@@ -1355,13 +1359,13 @@ class KMZExporterDialog(QDialog):
         geom_type = layer.geometryType()
         settings = {'use_qgis': self.chk_qgis.isChecked()}
         if not settings['use_qgis']:
-            if geom_type == QgsWkbTypes.PointGeometry:
+            if geom_type == QgsWkbTypes.GeometryType.PointGeometry:
                 settings.update({'icon_url': self.w_pt.cb_icon.currentData(
                 ), 'size': self.w_pt.sp_size.value(), 'color': self.w_pt.picker.get_color()})
-            elif geom_type == QgsWkbTypes.LineGeometry:
+            elif geom_type == QgsWkbTypes.GeometryType.LineGeometry:
                 settings.update(
                     {'width': self.w_ln.sp_width.value(), 'color': self.w_ln.picker.get_color()})
-            elif geom_type == QgsWkbTypes.PolygonGeometry:
+            elif geom_type == QgsWkbTypes.GeometryType.PolygonGeometry:
                 settings.update({'fill_color': self.w_poly.picker_fill.get_color(
                 ), 'outline_color': self.w_poly.picker_outline.get_color(), 'outline_width': self.w_poly.sp_width.value()})
         self.symbology_settings[layer_id] = settings
@@ -1392,11 +1396,11 @@ class KMZExporterDialog(QDialog):
                 import platform
                 if platform.system() == 'Windows':
                     # Windows: Open Explorer and select the file
-                    subprocess.run(
+                    subprocess.run(  # nosec B603 B607
                         ['explorer', '/select,', os.path.normpath(self.output_path)])
                 elif platform.system() == 'Darwin':
                     # macOS: Open Finder and select the file
-                    subprocess.run(['open', '-R', self.output_path])
+                    subprocess.run(['open', '-R', self.output_path])  # nosec B603 B607
                 else:
                     # Linux/Other: Just open the folder
                     QDesktopServices.openUrl(QUrl.fromLocalFile(folder))

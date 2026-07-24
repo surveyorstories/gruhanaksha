@@ -83,12 +83,12 @@ def enable_label(layer_id, font, font_size, field_name, font_weight, is_expressi
     # layer = QgsProject.instance().mapLayersByName(layer)[0]
     # Array of label placements
     placements = [
-        QgsPalLayerSettings.AroundPoint,
-        QgsPalLayerSettings.Horizontal,
-        QgsPalLayerSettings.Free,
-        QgsPalLayerSettings.OverPoint,
-        QgsPalLayerSettings.OnLine,
-        QgsPalLayerSettings.Curved,
+        QgsPalLayerSettings.Placement.AroundPoint,
+        QgsPalLayerSettings.Placement.Horizontal,
+        QgsPalLayerSettings.Placement.Free,
+        QgsPalLayerSettings.PredefinedPointPosition.OverPoint,
+        QgsPalLayerSettings.Placement.OnLine,
+        QgsPalLayerSettings.Placement.Curved,
 
     ]
     # Get the selected placement from the array
@@ -296,7 +296,7 @@ def apply_polygon_labels(layer, field_name):
 
     # Try setting placement if supported (QGIS 3.28+)
     try:
-        label_settings.placement = QgsPalLayerSettings.OverPolygon
+        label_settings.placement = QgsPalLayerSettings.Placement.OverPolygon
     except AttributeError:
         pass  # Safe fallback for older QGIS versions
 

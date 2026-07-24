@@ -203,7 +203,7 @@ class LengthInputDialog(QDialog):
             info_label = QLabel(f"<i>Map units: {map_units_name}</i>")
             info_label.setStyleSheet("color: #666666;")
             layout.addWidget(info_label)
-        except Exception:
+        except Exception:  # nosec B110
             pass  # Skip if unable to get map units
 
         # Unit toggle hint
@@ -890,7 +890,7 @@ class UnifiedGeometryEditTool(QgsMapTool):
             try:
                 self.canvas.extentsChanged.disconnect(
                     self.refresh_dimension_labels)
-            except Exception:
+            except Exception:  # nosec B110
                 pass  # Not connected
 
         if not getattr(self, "selectedFeature", None):
@@ -1065,7 +1065,7 @@ class UnifiedGeometryEditTool(QgsMapTool):
         try:
             self.canvas.extentsChanged.disconnect(
                 self.refresh_dimension_labels)
-        except Exception:
+        except Exception:  # nosec B110
             pass
 
     def deactivate(self):

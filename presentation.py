@@ -9,6 +9,7 @@ from qgis.gui import (QgsLayerTreeView, QgsMapCanvas, QgsMapTool, QgsMapToolEmit
                       QgsVertexMarker, QgsLayerTreeMapCanvasBridge, QgsLayerTreeViewMenuProvider, QgsLayerTreeViewDefaultActions)
 from qgis.PyQt.QtCore import pyqtSignal
 from qgis.PyQt.QtWidgets import QTextEdit
+from .qt_compat import QtCompat
 
 
 class PresenterMenuProvider(QgsLayerTreeViewMenuProvider):
@@ -74,14 +75,14 @@ class DraggableOverlay(QWidget):
         self.drag_position = None
 
     def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton:
+        if event.button() == QtCompat.LeftButton:
             self.drag_position = event.globalPos() - self.frameGeometry().topLeft()
             event.accept()
         else:
             super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
-        if event.buttons() == Qt.LeftButton and self.drag_position is not None:
+        if event.buttons() == QtCompat.LeftButton and self.drag_position is not None:
             self.move(event.globalPos() - self.drag_position)
             event.accept()
         else:
@@ -105,7 +106,7 @@ class PresentationDialog(QDialog):
         self.list = QListWidget()
         # Live preview canvas
         self.preview = QgsMapCanvas()
-        self.preview.setCanvasColor(Qt.white)
+        self.preview.setCanvasColor(QtCompat.white)
         self.preview_bridge = QgsLayerTreeMapCanvasBridge(QgsProject.instance().layerTreeRoot(), self.preview)
         self.preview_bridge.setCanvasLayers()
         self.preview.setExtent(iface.mapCanvas().extent())
@@ -130,13 +131,13 @@ class PresentationDialog(QDialog):
         self.layer_view.setDragEnabled(True)
         self.layer_view.setAcceptDrops(True)
         self.layer_view.setDropIndicatorShown(True)
-        self.layer_view.setSelectionMode(QgsLayerTreeView.ExtendedSelection)
+        self.layer_view.setSelectionMode(QtCompat.ExtendedSelection)
 
         # Prefer the project's existing layer tree model from the main layer panel
         model = None
         try:
             model = iface.layerTreeView().layerTreeModel()
-        except Exception:
+        except Exception:  # nosec B110
             pass
         if model is None:
             try:
@@ -149,7 +150,7 @@ class PresentationDialog(QDialog):
             try:
                 self.layer_view.setRootIndex(iface.layerTreeView().rootIndex())
                 self.layer_view.setSelectionModel(iface.layerTreeView().selectionModel())
-            except Exception:
+            except Exception:  # nosec B110
                 pass
             self.layer_view.expandAll()
 
@@ -281,8 +282,8 @@ class PresentationDialog(QDialog):
         path, _ = QFileDialog.getSaveFileName(self, 'Export Presentation', '', 'PDF Files (*.pdf)')
         if not path:
             return
-        printer = QPrinter(QPrinter.PrinterResolution)
-        printer.setOutputFormat(QPrinter.PdfFormat)
+        printer = QPrinter(QtCompat.PrinterResolution)
+        printer.setOutputFormat(QtCompat.PdfFormat)
         printer.setOutputFileName(path)
 
         painter = None
@@ -298,7 +299,7 @@ class PresentationDialog(QDialog):
                     pix = self.preview.grab()
                     img = pix.toImage()
                     rect = painter.viewport()
-                    img = img.scaled(rect.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                    img = img.scaled(rect.size(), QtCompat.KeepAspectRatio, QtCompat.SmoothTransformation)
                     painter.drawImage(0, 0, img)
                 if i != len(self.slides) - 1:
                     printer.newPage()
@@ -318,13 +319,13 @@ class FullscreenPresenter(QMainWindow):
         self.slides = slides
         self.index = 0
         self.rubberbands = []
-        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.CustomizeWindowHint)
-        self.setWindowState(Qt.WindowFullScreen)
-        self.setAttribute(Qt.WA_DeleteOnClose, True)
+        self.setWindowFlags(QtCompat.FramelessWindowHint | QtCompat.stay_on_top() | QtCompat.CustomizeWindowHint)
+        self.setWindowState(QtCompat.WindowFullScreen)
+        self.setAttribute(QtCompat.WA_DeleteOnClose, True)
 
         # Live canvas used for presentation (interactive)
         self.canvas = QgsMapCanvas()
-        self.canvas.setCanvasColor(Qt.white)
+        self.canvas.setCanvasColor(QtCompat.white)
         self.canvas.setExtent(self.slides[self.index]['extent'])
         self.canvas.setFocus()
 
@@ -344,12 +345,12 @@ class FullscreenPresenter(QMainWindow):
         self.layer_view.setDragEnabled(True)
         self.layer_view.setAcceptDrops(True)
         self.layer_view.setDropIndicatorShown(True)
-        self.layer_view.setSelectionMode(QgsLayerTreeView.ExtendedSelection)
+        self.layer_view.setSelectionMode(QtCompat.ExtendedSelection)
 
         model = None
         try:
             model = iface.layerTreeView().layerTreeModel()
-        except Exception:
+        except Exception:  # nosec B110
             pass
         if model is None:
             try:
@@ -362,7 +363,7 @@ class FullscreenPresenter(QMainWindow):
             try:
                 self.layer_view.setRootIndex(iface.layerTreeView().rootIndex())
                 self.layer_view.setSelectionModel(iface.layerTreeView().selectionModel())
-            except Exception:
+            except Exception:  # nosec B110
                 pass
             self.layer_view.expandAll()
 
@@ -400,8 +401,8 @@ class FullscreenPresenter(QMainWindow):
         self.overlay.setStyleSheet(
             '#presentationOverlay { background: rgba(40,40,40,220); color: white; border-radius: 10px; }'
         )
-        self.overlay.setAttribute(Qt.WA_TranslucentBackground, True)
-        self.overlay.setWindowFlags(Qt.Tool | Qt.FramelessWindowHint)
+        self.overlay.setAttribute(QtCompat.WA_TranslucentBackground, True)
+        self.overlay.setWindowFlags(QtCompat.Tool | QtCompat.FramelessWindowHint)
 
         self.overlay_layout = QVBoxLayout()
         self.overlay_layout.setContentsMargins(10, 10, 10, 10)
@@ -434,9 +435,9 @@ class FullscreenPresenter(QMainWindow):
                 self.canvas = canvas
                 self.parent = parent
                 self.marker = QgsVertexMarker(canvas)
-                self.marker.setColor(Qt.red)
+                self.marker.setColor(QtCompat.red)
                 self.marker.setIconSize(10)
-                self.marker.setIconType(QgsVertexMarker.ICON_CROSS)
+                self.marker.setIconType(QgsVertexMarker.IconType.ICON_CROSS)
                 self.marker.setPenWidth(2)
                 self.marker.hide()
 
@@ -460,7 +461,7 @@ class FullscreenPresenter(QMainWindow):
 
             def canvasPressEvent(self, event):
                 self.rb = QgsRubberBand(self.canvas, False)
-                self.rb.setColor(Qt.cyan)
+                self.rb.setColor(QtCompat.cyan)
                 self.rb.setWidth(2)
                 self.rb.addPoint(self.toMapCoordinates(event.pos()))
 
@@ -486,7 +487,7 @@ class FullscreenPresenter(QMainWindow):
                 rect = QgsRectangle(pt.x() - tol_map, pt.y() - tol_map,
                                     pt.x() + tol_map, pt.y() + tol_map)
                 for layer in QgsProject.instance().mapLayers().values():
-                    if layer.type() != QgsMapLayer.VectorLayer:
+                    if layer.type() != QgsMapLayer.LayerType.VectorLayer:
                         continue
                     try:
                         req = QgsFeatureRequest().setFilterRect(rect)
@@ -496,8 +497,8 @@ class FullscreenPresenter(QMainWindow):
                                 f'Layer: {layer.name()}\n' + '\n'.join(f'{k}: {v}' for k, v in attrs.items())
                             )
                             return
-                    except Exception:
-                        continue
+                    except Exception:  # nosec B110
+                        pass
 
         self.pointer_tool = PointerTool(self.canvas, self)
         self.draw_tool = DrawTool(self.canvas, self)
@@ -507,7 +508,7 @@ class FullscreenPresenter(QMainWindow):
 
         from qgis.PyQt.QtWidgets import QToolBar
         tb = QToolBar(self)
-        tb.setWindowFlags(Qt.Tool | Qt.FramelessWindowHint)
+        tb.setWindowFlags(QtCompat.Tool | QtCompat.FramelessWindowHint)
         tb.setStyleSheet('background: rgba(60,60,60,220); color: white;')
         btn_pointer = tb.addAction('Pointer')
         btn_draw = tb.addAction('Draw')
@@ -590,7 +591,7 @@ class FullscreenPresenter(QMainWindow):
         if hasattr(self, 'bridge'):
             try:
                 self.bridge.setCanvasLayers()
-            except Exception:
+            except Exception:  # nosec B110
                 pass
         self.showFullScreen()
         self.raise_()
@@ -603,15 +604,15 @@ class FullscreenPresenter(QMainWindow):
             self.overlay.raise_()
 
     def keyPressEvent(self, event):
-        if event.key() in (Qt.Key_Right, Qt.Key_Space):
+        if event.key() in (QtCompat.get_key("Key_Right"), QtCompat.get_key("Key_Space")):
             self.index = min(self.index + 1, len(self.slides) - 1)
             self.update_slide()
-        elif event.key() == Qt.Key_Left:
+        elif event.key() == QtCompat.get_key("Key_Left"):
             self.index = max(self.index - 1, 0)
             self.update_slide()
-        elif event.key() in (Qt.Key_Escape, Qt.Key_Q):
+        elif event.key() in (QtCompat.Key_Escape, QtCompat.get_key("Key_Q")):
             self.close()
-        elif event.key() == Qt.Key_L:
+        elif event.key() == QtCompat.get_key("Key_L"):
             if self.overlay.isVisible():
                 self.overlay.hide()
             else:

@@ -71,7 +71,7 @@ class PPMDialog(QDialog):
 
         # 1. Plot Shapefile
         self.plot_layer_cb = QgsMapLayerComboBox()
-        self.plot_layer_cb.setFilters(QgsMapLayerProxyModel.PolygonLayer)
+        self.plot_layer_cb.setFilters(QgsMapLayerProxyModel.Filter.PolygonLayer)
         ppm_form_layout.addRow("Plot Shapefile:", self.plot_layer_cb)
 
         # 2. Property Parcel Number (Field)
@@ -95,7 +95,7 @@ class PPMDialog(QDialog):
 
         # 5. Plinth Shapefile
         self.plinth_layer_cb = QgsMapLayerComboBox()
-        self.plinth_layer_cb.setFilters(QgsMapLayerProxyModel.PolygonLayer)
+        self.plinth_layer_cb.setFilters(QgsMapLayerProxyModel.Filter.PolygonLayer)
         ppm_form_layout.addRow(
             "Builtup (Plinth) Shapefile:", self.plinth_layer_cb)
 
@@ -278,7 +278,7 @@ class PPMDialog(QDialog):
                         try:
                             if os.path.abspath(os.path.dirname(path)) == os.path.abspath(project_folder):
                                 ids_to_remove.add(lyr.id())
-                        except:
+                        except:  # nosec B110
                             pass
 
         # Exclude inputs

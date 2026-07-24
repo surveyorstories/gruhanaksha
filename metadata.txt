@@ -10,7 +10,7 @@ qgisMaximumVersion=4.99
 
 description= Gruhanaksha is developed specifically to support the deliverables of the SVAMITVA by offering various tools Polygon adjuster, Plotter, auto backup and save , free hand adjuster, ppm generation, other tools for geometry adjustments and manipulation
 
-version=3.4.0
+version=3.5.0
 
 author=Surveyor Stories
 email=surveyorstories@gmail.com

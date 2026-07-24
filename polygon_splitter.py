@@ -65,7 +65,7 @@ class MessageBar(QgsMessageBar):
         self.raise_()
 
     def eventFilter(self, object, event):
-        if event.type() == QEvent.Resize:
+        if event.type() == QEvent.Type.Resize:
             self.showEvent(None)
 
         return super(MessageBar, self).eventFilter(object, event)
@@ -182,7 +182,7 @@ class LayerSelectDialog(QDialog):
 
         # Add checkboxes for each layer in the same order as the layer panel
         for layer in layers_in_panel_order:
-            if layer.isValid() and layer.type() in [QgsMapLayer.VectorLayer, QgsMapLayer.RasterLayer]:
+            if layer.isValid() and layer.type() in [QgsMapLayer.LayerType.VectorLayer, QgsMapLayer.LayerType.RasterLayer]:
                 checkbox = QCheckBox(layer.name())
                 checkbox.setChecked(layer in selected_layers)
                 checkbox.setProperty("layer", layer)
@@ -333,7 +333,7 @@ class MyWnd(QMainWindow):
     def updateLayers(self):
         # Include both vector and raster layers
         self.layers = [layer for layer in QgsProject.instance().mapLayers().values()
-                       if layer.type() in [QgsMapLayer.VectorLayer, QgsMapLayer.RasterLayer]]
+                       if layer.type() in [QgsMapLayer.LayerType.VectorLayer, QgsMapLayer.LayerType.RasterLayer]]
 
     def toggleFeatureTool(self):
         # Toggle between the FeatureSelectMapTool and other map tools
@@ -350,7 +350,7 @@ class MyWnd(QMainWindow):
 
     def activecurrentLayerChanged(self, layer):
         # Update selected layers
-        if layer and layer.isValid() and layer.type() == QgsMapLayer.VectorLayer:
+        if layer and layer.isValid() and layer.type() == QgsMapLayer.LayerType.VectorLayer:
             self.selected_layers = [layer]
             self.updateCanvasLayers()
 
@@ -430,7 +430,7 @@ class MyWnd(QMainWindow):
             extent = layer.extent()
 
             # Check for selection if it's a vector layer
-            if layer.type() == QgsMapLayer.VectorLayer and layer.selectedFeatureCount() > 0:
+            if layer.type() == QgsMapLayer.LayerType.VectorLayer and layer.selectedFeatureCount() > 0:
                 extent = layer.boundingBoxOfSelected()
 
             # Ensure extent is not null/empty (e.g. single point)
@@ -647,7 +647,7 @@ class MyWnd(QMainWindow):
             if self.mapTool != None and hasattr(self.mapTool, 'capturedPoints') and len(self.mapTool.capturedPoints) >= 2:
                 reply = QtCompat.message_box_question(self.canvas, "Cancel splitting line?", "Your splitting line has " + str(
                     len(self.mapTool.capturedPoints)) + " points. Do you want to remove it?", QtCompat.Yes, QtCompat.No)
-                if reply == QMessageBox.No:
+                if reply == QMessageBox.StandardButton.No:
                     self.action.setChecked(True)
                     self.mapTool.restoreAction()
                     return
@@ -663,7 +663,7 @@ class MyWnd(QMainWindow):
             self.enableTool()  # Re-enable based on current selection
             return
         layer = self.iface.activeLayer()
-        if layer == None or not isinstance(layer, QgsVectorLayer) or (layer.wkbType() != QgsWkbTypes.Polygon and layer.wkbType() != QgsWkbTypes.MultiPolygon and layer.wkbType() != QgsWkbTypes.Polygon25D and layer.wkbType() != QgsWkbTypes.MultiPolygon25D):
+        if layer == None or not isinstance(layer, QgsVectorLayer) or (layer.wkbType() != QgsWkbTypes.Type.Polygon and layer.wkbType() != QgsWkbTypes.Type.MultiPolygon and layer.wkbType() != QgsWkbTypes.Type.Polygon25D and layer.wkbType() != QgsWkbTypes.Type.MultiPolygon25D):
             # self.canvas.messageBar().pushMessage("No Polygon Vectorial Layer Selected",
             #                                      "Select a Polygon Vectorial Layer first", level=QgsMessageBar.WARNING)
 
@@ -857,7 +857,7 @@ class MyWnd(QMainWindow):
                 marker.setColor(QColor("black"))
                 marker.setFillColor(QColor("black"))
                 marker.setIconSize(5)
-                marker.setIconType(QgsVertexMarker.ICON_CIRCLE)
+                marker.setIconType(QgsVertexMarker.IconType.ICON_CIRCLE)
                 marker.setPenWidth(1)
                 self.vertex_markers.append(marker)
 
@@ -909,15 +909,15 @@ class MyWnd(QMainWindow):
         if layer != None:
             try:
                 layer.editingStarted.disconnect(self.layerEditingChanged)
-            except:
+            except:  # nosec B110
                 pass
             try:
                 layer.editingStopped.disconnect(self.layerEditingChanged)
-            except:
+            except:  # nosec B110
                 pass
             try:
                 layer.selectionChanged .disconnect(self.layerEditingChanged)
-            except:
+            except:  # nosec B110
                 pass
 
             if isinstance(layer, QgsVectorLayer):
@@ -946,8 +946,8 @@ class MyWnd(QMainWindow):
         if layer != None and isinstance(layer, QgsVectorLayer):
             self.actionAddMarker.setEnabled(True)
             selectedFeatures = layer.selectedFeatures()
-            isPolygon = (layer.wkbType() == QgsWkbTypes.Polygon or layer.wkbType() == QgsWkbTypes.MultiPolygon or layer.wkbType(
-            ) == QgsWkbTypes.Polygon25D or layer.wkbType() == QgsWkbTypes.MultiPolygon25D)
+            isPolygon = (layer.wkbType() == QgsWkbTypes.Type.Polygon or layer.wkbType() == QgsWkbTypes.Type.MultiPolygon or layer.wkbType(
+            ) == QgsWkbTypes.Type.Polygon25D or layer.wkbType() == QgsWkbTypes.Type.MultiPolygon25D)
             hasSelection = selectedFeatures is not None and len(
                 selectedFeatures) > 0
 
@@ -986,12 +986,12 @@ class SplitMapTool(QgsMapToolEdit):
     def initialize(self):
         try:
             self.canvas.renderStarting.disconnect(self.mapCanvasChanged)
-        except:
+        except:  # nosec B110
             pass
         self.canvas.renderStarting.connect(self.mapCanvasChanged)
         try:
             self.layer.editingStopped.disconnect(self.stopCapturing)
-        except:
+        except:  # nosec B110
             pass
         self.layer.editingStopped.connect(self.stopCapturing)
 
@@ -1447,7 +1447,7 @@ class SplitMapTool(QgsMapToolEdit):
 
             if len(cleaned_points) < 2:
                 iface.messageBar().pushMessage("Invalid Split",
-                                               "Split line must have at least 2 distinct points.", level=Qgis.Warning)
+                                               "Split line must have at least 2 distinct points.", level=Qgis.MessageLevel.Warning)
                 return
 
             self.layer.splitFeatures(
@@ -1466,7 +1466,7 @@ class SplitMapTool(QgsMapToolEdit):
         color = QColor("red")
         color.setAlphaF(0.78)
 
-        self.rubberBand = QgsRubberBand(self.canvas, QgsWkbTypes.LineGeometry)
+        self.rubberBand = QgsRubberBand(self.canvas, QgsWkbTypes.GeometryType.LineGeometry)
         self.rubberBand.setWidth(1)
         self.rubberBand.setColor(color)
         self.rubberBand.show()
@@ -1476,7 +1476,7 @@ class SplitMapTool(QgsMapToolEdit):
         color.setAlphaF(0.78)
 
         self.tempRubberBand = QgsRubberBand(
-            self.canvas, QgsWkbTypes.LineGeometry)
+            self.canvas, QgsWkbTypes.GeometryType.LineGeometry)
         self.tempRubberBand.setWidth(1)
         self.tempRubberBand.setColor(color)
         self.tempRubberBand.setLineStyle(QtCompat.DotLine)
@@ -1498,7 +1498,7 @@ class SplitMapTool(QgsMapToolEdit):
 
     def redrawTempRubberBand(self):
         if self.tempRubberBand != None:
-            self.tempRubberBand.reset(QgsWkbTypes.LineGeometry)
+            self.tempRubberBand.reset(QgsWkbTypes.GeometryType.LineGeometry)
             self.tempRubberBand.addPoint(self.toMapCoordinates(
                 self.layer, self.capturedPoints[len(self.capturedPoints) - 1]))
 
@@ -1553,7 +1553,7 @@ class SplitMapTool(QgsMapToolEdit):
         self.rubberBand.addPoint(mapPoint)
         self.capturedPoints.append(layerPoint)
 
-        self.tempRubberBand.reset(QgsWkbTypes.LineGeometry)
+        self.tempRubberBand.reset(QgsWkbTypes.GeometryType.LineGeometry)
         self.tempRubberBand.addPoint(mapPoint)
 
     def removeLastVertex(self):

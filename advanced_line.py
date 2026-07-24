@@ -33,16 +33,16 @@ class CursorInfo(QWidget):
             self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         else:
             self.setWindowFlags(
-                Qt.Tool
-                | Qt.FramelessWindowHint
-                | Qt.WindowStaysOnTopHint
-                | Qt.WindowDoesNotAcceptFocus
-                | Qt.WindowTransparentForInput
+                QtCompat.Tool
+                | QtCompat.FramelessWindowHint
+                | QtCompat.stay_on_top()
+                | QtCompat.WindowDoesNotAcceptFocus
+                | QtCompat.WindowTransparentForInput
             )
-            self.setAttribute(Qt.WA_TranslucentBackground)
-            self.setAttribute(Qt.WA_DeleteOnClose)
-            self.setAttribute(Qt.WA_ShowWithoutActivating)
-            self.setAttribute(Qt.WA_TransparentForMouseEvents)
+            self.setAttribute(QtCompat.WA_TranslucentBackground)
+            self.setAttribute(QtCompat.WA_DeleteOnClose)
+            self.setAttribute(QtCompat.WA_ShowWithoutActivating)
+            self.setAttribute(QtCompat.WA_TransparentForMouseEvents)
 
         self.setStyleSheet(
             "QWidget{background:rgba(240,248,255,230);border:2px solid #2E86AB;border-radius:6px;padding:6px;font:bold 10pt Consolas;color:#FC0FC0}")
@@ -545,21 +545,21 @@ class ProfessionalLineTool(QgsMapTool):
             units = layer_crs.mapUnits()
 
             # Convert from QgsUnitTypes to meters factor
-            if units == QgsUnitTypes.DistanceMeters:
+            if units == QgsUnitTypes.DistanceUnit.DistanceMeters:
                 return meters
-            elif units == QgsUnitTypes.DistanceKilometers:
+            elif units == QgsUnitTypes.DistanceUnit.DistanceKilometers:
                 return meters / 1000.0
-            elif units == QgsUnitTypes.DistanceFeet:
+            elif units == QgsUnitTypes.DistanceUnit.DistanceFeet:
                 return meters / 0.3048
-            elif units == QgsUnitTypes.DistanceYards:
+            elif units == QgsUnitTypes.DistanceUnit.DistanceYards:
                 return meters / 0.9144
-            elif units == QgsUnitTypes.DistanceMiles:
+            elif units == QgsUnitTypes.DistanceUnit.DistanceMiles:
                 return meters / 1609.344
-            elif units == QgsUnitTypes.DistanceNauticalMiles:
+            elif units == QgsUnitTypes.DistanceUnit.DistanceNauticalMiles:
                 return meters / 1852.0
-            elif units == QgsUnitTypes.DistanceCentimeters:
+            elif units == QgsUnitTypes.DistanceUnit.DistanceCentimeters:
                 return meters * 100.0
-            elif units == QgsUnitTypes.DistanceMillimeters:
+            elif units == QgsUnitTypes.DistanceUnit.DistanceMillimeters:
                 return meters * 1000.0
             else:
                 # Default to meters if unknown
@@ -1268,7 +1268,7 @@ class ProfessionalLineTool(QgsMapTool):
         if self.circle_mode and event.key() == Qt.Key.Key_L:
             try:
                 self.dialog.parametersEntered.disconnect()
-            except Exception:
+            except Exception:  # nosec B110
                 pass
             self.dialog.parametersEntered.connect(self._apply_circle_radius)
             self.dialog.set_rectangle_mode(False)
@@ -1282,7 +1282,7 @@ class ProfessionalLineTool(QgsMapTool):
         elif self.rectangle_mode and event.key() == Qt.Key.Key_L:
             try:
                 self.dialog.parametersEntered.disconnect()
-            except Exception:
+            except Exception:  # nosec B110
                 pass
             self.dialog.parametersEntered.connect(self._apply_rectangle_params)
             self.dialog.set_rectangle_mode(True)
@@ -1298,7 +1298,7 @@ class ProfessionalLineTool(QgsMapTool):
             self.dialog.angle_buttons_widget.show()
             try:
                 self.dialog.parametersEntered.disconnect()
-            except Exception:
+            except Exception:  # nosec B110
                 pass
             self.dialog.parametersEntered.connect(self.set_parameters)
 
@@ -1787,7 +1787,7 @@ class ProfessionalLineTool(QgsMapTool):
         snaps = []
 
         if snap_match.isValid():
-            snap_type = 'vertex' if snap_match.type() == QgsPointLocator.Vertex else 'segment'
+            snap_type = 'vertex' if snap_match.type() == QgsPointLocator.Type.Vertex else 'segment'
             snaps.append({'point': snap_match.point(
             ), 'match': snap_match, 'source': 'layer', 'snap_type': snap_type})
 

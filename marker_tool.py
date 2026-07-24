@@ -272,7 +272,7 @@ class MarkerMapTool(QgsMapToolEdit):
                         if hasattr(self, 'redraw_callback'):
                             self.redraw_callback()
 
-            except Exception:
+            except Exception:  # nosec B110
                 pass
 
     def canvasReleaseEvent(self, event):

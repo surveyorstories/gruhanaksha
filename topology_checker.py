@@ -368,7 +368,7 @@ class TopologyCheckerDialog(QDialog):
         layer_group = QGroupBox("Layer Selection")
         layer_layout = QFormLayout()
         self.layer_cb = QgsMapLayerComboBox()
-        self.layer_cb.setFilters(QgsMapLayerProxyModel.PolygonLayer)
+        self.layer_cb.setFilters(QgsMapLayerProxyModel.Filter.PolygonLayer)
         layer_layout.addRow("Target Polygon Layer:", self.layer_cb)
         layer_group.setLayout(layer_layout)
         layout.addWidget(layer_group)
@@ -547,9 +547,9 @@ class TopologyCheckerDialog(QDialog):
         self.table = QTableWidget()
         self.table.setColumnCount(5)
         self.table.setHorizontalHeaderLabels(["#", "Feature ID(s)", "Error Type", "Description", "Location (X, Y)"])
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.table.setSortingEnabled(True)
         self.table.itemSelectionChanged.connect(self.on_table_select)
         self.table.cellDoubleClicked.connect(self.on_table_double_click)
@@ -699,9 +699,9 @@ class TopologyCheckerDialog(QDialog):
         reply = QMessageBox.question(
             self, "Confirm Bulk Auto-Fix",
             f"Are you sure you want to automatically fix the {len(fixable_errors)} selected error(s)?\nThis will modify the vector layer.",
-            QMessageBox.Yes | QMessageBox.No
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
-        if reply != QMessageBox.Yes:
+        if reply != QMessageBox.StandardButton.Yes:
             return
 
         layer.startEditing()
@@ -860,21 +860,21 @@ class TopologyCheckerDialog(QDialog):
             try:
                 self.rubber_band.reset()
                 canvas.scene().removeItem(self.rubber_band)
-            except Exception:
+            except Exception:  # nosec B110
                 pass
             self.rubber_band = None
 
         if hasattr(self, 'vertex_marker') and self.vertex_marker:
             try:
                 canvas.scene().removeItem(self.vertex_marker)
-            except Exception:
+            except Exception:  # nosec B110
                 pass
             self.vertex_marker = None
 
         for m in getattr(self, 'all_markers', []):
             try:
                 canvas.scene().removeItem(m)
-            except Exception:
+            except Exception:  # nosec B110
                 pass
         self.all_markers = []
 
@@ -882,7 +882,7 @@ class TopologyCheckerDialog(QDialog):
             try:
                 rb.reset()
                 canvas.scene().removeItem(rb)
-            except Exception:
+            except Exception:  # nosec B110
                 pass
         self.all_rubber_bands = []
 
@@ -890,7 +890,7 @@ class TopologyCheckerDialog(QDialog):
             try:
                 prb.reset()
                 canvas.scene().removeItem(prb)
-            except Exception:
+            except Exception:  # nosec B110
                 pass
         self.parent_rubber_bands = []
 
@@ -937,7 +937,7 @@ class TopologyCheckerDialog(QDialog):
             vm.setColor(QColor(255, 0, 0))
             vm.setPenWidth(3)
             vm.setIconSize(14)
-            vm.setIconType(QgsVertexMarker.ICON_X)
+            vm.setIconType(QgsVertexMarker.IconType.ICON_X)
             self.all_markers.append(vm)
 
             # Update extent
@@ -1005,7 +1005,7 @@ class TopologyCheckerDialog(QDialog):
         self.vertex_marker.setColor(QColor(255, 0, 0))
         self.vertex_marker.setPenWidth(3)
         self.vertex_marker.setIconSize(16)
-        self.vertex_marker.setIconType(QgsVertexMarker.ICON_X)
+        self.vertex_marker.setIconType(QgsVertexMarker.IconType.ICON_X)
         canvas.refresh()
 
     def zoom_to_error(self, err):

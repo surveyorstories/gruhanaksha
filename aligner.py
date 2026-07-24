@@ -31,24 +31,24 @@ class AlignTool(QgsMapTool):
         self.snap_indicator = QgsSnapIndicator(self.canvas)
 
         # Rubber bands for visual feedback
-        self.point_band = QgsRubberBand(self.canvas, QgsWkbTypes.PointGeometry)
+        self.point_band = QgsRubberBand(self.canvas, QgsWkbTypes.GeometryType.PointGeometry)
         self.point_band.setColor(QColor(255, 0, 0, 150))
         self.point_band.setWidth(5)
 
         self.mapping_band_1 = QgsRubberBand(
-            self.canvas, QgsWkbTypes.LineGeometry)
+            self.canvas, QgsWkbTypes.GeometryType.LineGeometry)
         self.mapping_band_1.setColor(QColor(0, 0, 255, 150))
         self.mapping_band_1.setWidth(1)
         self.mapping_band_1.setLineStyle(QtCompat.DashLine)
 
         self.mapping_band_2 = QgsRubberBand(
-            self.canvas, QgsWkbTypes.LineGeometry)
+            self.canvas, QgsWkbTypes.GeometryType.LineGeometry)
         self.mapping_band_2.setColor(QColor(0, 0, 255, 150))
         self.mapping_band_2.setWidth(1)
         self.mapping_band_2.setLineStyle(QtCompat.DashLine)
 
         self.mapping_band_3 = QgsRubberBand(
-            self.canvas, QgsWkbTypes.LineGeometry)
+            self.canvas, QgsWkbTypes.GeometryType.LineGeometry)
         self.mapping_band_3.setColor(QColor(0, 0, 255, 150))
         self.mapping_band_3.setWidth(1)
         self.mapping_band_3.setLineStyle(QtCompat.DashLine)
@@ -73,7 +73,7 @@ class AlignTool(QgsMapTool):
         self.iface.messageBar().pushMessage(
             "Align Tool",
             f"Tool activated on layer '{self.source_layer.name()}'. Left-click to pick points, right-click to reset.",
-            Qgis.Info, 3)  # nosec B608
+            Qgis.MessageLevel.Info, 3)  # nosec B608
 
         # Set cursor
         self.canvas.setCursor(QtCompat.cross_cursor())
@@ -111,17 +111,17 @@ class AlignTool(QgsMapTool):
             return
 
         # Check if it's a valid vector layer for this tool
-        if (layer.type() == QgsMapLayer.VectorLayer and
-                layer.geometryType() in (QgsWkbTypes.LineGeometry, QgsWkbTypes.PolygonGeometry)):
+        if (layer.type() == QgsMapLayer.LayerType.VectorLayer and
+                layer.geometryType() in (QgsWkbTypes.GeometryType.LineGeometry, QgsWkbTypes.GeometryType.PolygonGeometry)):
 
             if layer != self.source_layer:
                 self.source_layer = layer
                 self.reset_operation()
                 self.iface.messageBar().pushMessage(
-                    "Align Tool", f"Active layer changed to '{layer.name()}'. Tool ready.", Qgis.Info, 2)
+                    "Align Tool", f"Active layer changed to '{layer.name()}'. Tool ready.", Qgis.MessageLevel.Info, 2)
         else:
             self.iface.messageBar().pushMessage(
-                "Align Tool", f"Layer '{layer.name()}' is not a valid line or polygon layer. Tool paused.", Qgis.Warning, 3)
+                "Align Tool", f"Layer '{layer.name()}' is not a valid line or polygon layer. Tool paused.", Qgis.MessageLevel.Warning, 3)
 
     def on_snapping_config_changed(self):
         """Handle snapping configuration changes - only when tool is active"""
@@ -134,7 +134,7 @@ class AlignTool(QgsMapTool):
             self.snapping_enabled = new_snapping_state
             status = "enabled" if self.snapping_enabled else "disabled"
             self.iface.messageBar().pushMessage(
-                "Align Tool", f"Snapping {status}", Qgis.Info, 2)
+                "Align Tool", f"Snapping {status}", Qgis.MessageLevel.Info, 2)
 
             # Clear any existing snap indicator when snapping is disabled
             if not self.snapping_enabled:
@@ -153,7 +153,7 @@ class AlignTool(QgsMapTool):
             else:
                 self.reset_operation()
                 self.iface.messageBar().pushMessage(
-                    "Align Tool", "Operation reset. Click to select the first source vertex.", Qgis.Info, 3)
+                    "Align Tool", "Operation reset. Click to select the first source vertex.", Qgis.MessageLevel.Info, 3)
             return
 
         if event.button() != QtCompat.LeftButton or not self.is_active:
@@ -162,7 +162,7 @@ class AlignTool(QgsMapTool):
         # Prevent new operations while one is in progress
         if self.operation_in_progress:
             self.iface.messageBar().pushMessage(
-                "Align Tool", "Operation in progress. Please wait...", Qgis.Warning, 2)
+                "Align Tool", "Operation in progress. Please wait...", Qgis.MessageLevel.Warning, 2)
             return
 
         # Use the existing project snapping configuration
@@ -184,27 +184,27 @@ class AlignTool(QgsMapTool):
                 detection_method = "snapped" if (snap_match.isValid(
                 ) and snap_match.layer() == self.source_layer) else "detected"
                 self.iface.messageBar().pushMessage(
-                    "Align Tool", f"First source vertex {detection_method}. Pick the corresponding target point.", Qgis.Info, 3)  # nosec B608
+                    "Align Tool", f"First source vertex {detection_method}. Pick the corresponding target point.", Qgis.MessageLevel.Info, 3)  # nosec B608
             else:
                 if snap_match.isValid() and snap_match.layer() != self.source_layer:
                     layer_name = snap_match.layer().name() if snap_match.layer() else "unknown"
                     self.iface.messageBar().pushMessage(
-                        "Align Tool", f"Snapped to layer '{layer_name}'. Please pick a vertex in source layer '{self.source_layer.name()}'.", Qgis.Warning, 3)  # nosec B608
+                        "Align Tool", f"Snapped to layer '{layer_name}'. Please pick a vertex in source layer '{self.source_layer.name()}'.", Qgis.MessageLevel.Warning, 3)  # nosec B608
                 else:
                     self.iface.messageBar().pushMessage(
-                        "Align Tool", "No vertex found from source layer. Click closer to a vertex.", Qgis.Warning, 3)
+                        "Align Tool", "No vertex found from source layer. Click closer to a vertex.", Qgis.MessageLevel.Warning, 3)
 
         elif self.step == 1:
             # Step 1: First target point selection - can snap to any layer
             self.selected_points.append(click_point)
-            self.mapping_band_1.reset(QgsWkbTypes.LineGeometry)
+            self.mapping_band_1.reset(QgsWkbTypes.GeometryType.LineGeometry)
             self.mapping_band_1.addPoint(self.selected_vertices[0])
             self.mapping_band_1.addPoint(click_point)
             self.step += 1
             snap_info = f" (snapped to {snap_match.layer().name()})" if snap_match.isValid(
             ) else ""
             self.iface.messageBar().pushMessage(
-                "Align Tool", f"First target point picked{snap_info}. Choose the second source vertex.", Qgis.Info, 2)  # nosec B608
+                "Align Tool", f"First target point picked{snap_info}. Choose the second source vertex.", Qgis.MessageLevel.Info, 2)  # nosec B608
 
         elif self.step == 2:
             # Step 2: Second source vertex selection - prioritize source layer
@@ -218,27 +218,27 @@ class AlignTool(QgsMapTool):
                 detection_method = "snapped" if (snap_match.isValid(
                 ) and snap_match.layer() == self.source_layer) else "detected"
                 self.iface.messageBar().pushMessage(
-                    "Align Tool", f"Second source vertex {detection_method}. Pick the second target point.", Qgis.Info, 2)  # nosec B608
+                    "Align Tool", f"Second source vertex {detection_method}. Pick the second target point.", Qgis.MessageLevel.Info, 2)  # nosec B608
             else:
                 if snap_match.isValid() and snap_match.layer() != self.source_layer:
                     layer_name = snap_match.layer().name() if snap_match.layer() else "unknown"
                     self.iface.messageBar().pushMessage(
-                        "Align Tool", f"Snapped to layer '{layer_name}'. Please choose a vertex in source layer '{self.source_layer.name()}'.", Qgis.Warning, 3)
+                        "Align Tool", f"Snapped to layer '{layer_name}'. Please choose a vertex in source layer '{self.source_layer.name()}'.", Qgis.MessageLevel.Warning, 3)
                 else:
                     self.iface.messageBar().pushMessage(
-                        "Align Tool", "No vertex found from source layer. Click closer to a vertex.", Qgis.Warning, 3)
+                        "Align Tool", "No vertex found from source layer. Click closer to a vertex.", Qgis.MessageLevel.Warning, 3)
 
         elif self.step == 3:
             # Step 3: Second target point selection
             self.selected_points.append(click_point)
-            self.mapping_band_2.reset(QgsWkbTypes.LineGeometry)
+            self.mapping_band_2.reset(QgsWkbTypes.GeometryType.LineGeometry)
             self.mapping_band_2.addPoint(self.selected_vertices[1])
             self.mapping_band_2.addPoint(click_point)
             self.step += 1
             snap_info = f" (snapped to {snap_match.layer().name()})" if snap_match.isValid(
             ) else ""
             self.iface.messageBar().pushMessage(
-                "Align Tool", f"Second target point picked{snap_info}. Choose third source vertex OR Press ENTER/Right-Click to finish.", Qgis.Info, 4)  # nosec B608
+                "Align Tool", f"Second target point picked{snap_info}. Choose third source vertex OR Press ENTER/Right-Click to finish.", Qgis.MessageLevel.Info, 4)  # nosec B608
 
         elif self.step == 4:
             # Step 4: Third source vertex selection
@@ -252,15 +252,15 @@ class AlignTool(QgsMapTool):
                 detection_method = "snapped" if (snap_match.isValid(
                 ) and snap_match.layer() == self.source_layer) else "detected"
                 self.iface.messageBar().pushMessage(
-                    "Align Tool", f"Third source vertex {detection_method}. Pick the third target point.", Qgis.Info, 2)  # nosec B608
+                    "Align Tool", f"Third source vertex {detection_method}. Pick the third target point.", Qgis.MessageLevel.Info, 2)  # nosec B608
             else:
                 self.iface.messageBar().pushMessage(
-                    "Align Tool", "No vertex found from source layer. Click closer to a vertex.", Qgis.Warning, 3)
+                    "Align Tool", "No vertex found from source layer. Click closer to a vertex.", Qgis.MessageLevel.Warning, 3)
 
         elif self.step == 5:
             # Step 5: Third target point selection
             self.selected_points.append(click_point)
-            self.mapping_band_3.reset(QgsWkbTypes.LineGeometry)
+            self.mapping_band_3.reset(QgsWkbTypes.GeometryType.LineGeometry)
             self.mapping_band_3.addPoint(self.selected_vertices[2])
             self.mapping_band_3.addPoint(click_point)
             self.perform_alignment()
@@ -270,7 +270,7 @@ class AlignTool(QgsMapTool):
         if not self.is_active or self.operation_in_progress:
             return
 
-        if event.key() in (Qt.Key_Return, Qt.Key_Enter):
+        if event.key() in (QtCompat.Key_Return, QtCompat.Key_Enter):
             if self.step >= 4:  # At least 2 pairs selected
                 self.perform_alignment()
             elif self.step == 2: # Only 1 pair
@@ -304,7 +304,7 @@ class AlignTool(QgsMapTool):
             snap_config = self.project.snappingConfig()
             if snap_config.tolerance() > 0:
                 tolerance = snap_config.tolerance()
-                if snap_config.units() == QgsTolerance.Pixels:
+                if snap_config.units() == QgsTolerance.UnitType.Pixels:
                     tolerance = tolerance * self.canvas.mapUnitsPerPixel()
 
         closest_feature = None
@@ -405,17 +405,17 @@ class AlignTool(QgsMapTool):
                     part, dx1, dy1, rotation_angle, scale_factor)
                 parts.append(transformed_part)
 
-            if geometry.type() == QgsWkbTypes.LineGeometry:
+            if geometry.type() == QgsWkbTypes.GeometryType.LineGeometry:
                 return QgsGeometry.fromMultiPolylineXY(parts)
-            elif geometry.type() == QgsWkbTypes.PolygonGeometry:
+            elif geometry.type() == QgsWkbTypes.GeometryType.PolygonGeometry:
                 return QgsGeometry.fromMultiPolygonXY([parts])
         else:
             transformed_part = self.transform_part(
                 geometry.constGet(), dx1, dy1, rotation_angle, scale_factor)
 
-            if geometry.type() == QgsWkbTypes.LineGeometry:
+            if geometry.type() == QgsWkbTypes.GeometryType.LineGeometry:
                 return QgsGeometry.fromPolylineXY(transformed_part)
-            elif geometry.type() == QgsWkbTypes.PolygonGeometry:
+            elif geometry.type() == QgsWkbTypes.GeometryType.PolygonGeometry:
                 return QgsGeometry.fromPolygonXY([transformed_part])
 
     def transform_part(self, part, dx1, dy1, rotation_angle, scale_factor):
@@ -523,15 +523,15 @@ class AlignTool(QgsMapTool):
                 transformed_part = [transform_v(v) for v in part.vertices()]
                 parts.append(transformed_part)
             
-            if geometry.type() == QgsWkbTypes.LineGeometry:
+            if geometry.type() == QgsWkbTypes.GeometryType.LineGeometry:
                 return QgsGeometry.fromMultiPolylineXY(parts)
-            elif geometry.type() == QgsWkbTypes.PolygonGeometry:
+            elif geometry.type() == QgsWkbTypes.GeometryType.PolygonGeometry:
                 return QgsGeometry.fromMultiPolygonXY([parts])
         else:
             transformed_part = [transform_v(v) for v in geometry.vertices()]
-            if geometry.type() == QgsWkbTypes.LineGeometry:
+            if geometry.type() == QgsWkbTypes.GeometryType.LineGeometry:
                 return QgsGeometry.fromPolylineXY(transformed_part)
-            elif geometry.type() == QgsWkbTypes.PolygonGeometry:
+            elif geometry.type() == QgsWkbTypes.GeometryType.PolygonGeometry:
                 return QgsGeometry.fromPolygonXY([transformed_part])
         
         return None
@@ -554,10 +554,10 @@ class AlignTool(QgsMapTool):
                     geom.translate(dx, dy)
                     self.source_layer.changeGeometry(feature.id(), geom)
             
-            self.iface.messageBar().pushMessage("Align Tool", f"Successfully moved {len(features_to_process)} feature(s).", Qgis.Success, 2)
+            self.iface.messageBar().pushMessage("Align Tool", f"Successfully moved {len(features_to_process)} feature(s).", Qgis.MessageLevel.Success, 2)
             self.reset_operation()
         except Exception as e:
-            self.iface.messageBar().pushMessage("Align Tool", f"Error during move: {str(e)}", Qgis.Critical, 5)
+            self.iface.messageBar().pushMessage("Align Tool", f"Error during move: {str(e)}", Qgis.MessageLevel.Critical, 5)
             self.reset_operation()
 
     def align_feature_3_points(self):
@@ -566,7 +566,7 @@ class AlignTool(QgsMapTool):
         try:
             coeffs = self.solve_affine()
             if not coeffs:
-                self.iface.messageBar().pushMessage("Align Tool", "Three points are collinear or invalid. Alignment failed.", Qgis.Warning, 4)
+                self.iface.messageBar().pushMessage("Align Tool", "Three points are collinear or invalid. Alignment failed.", Qgis.MessageLevel.Warning, 4)
                 self.reset_operation()
                 return
 
@@ -584,11 +584,11 @@ class AlignTool(QgsMapTool):
                         if self.source_layer.changeGeometry(feature.id(), new_geom):
                             processed_count += 1
 
-            self.iface.messageBar().pushMessage("Align Tool", f"Successfully 3-point aligned {processed_count} feature(s).", Qgis.Success, 3)
+            self.iface.messageBar().pushMessage("Align Tool", f"Successfully 3-point aligned {processed_count} feature(s).", Qgis.MessageLevel.Success, 3)
             self.reset_operation()
 
         except Exception as e:
-            self.iface.messageBar().pushMessage("Align Tool", f"Error during 3-point alignment: {str(e)}", Qgis.Critical, 5)
+            self.iface.messageBar().pushMessage("Align Tool", f"Error during 3-point alignment: {str(e)}", Qgis.MessageLevel.Critical, 5)
             self.reset_operation()
 
     def prompt_user_for_alignment(self):
@@ -645,7 +645,7 @@ class AlignTool(QgsMapTool):
                     error_msg = self.source_layer.dataProvider().error().message(
                     ) or "Check file permissions or layer capabilities."
                     self.iface.messageBar().pushMessage(
-                        "Align Tool", f"Could not start editing: {error_msg}", Qgis.Critical, 5)
+                        "Align Tool", f"Could not start editing: {error_msg}", Qgis.MessageLevel.Critical, 5)
                     self.reset_operation()
                     return
 
@@ -668,25 +668,25 @@ class AlignTool(QgsMapTool):
                                 error_count += 1
                         else:
                             self.iface.messageBar().pushMessage(
-                                "Align Tool", f"Invalid geometry generated for feature {feature.id()}. Skipped.", Qgis.Warning, 3)
+                                "Align Tool", f"Invalid geometry generated for feature {feature.id()}. Skipped.", Qgis.MessageLevel.Warning, 3)
                             error_count += 1
                     else:
                         error_count += 1
 
             if processed_count > 0:
                 self.iface.messageBar().pushMessage(
-                    "Align Tool", f"Successfully aligned {processed_count} feature(s). Ready for next alignment.", Qgis.Success, 3)
+                    "Align Tool", f"Successfully aligned {processed_count} feature(s). Ready for next alignment.", Qgis.MessageLevel.Success, 3)
 
             if error_count > 0:
                 self.iface.messageBar().pushMessage(
-                    "Align Tool", f"Failed to align {error_count} feature(s) due to geometry errors.", Qgis.Warning, 4)
+                    "Align Tool", f"Failed to align {error_count} feature(s) due to geometry errors.", Qgis.MessageLevel.Warning, 4)
 
             # Automatically reset for next operation
             self.reset_operation()
 
         except Exception as e:
             self.iface.messageBar().pushMessage(
-                "Align Tool", f"Error during alignment: {str(e)}", Qgis.Critical, 5)
+                "Align Tool", f"Error during alignment: {str(e)}", Qgis.MessageLevel.Critical, 5)
             self.reset_operation()
 
     def scale_feature(self):
@@ -715,7 +715,7 @@ class AlignTool(QgsMapTool):
                     error_msg = self.source_layer.dataProvider().error().message(
                     ) or "Check file permissions or layer capabilities."
                     self.iface.messageBar().pushMessage(
-                        "Align Tool", f"Could not start editing: {error_msg}", Qgis.Critical, 5)
+                        "Align Tool", f"Could not start editing: {error_msg}", Qgis.MessageLevel.Critical, 5)
                     self.reset_operation()
                     return
 
@@ -738,25 +738,25 @@ class AlignTool(QgsMapTool):
                                 error_count += 1
                         else:
                             self.iface.messageBar().pushMessage(
-                                "Align Tool", f"Invalid geometry generated for feature {feature.id()}. Skipped.", Qgis.Warning, 3)
+                                "Align Tool", f"Invalid geometry generated for feature {feature.id()}. Skipped.", Qgis.MessageLevel.Warning, 3)
                             error_count += 1
                     else:
                         error_count += 1
 
             if processed_count > 0:
                 self.iface.messageBar().pushMessage(
-                    "Align Tool", f"Successfully scaled and aligned {processed_count} feature(s). Scale factor: {scale_factor:.3f}. Ready for next alignment.", Qgis.Success, 4)
+                    "Align Tool", f"Successfully scaled and aligned {processed_count} feature(s). Scale factor: {scale_factor:.3f}. Ready for next alignment.", Qgis.MessageLevel.Success, 4)
 
             if error_count > 0:
                 self.iface.messageBar().pushMessage(
-                    "Align Tool", f"Failed to scale {error_count} feature(s) due to geometry errors.", Qgis.Warning, 4)
+                    "Align Tool", f"Failed to scale {error_count} feature(s) due to geometry errors.", Qgis.MessageLevel.Warning, 4)
 
             # Automatically reset for next operation
             self.reset_operation()
 
         except Exception as e:
             self.iface.messageBar().pushMessage(
-                "Align Tool", f"Error during scaling: {str(e)}", Qgis.Critical, 5)
+                "Align Tool", f"Error during scaling: {str(e)}", Qgis.MessageLevel.Critical, 5)
             self.reset_operation()
 
     def ask_continue_or_finish(self):
@@ -772,7 +772,7 @@ class AlignTool(QgsMapTool):
         if reply == QtCompat.Yes:
             self.reset_operation()
             self.iface.messageBar().pushMessage(
-                "Align Tool", "Ready for next alignment. Click to select the first source vertex.", Qgis.Info, 3)
+                "Align Tool", "Ready for next alignment. Click to select the first source vertex.", Qgis.MessageLevel.Info, 3)
         else:
             self.finish_tool()
 
@@ -794,15 +794,15 @@ class AlignTool(QgsMapTool):
     def clear_visual_feedback(self):
         """Clear all rubber bands and visual indicators"""
         self.snap_indicator.setVisible(False)
-        self.point_band.reset(QgsWkbTypes.PointGeometry)
-        self.mapping_band_1.reset(QgsWkbTypes.LineGeometry)
-        self.mapping_band_2.reset(QgsWkbTypes.LineGeometry)
-        self.mapping_band_3.reset(QgsWkbTypes.LineGeometry)
+        self.point_band.reset(QgsWkbTypes.GeometryType.PointGeometry)
+        self.mapping_band_1.reset(QgsWkbTypes.GeometryType.LineGeometry)
+        self.mapping_band_2.reset(QgsWkbTypes.GeometryType.LineGeometry)
+        self.mapping_band_3.reset(QgsWkbTypes.GeometryType.LineGeometry)
 
     def finish_tool(self):
         """Properly finish and deactivate the tool"""
         self.iface.messageBar().pushMessage(
-            "Align Tool", "Tool finished. Select another tool to continue.", Qgis.Info, 3)
+            "Align Tool", "Tool finished. Select another tool to continue.", Qgis.MessageLevel.Info, 3)
 
         # Properly disconnect signals before deactivating
         self.disconnect_signals()
@@ -840,7 +840,7 @@ def init_align_tool():
     active_layer = iface.activeLayer()
 
     try:
-        if active_layer and active_layer.type() == QgsMapLayer.VectorLayer:
+        if active_layer and active_layer.type() == QgsMapLayer.LayerType.VectorLayer:
             # Print active layer information
             print(f"Active Layer Name: {active_layer.name()}")
             print(f"Active Layer ID: {active_layer.id()}")
@@ -848,7 +848,7 @@ def init_align_tool():
                 f"Geometry Type: {QgsWkbTypes.geometryDisplayString(active_layer.geometryType())}")
 
             # Check if the layer is either a line or polygon
-            if active_layer.geometryType() in (QgsWkbTypes.LineGeometry, QgsWkbTypes.PolygonGeometry):
+            if active_layer.geometryType() in (QgsWkbTypes.GeometryType.LineGeometry, QgsWkbTypes.GeometryType.PolygonGeometry):
                 # Deactivate any existing align tool first
                 current_tool = iface.mapCanvas().mapTool()
                 if isinstance(current_tool, AlignTool):
@@ -858,7 +858,7 @@ def init_align_tool():
                 tool = AlignTool(iface, active_layer)
                 iface.mapCanvas().setMapTool(tool)
                 layer_type = "Line" if active_layer.geometryType(
-                ) == QgsWkbTypes.LineGeometry else "Polygon"
+                ) == QgsWkbTypes.GeometryType.LineGeometry else "Polygon"
 
                 # Check snapping status
                 project = QgsProject.instance()
@@ -868,19 +868,19 @@ def init_align_tool():
                 iface.messageBar().pushMessage(
                     "Align Tool",
                     f"{layer_type} layer selected. Alignment tool activated. Snapping is {snap_status}.",
-                    level=Qgis.Info, duration=2)
+                    level=Qgis.MessageLevel.Info, duration=2)
 
                 if not snap_config.enabled():
                     iface.messageBar().pushMessage(
                         "Tip",
                         "Enable snapping in Project > Snapping Options for easier vertex selection.",
-                        level=Qgis.Info, duration=5)
+                        level=Qgis.MessageLevel.Info, duration=5)
             else:
                 geometry_type_name = QgsWkbTypes.geometryDisplayString(
                     active_layer.geometryType())
                 iface.messageBar().pushMessage(
                     f"Selected layer is of type '{geometry_type_name}', which is neither a line nor a polygon. Tool not initialized.",
-                    level=Qgis.Warning, duration=3)
+                    level=Qgis.MessageLevel.Warning, duration=3)
         else:
             raise ValueError("No active vector layer selected.")
 

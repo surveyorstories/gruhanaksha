@@ -133,7 +133,7 @@ class AutoNumberDialog(QDialog):
             try:
                 # Use aggregate to find max value
                 max_val = self.layer.aggregate(
-                    QgsAggregateCalculator.Max, field_name)[0]
+                    QgsAggregateCalculator.Aggregate.Max, field_name)[0]
                 if max_val is None:
                     max_val = 0
                 max_val = int(max_val)
@@ -146,7 +146,7 @@ class AutoNumberDialog(QDialog):
             try:
                 # Efficiently collect all values
                 request = QgsFeatureRequest().setFlags(
-                    QgsFeatureRequest.NoGeometry).setSubsetOfAttributes([idx])
+                    QgsFeatureRequest.Flag.NoGeometry).setSubsetOfAttributes([idx])
 
                 existing_values = []
                 for f in self.layer.getFeatures(request):
@@ -287,8 +287,8 @@ class AutoNumberDialog(QDialog):
                                     if status_idx != -1:
                                         self.layer.changeAttributeValue(
                                             f.id(), status_idx, 'cleared')
-                            except:
-                                continue
+                            except (ValueError, TypeError):
+                                pass
 
                     self.start_num_spin.setValue(max_val + 1)
                     QMessageBox.information(self, "Duplicates Cleared",
@@ -313,7 +313,7 @@ class SmartSelectionTool(QgsMapTool):
 
         self.startPoint = self.toMapCoordinates(e.pos())
         self.rubberBand = QgsRubberBand(
-            self.canvas, QgsWkbTypes.PolygonGeometry)
+            self.canvas, QgsWkbTypes.GeometryType.PolygonGeometry)
         self.rubberBand.setColor(QColor(255, 0, 0, 65))
         self.rubberBand.setWidth(1)
         self.isEmittingPoint = True
@@ -328,7 +328,7 @@ class SmartSelectionTool(QgsMapTool):
         point3 = QgsPointXY(endPoint.x(), endPoint.y())
         point4 = QgsPointXY(self.startPoint.x(), endPoint.y())
 
-        self.rubberBand.reset(QgsWkbTypes.PolygonGeometry)
+        self.rubberBand.reset(QgsWkbTypes.GeometryType.PolygonGeometry)
         self.rubberBand.addPoint(point1, False)
         self.rubberBand.addPoint(point2, False)
         self.rubberBand.addPoint(point3, False)
@@ -341,7 +341,7 @@ class SmartSelectionTool(QgsMapTool):
         # Left Click - Selection Logic
         if self.rubberBand:
             rect = self.rubberBand.asGeometry().boundingBox()
-            self.rubberBand.reset(QgsWkbTypes.PolygonGeometry)
+            self.rubberBand.reset(QgsWkbTypes.GeometryType.PolygonGeometry)
             self.rubberBand = None
 
             layer = self.parent.layer
@@ -366,7 +366,7 @@ class SmartSelectionTool(QgsMapTool):
                 search_rect.grow(self.canvas.mapUnitsPerPixel() * 3)
 
                 request = QgsFeatureRequest().setFilterRect(search_rect).setFlags(
-                    QgsFeatureRequest.NoGeometry).setLimit(1)
+                    QgsFeatureRequest.Flag.NoGeometry).setLimit(1)
                 ids = [f.id() for f in layer.getFeatures(request)]
 
                 if ids:
@@ -380,10 +380,10 @@ class SmartSelectionTool(QgsMapTool):
                 if is_ctrl:
                     # Ctrl + Drag -> Remove from selection
                     layer.selectByRect(
-                        rect, QgsVectorLayer.RemoveFromSelection)
+                        rect, QgsVectorLayer.SelectBehavior.RemoveFromSelection)
                 else:
                     # Drag -> Add to selection (Default to allow building selection)
-                    layer.selectByRect(rect, QgsVectorLayer.AddToSelection)
+                    layer.selectByRect(rect, QgsVectorLayer.SelectBehavior.AddToSelection)
 
 
 class LabelIncrementer(QgsMapToolIdentify):
@@ -401,7 +401,7 @@ class LabelIncrementer(QgsMapToolIdentify):
         self.points = []
 
         # Initialize rubber band
-        self.rubberBand = QgsRubberBand(self.canvas, QgsWkbTypes.LineGeometry)
+        self.rubberBand = QgsRubberBand(self.canvas, QgsWkbTypes.GeometryType.LineGeometry)
         self.rubberBand.setColor(QColor("red"))
         self.rubberBand.setWidth(1)
 
@@ -424,7 +424,7 @@ class LabelIncrementer(QgsMapToolIdentify):
 
     def initializeFields(self):
         """Initialize required fields"""
-        if not self.layer or self.layer.type() != QgsMapLayer.VectorLayer:
+        if not self.layer or self.layer.type() != QgsMapLayer.LayerType.VectorLayer:
             return
 
         try:
@@ -566,7 +566,7 @@ class LabelIncrementer(QgsMapToolIdentify):
     def drawRubberBand(self):
         if len(self.points) > 1:
             # Clear existing points and add new ones
-            self.rubberBand.reset(QgsWkbTypes.LineGeometry)
+            self.rubberBand.reset(QgsWkbTypes.GeometryType.LineGeometry)
             line = [QgsPointXY(point) for point in self.points]
             self.rubberBand.setToGeometry(
                 QgsGeometry.fromPolylineXY(line), None)
@@ -574,7 +574,7 @@ class LabelIncrementer(QgsMapToolIdentify):
 
     def removeRubberBand(self):
         if self.rubberBand:
-            self.rubberBand.reset(QgsWkbTypes.LineGeometry)
+            self.rubberBand.reset(QgsWkbTypes.GeometryType.LineGeometry)
             self.rubberBand.hide()
 
     def deactivate(self):
@@ -679,7 +679,7 @@ class LabelIncrementer(QgsMapToolIdentify):
 
             # Get Max Value (Fast C++)
             max_val_agg = self.layer.aggregate(
-                QgsAggregateCalculator.Max, self.label)
+                QgsAggregateCalculator.Aggregate.Max, self.label)
             if isinstance(max_val_agg, tuple):
                 max_val = max_val_agg[0]
             else:
@@ -695,7 +695,7 @@ class LabelIncrementer(QgsMapToolIdentify):
             # Get Feature Count (Fast)
             # Using aggregate Count is safer
             labeled_count_agg = self.layer.aggregate(
-                QgsAggregateCalculator.Count, self.label)
+                QgsAggregateCalculator.Aggregate.Count, self.label)
             if isinstance(labeled_count_agg, tuple):
                 labeled_count = labeled_count_agg[0]
             else:
@@ -867,8 +867,8 @@ class LabelIncrementer(QgsMapToolIdentify):
                                     if status_idx != -1:
                                         self.layer.changeAttributeValue(
                                             f.id(), status_idx, 'cleared')
-                            except:
-                                continue
+                            except (ValueError, TypeError):
+                                pass
                     self.max_label_value = max_val
                     QMessageBox.information(self.canvas.window(), "Duplicates Cleared",
                                             f"Successfully cleared {cleared_count} duplicate values.\nFeatures marked as 'cleared' (Blue).")
@@ -894,7 +894,7 @@ class LabelIncrementer(QgsMapToolIdentify):
             messagebar.pushMessage(
                 "Warning",
                 f"'{self.label}' field was missing. Recreating field...",
-                Qgis.Warning,
+                Qgis.MessageLevel.Warning,
                 2
             )
             self.initializeFields()
@@ -957,17 +957,17 @@ class LabelIncrementer(QgsMapToolIdentify):
                             messagebar = MessageBar(self.canvas)
                             if is_duplicate:
                                 messagebar.pushMessage(
-                                    "Duplicate", f"Labeled with {new_val} (Duplicate!)", Qgis.Warning, 2)
+                                    "Duplicate", f"Labeled with {new_val} (Duplicate!)", Qgis.MessageLevel.Warning, 2)
                             else:
                                 messagebar.pushMessage(
-                                    "Success", f"Feature labeled with {new_val}", Qgis.Success, 2)
+                                    "Success", f"Feature labeled with {new_val}", Qgis.MessageLevel.Success, 2)
                     else:
                         if not silent:
                             messagebar = MessageBar(self.canvas)
                             messagebar.pushMessage(
                                 "Already Labeled",
                                 "Feature already has a label. Hold Alt and click to edit!",
-                                Qgis.Warning,
+                                Qgis.MessageLevel.Warning,
                                 2
                             )
 
@@ -980,7 +980,7 @@ class LabelIncrementer(QgsMapToolIdentify):
             messagebar.pushMessage(
                 "Error",
                 f"Failed to access '{self.label}' field. Please check layer fields.",
-                Qgis.Critical,
+                Qgis.MessageLevel.Critical,
                 3
             )
             return
@@ -998,7 +998,7 @@ class LabelIncrementer(QgsMapToolIdentify):
             messagebar.pushMessage(
                 "Warning",
                 f"'{self.label}' field was missing. Recreating field...",
-                Qgis.Warning,
+                Qgis.MessageLevel.Warning,
                 2
             )
             self.initializeFields()
@@ -1099,14 +1099,14 @@ class LabelIncrementer(QgsMapToolIdentify):
                                 messagebar.pushMessage(
                                     "Duplicate Value",
                                     f"Value {new_value} marked as duplicate",
-                                    Qgis.Warning,
+                                    Qgis.MessageLevel.Warning,
                                     2
                                 )
                             else:
                                 messagebar.pushMessage(
                                     "Success",
                                     f"Label updated from {current_value} to {new_value}",
-                                    Qgis.Success,
+                                    Qgis.MessageLevel.Success,
                                     2
                                 )
                     return
@@ -1116,7 +1116,7 @@ class LabelIncrementer(QgsMapToolIdentify):
             messagebar.pushMessage(
                 "Error",
                 f"Failed to access '{self.label}' field. Please check layer fields.",
-                Qgis.Critical,
+                Qgis.MessageLevel.Critical,
                 3
             )
             return
@@ -1264,7 +1264,7 @@ class LpmCanvas(QMainWindow):
         # Connect to layer changes when window opens
         try:
             self.iface.currentLayerChanged.disconnect(self.activelyrchanged)
-        except:
+        except:  # nosec B110
             pass
         self.iface.currentLayerChanged.connect(self.activelyrchanged)
 
@@ -1276,7 +1276,7 @@ class LpmCanvas(QMainWindow):
         new_layer = self.iface.activeLayer()
 
         # Only proceed if layer is vector
-        if new_layer and new_layer.type() == QgsMapLayer.VectorLayer:
+        if new_layer and new_layer.type() == QgsMapLayer.LayerType.VectorLayer:
             # Check if layer actually changed
             if self.layer and self.layer.id() == new_layer.id():
                 # Only return if canvas actually has THIS layer loaded
@@ -1471,7 +1471,7 @@ class LpmCanvas(QMainWindow):
             return
 
         # Check if it's a vector layer
-        if current_layer.type() != QgsMapLayer.VectorLayer:
+        if current_layer.type() != QgsMapLayer.LayerType.VectorLayer:
             QMessageBox.warning(
                 self, "Warning", "Please select a vector layer!")
             return
@@ -1882,7 +1882,7 @@ class LpmCanvas(QMainWindow):
                     try:
                         if int(val) > 0:
                             existing_values_count += 1
-                    except:
+                    except:  # nosec B110
                         pass
             else:
                 pass
@@ -1905,7 +1905,7 @@ class LpmCanvas(QMainWindow):
                     try:
                         if val != None and val != NULL and int(val) > 0:
                             is_valid = True
-                    except:
+                    except:  # nosec B110
                         pass
 
                     if not is_valid:
@@ -1951,7 +1951,7 @@ class LpmCanvas(QMainWindow):
                         if v_int not in existing_values:
                             existing_values[v_int] = []
                         existing_values[v_int].append(f.id())
-                    except:
+                    except:  # nosec B110
                         pass
 
             # 2. Assign and Validate

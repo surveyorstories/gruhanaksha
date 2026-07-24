@@ -7,14 +7,14 @@ import subprocess
 import sys
 import time
 from qgis.utils import iface
-from qgis.PyQt.QtCore import QTimer, Qt, QThread, pyqtSignal
+from qgis.PyQt.QtCore import QTimer, Qt, QThread, pyqtSignal, QUrl
 from qgis.PyQt.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QSpinBox, QPushButton,
     QMessageBox, QFileDialog, QRadioButton, QButtonGroup, QListWidget,
     QListWidgetItem, QCheckBox, QFrame, QSystemTrayIcon, QWidgetAction,
     QTextEdit, QTabWidget, QScrollArea, QGroupBox, QSpacerItem, QSizePolicy
 )
-from qgis.PyQt.QtGui import QFont, QIcon
+from qgis.PyQt.QtGui import QFont, QIcon, QDesktopServices
 from qgis.core import QgsProject, QgsVectorLayer, Qgis
 from .qt_compat import QtCompat
 
@@ -530,7 +530,7 @@ class ComprehensiveProjectBackupWidget(QWidget):
         folder = self.backupFolderPath.text()
         if not folder:
             self.show_message("Please select a backup folder",
-                              level=Qgis.Warning)
+                              level=Qgis.MessageLevel.Warning)
             return False
 
         try:
@@ -542,7 +542,7 @@ class ComprehensiveProjectBackupWidget(QWidget):
             return True
         except Exception as e:
             self.show_message(
-                f"Backup folder is not writable: {e}", level=Qgis.Critical)
+                f"Backup folder is not writable: {e}", level=Qgis.MessageLevel.Critical)
             return False
 
     def backup_now(self):
@@ -550,7 +550,7 @@ class ComprehensiveProjectBackupWidget(QWidget):
         project = QgsProject.instance()
         if not project.fileName():
             self.show_message("Please save the project first",
-                              level=Qgis.Warning)
+                              level=Qgis.MessageLevel.Warning)
             return
 
         if not self.validate_backup_folder():
@@ -565,7 +565,7 @@ class ComprehensiveProjectBackupWidget(QWidget):
         project = QgsProject.instance()
         if not project.fileName():
             self.show_message("Please save the project first",
-                              level=Qgis.Warning)
+                              level=Qgis.MessageLevel.Warning)
             return
 
         if not self.validate_backup_folder():
@@ -586,7 +586,7 @@ class ComprehensiveProjectBackupWidget(QWidget):
                 f.write("Auto Backup Session Log\n" + "="*20 + "\n")
         except Exception as e:
             self.show_message(
-                f"Failed to create session log: {e}", level=Qgis.Warning)
+                f"Failed to create session log: {e}", level=Qgis.MessageLevel.Warning)
             self.session_log_path = None
 
         self.backup_interval_ms = self.intervalSpinBox.value() * 60 * 1000
@@ -611,7 +611,7 @@ class ComprehensiveProjectBackupWidget(QWidget):
                     QtCompat.info_icon(),
                     3000
                 )
-            except:
+            except:  # nosec B110
                 pass
 
         self.show_message("Auto backup started - Timer visible in toolbar")
@@ -634,7 +634,7 @@ class ComprehensiveProjectBackupWidget(QWidget):
 
         self.countdownLabel.setText("Next Backup: Not scheduled")
         self.countdownLabel.setStyleSheet("color: #666; font-style: italic;")
-        self.show_message("Auto backup stopped", level=Qgis.Info)
+        self.show_message("Auto backup stopped", level=Qgis.MessageLevel.Info)
         self.session_log_path = None
 
     def set_ui_state(self, backup_active):
@@ -657,13 +657,13 @@ class ComprehensiveProjectBackupWidget(QWidget):
         # Show warning 10 seconds before backup
         if self.remaining_time <= 10000 and not self.warning_shown:
             message = "Backup will occur in 10 seconds..."
-            self.show_message(message, level=Qgis.Info)
+            self.show_message(message, level=Qgis.MessageLevel.Info)
 
             if self.tray_icon and self.isMinimized():
                 try:
                     self.tray_icon.showMessage(
                         "QGIS Backup Alert", message, QtCompat.info_icon(), 5000)
-                except:
+                except:  # nosec B110
                     pass
 
             self.warning_shown = True
@@ -733,7 +733,7 @@ class ComprehensiveProjectBackupWidget(QWidget):
                     self.backup_history = json.load(f)
         except Exception as e:
             self.show_message(
-                f"Failed to load backup history: {e}", level=Qgis.Warning)
+                f"Failed to load backup history: {e}", level=Qgis.MessageLevel.Warning)
             self.backup_history = {}
 
     def save_backup_history(self):
@@ -744,7 +744,7 @@ class ComprehensiveProjectBackupWidget(QWidget):
                 json.dump(self.backup_history, f, indent=4)
         except Exception as e:
             self.show_message(
-                f"Failed to save backup history: {e}", level=Qgis.Warning)
+                f"Failed to save backup history: {e}", level=Qgis.MessageLevel.Warning)
 
     def cleanup_old_backups(self):
         """Remove old backups exceeding the maximum count"""
@@ -779,10 +779,10 @@ class ComprehensiveProjectBackupWidget(QWidget):
                         shutil.rmtree(os.path.join(backup_root, folder))
                     except Exception as e:
                         self.show_message(
-                            f"Failed to remove old backup {folder}: {e}", level=Qgis.Warning)
+                            f"Failed to remove old backup {folder}: {e}", level=Qgis.MessageLevel.Warning)
         except Exception as e:
             self.show_message(
-                f"Error during backup cleanup: {e}", level=Qgis.Warning)
+                f"Error during backup cleanup: {e}", level=Qgis.MessageLevel.Warning)
 
     def should_backup_file(self, source_file, dest_file):
         """Determine if a file should be backed up"""
@@ -849,14 +849,14 @@ class ComprehensiveProjectBackupWidget(QWidget):
                         print(f"Failed to commit {layer.name()}: {errors}")
         except Exception as e:
             self.show_message(
-                f"Error committing layer changes: {e}", level=Qgis.Critical)
+                f"Error committing layer changes: {e}", level=Qgis.MessageLevel.Critical)
             self.stop_backup()
             return
 
         if commit_failed:
             self.show_message(
                 f"Failed to commit changes for layers: {', '.join(commit_failed)}",
-                level=Qgis.Warning
+                level=Qgis.MessageLevel.Warning
             )
 
         # Save project
@@ -865,14 +865,14 @@ class ComprehensiveProjectBackupWidget(QWidget):
                 raise Exception("Failed to save project")
         except Exception as e:
             self.show_message(
-                f"Failed to save project: {e}", level=Qgis.Critical)
+                f"Failed to save project: {e}", level=Qgis.MessageLevel.Critical)
             self.stop_backup()
             return
 
         project_path = project.fileName()
         if not project_path:
             self.show_message(
-                "Backup failed: Project not saved", level=Qgis.Critical)
+                "Backup failed: Project not saved", level=Qgis.MessageLevel.Critical)
             self.stop_backup()
             return
 
@@ -959,12 +959,12 @@ class ComprehensiveProjectBackupWidget(QWidget):
                             f.write(f"- {err}\n")
             except Exception as e:
                 self.show_message(
-                    f"Failed to write backup log: {e}", level=Qgis.Warning)
+                    f"Failed to write backup log: {e}", level=Qgis.MessageLevel.Warning)
 
         # Show completion message
         if backup_errors:
             summary_message = "Backup completed with errors. See log for details."
-            level = Qgis.Warning
+            level = Qgis.MessageLevel.Warning
         else:
             if len(backup_summary) == 1:
                 summary_message = "Backup completed: Project file only"
@@ -972,7 +972,7 @@ class ComprehensiveProjectBackupWidget(QWidget):
                 layer_names = [
                     item for item in backup_summary if item != "Project file"]
                 summary_message = f"Backup completed: Project and layers: {', '.join(layer_names)}"
-            level = Qgis.Success
+            level = Qgis.MessageLevel.Success
 
         self.show_message(summary_message, level=level)
 
@@ -989,7 +989,7 @@ class ComprehensiveProjectBackupWidget(QWidget):
                 icon = QtCompat.info_icon() if not backup_errors else QtCompat.warning_icon()
                 self.tray_icon.showMessage(
                     "QGIS Backup Complete", summary_message, icon, 3000)
-            except:
+            except:  # nosec B110
                 pass
 
         self.cleanup_old_backups()
@@ -1046,13 +1046,13 @@ class ComprehensiveProjectBackupWidget(QWidget):
 
                 except Exception as e:
                     self.show_message(
-                        f"Failed to copy {os.path.basename(source_file)}: {e}", level=Qgis.Warning)
+                        f"Failed to copy {os.path.basename(source_file)}: {e}", level=Qgis.MessageLevel.Warning)
 
             return backed_up
 
         except Exception as e:
             self.show_message(
-                f"Failed to backup layer {layer_name}: {e}", level=Qgis.Critical)
+                f"Failed to backup layer {layer_name}: {e}", level=Qgis.MessageLevel.Critical)
             raise
 
     def on_layers_added(self, layers):
@@ -1068,7 +1068,7 @@ class ComprehensiveProjectBackupWidget(QWidget):
                 item.setCheckState(QtCompat.unchecked())
                 self.layerListWidget.addItem(item)
                 self.show_message(
-                    f"New layer added: {layer.name()}", level=Qgis.Info)
+                    f"New layer added: {layer.name()}", level=Qgis.MessageLevel.Info)
 
     def on_layers_removed(self, layer_ids):
         """Handle layers being removed from the project"""
@@ -1101,16 +1101,16 @@ class ComprehensiveProjectBackupWidget(QWidget):
             self.tray_icon.hide()
         super().closeEvent(event)
 
-    def show_message(self, message, level=Qgis.Info, duration=2):
+    def show_message(self, message, level=Qgis.MessageLevel.Info, duration=2):
         """Display a message in QGIS's message bar and log panel"""
         if hasattr(self, 'iface') and self.iface and self.iface.messageBar():
             self.iface.messageBar().pushMessage("Backup", message, level, duration)
         else:
             level_text = {
-                Qgis.Info: "INFO",
-                Qgis.Warning: "WARNING",
-                Qgis.Critical: "CRITICAL",
-                Qgis.Success: "SUCCESS"
+                Qgis.MessageLevel.Info: "INFO",
+                Qgis.MessageLevel.Warning: "WARNING",
+                Qgis.MessageLevel.Critical: "CRITICAL",
+                Qgis.MessageLevel.Success: "SUCCESS"
             }.get(level, "INFO")
             print(f"[Backup {level_text}] {message}")
 
@@ -1140,7 +1140,7 @@ class ComprehensiveProjectBackupWidget(QWidget):
         if os.path.exists(self.history_file):
             try:
                 os.remove(self.history_file)
-            except Exception:
+            except Exception:  # nosec B110
                 pass
 
         self.load_layers()
@@ -1161,22 +1161,17 @@ class ComprehensiveProjectBackupWidget(QWidget):
             self.maxBackupsSpinBox.setVisible(show_max_backups)
 
             self.show_message(
-                "Backup mode changed. Previous backups preserved.", level=Qgis.Info)
+                "Backup mode changed. Previous backups preserved.", level=Qgis.MessageLevel.Info)
 
     def open_backup_folder(self, event):
         """Open the backup folder in the system file explorer"""
         folder = self.backupFolderPath.text()
         if os.path.exists(folder):
             try:
-                if os.name == 'nt':
-                    os.startfile(folder)
-                elif sys.platform == "darwin":
-                    subprocess.call(["open", folder])
-                else:
-                    subprocess.call(["xdg-open", folder])
+                QDesktopServices.openUrl(QUrl.fromLocalFile(folder))
             except Exception as e:
                 self.show_message(
-                    f"Failed to open folder: {e}", level=Qgis.Warning)
+                    f"Failed to open folder: {e}", level=Qgis.MessageLevel.Warning)
 
 
 class BackupPlugin:

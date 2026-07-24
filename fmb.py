@@ -73,7 +73,7 @@ class GeometryHelper:
     def calculate_distance(p1, p2, crs):
         """Uses cartesian calculation for meter-based UTMs and ellipsoidal for degree-based systems"""
         # Check if the CRS is in meters
-        if crs.mapUnits() == QgsUnitTypes.DistanceMeters:
+        if crs.mapUnits() == QtCompat.DistanceMeters:
             # Use cartesian calculation for meter-based systems
             dx = p2.x() - p1.x()
             dy = p2.y() - p1.y()
@@ -180,7 +180,7 @@ class GeometryHelper:
         if distance < 0:
             # Extend BEYOND START (negative direction)
             extend_dist = abs(distance)
-            if crs.mapUnits() == QgsUnitTypes.DistanceMeters:
+            if crs.mapUnits() == QtCompat.DistanceMeters:
                 # Cartesian
                 dx = end.x() - start.x()
                 dy = end.y() - start.y()
@@ -198,7 +198,7 @@ class GeometryHelper:
             # Normal interpolation (0 to total_len) or beyond end
             # Cap at 2x for reasonable extension
             distance = min(distance, total_len * 2)
-            if crs.mapUnits() == QgsUnitTypes.DistanceMeters:
+            if crs.mapUnits() == QtCompat.DistanceMeters:
                 # Cartesian
                 dx = end.x() - start.x()
                 dy = end.y() - start.y()
@@ -215,7 +215,7 @@ class GeometryHelper:
     @staticmethod
     def project_perpendicular(base, line_start, line_end, perp_distance, crs):
         """✅ ULTIMATE FIX: Uses ORIGINAL line_start→line_end bearing AT ANY base point"""
-        if crs.mapUnits() == QgsUnitTypes.DistanceMeters:
+        if crs.mapUnits() == QtCompat.DistanceMeters:
             # ✅ UTM: Cartesian perpendicular using ORIGINAL direction
             dx = line_end.x() - line_start.x()
             dy = line_end.y() - line_start.y()
@@ -287,7 +287,7 @@ class LayerManager:
         # Create new layer
         if not crs or not crs.isValid():
             crs = LayerManager.get_project_crs()
-        geom_str = "LineString" if geom_type == QgsWkbTypes.LineGeometry else "Point"
+        geom_str = "LineString" if geom_type == QgsWkbTypes.GeometryType.LineGeometry else "Point"
         layer = QgsVectorLayer(f"{geom_str}?crs={crs.toWkt()}", name, "memory")
         layer.dataProvider().addAttributes(fields)
         layer.updateFields()
@@ -313,7 +313,7 @@ class LayerManager:
         label_settings.setFormat(text_format)
 
         # Set label placement
-        label_settings.placement = QgsPalLayerSettings.OrderedPositionsAroundPoint
+        label_settings.placement = QgsPalLayerSettings.Placement.OrderedPositionsAroundPoint
         label_settings.dist = 2
 
         # Apply labeling
@@ -355,14 +355,14 @@ class MarkerFactory:
         if fill_color:
             marker.setFillColor(fill_color)
         marker.setIconSize(size)
-        marker.setIconType(QgsVertexMarker.ICON_CIRCLE)
+        marker.setIconType(QgsVertexMarker.IconType.ICON_CIRCLE)
         marker.setPenWidth(2)
         return marker
 
     @staticmethod
     def create_snap_marker(canvas):
         marker = QgsVertexMarker(canvas)
-        marker.setIconType(QgsVertexMarker.ICON_CROSS)
+        marker.setIconType(QgsVertexMarker.IconType.ICON_CROSS)
         marker.setColor(QColor(255, 0, 255))
         marker.setPenWidth(3)
         marker.setIconSize(12)
@@ -414,7 +414,7 @@ class LineEndpointManager:
     def on_layer_changed(self, layer):
         if not self.is_active or self.manual_mode:
             return
-        if not layer or layer.type() != QgsMapLayer.VectorLayer:
+        if not layer or layer.type() != QgsMapLayer.LayerType.VectorLayer:
             self.clear_display()
             self.current_layer = None
             return
@@ -426,7 +426,7 @@ class LineEndpointManager:
                 pass
         self.current_layer = layer
         self.clear_display()
-        if layer.wkbType() in (QgsWkbTypes.LineString, QgsWkbTypes.MultiLineString):
+        if layer.wkbType() in (QgsWkbTypes.Type.LineString, QgsWkbTypes.Type.MultiLineString):
             layer.selectionChanged.connect(self.update_display)
             self.update_display()
         else:
@@ -436,7 +436,7 @@ class LineEndpointManager:
         if not self.is_active or self.manual_mode:
             return
         self.clear_display()
-        if not self.current_layer or self.current_layer.wkbType() not in (QgsWkbTypes.LineString, QgsWkbTypes.MultiLineString):
+        if not self.current_layer or self.current_layer.wkbType() not in (QgsWkbTypes.Type.LineString, QgsWkbTypes.Type.MultiLineString):
             return
         feats = list(self.current_layer.selectedFeatures())
         if len(feats) != 1:
@@ -462,7 +462,7 @@ class LineEndpointManager:
                 try:
                     marker.hide()
                     self.map_canvas.scene().removeItem(marker)
-                except Exception:
+                except Exception:  # nosec B110
                     pass
         self.start_point_marker = self.end_point_marker = None
 
@@ -508,10 +508,10 @@ class TrianglePointTool(QgsMapTool):
         self.markers = []
         self.use_fixed_length = False
         self.is_selecting = False
-        self.base_line = QgsRubberBand(canvas, QgsWkbTypes.LineGeometry)
+        self.base_line = QgsRubberBand(canvas, QgsWkbTypes.GeometryType.LineGeometry)
         self.base_line.setColor(QColor(0, 0, 255, 150))
         self.base_line.setWidth(2)
-        self.temp_line = QgsRubberBand(canvas, QgsWkbTypes.LineGeometry)
+        self.temp_line = QgsRubberBand(canvas, QgsWkbTypes.GeometryType.LineGeometry)
         self.temp_line.setColor(QColor(0, 0, 255, 100))
         self.temp_line.setWidth(1)
         self.temp_line.setLineStyle(QtCompat.DashLine)
@@ -777,7 +777,7 @@ class SegmentSelectTool(QgsMapTool):
         if self.snap_marker:
             try:
                 self.canvas.scene().removeItem(self.snap_marker)
-            except:
+            except:  # nosec B110
                 pass
         self.snap_marker = MarkerFactory.create_snap_marker(self.canvas)
         self.setCursor(QtCompat.cross_cursor())
@@ -806,7 +806,7 @@ class SegmentSelectTool(QgsMapTool):
         if self.snap_marker:
             try:
                 self.canvas.scene().removeItem(self.snap_marker)
-            except:
+            except:  # nosec B110
                 pass
             self.snap_marker = None
         self.snapping_utils = None
@@ -818,7 +818,7 @@ class SegmentSelectTool(QgsMapTool):
             return
         if self.snapping_utils:
             match = self.snapping_utils.snapToMap(event.pos())
-            if match.isValid() and match.type() == QgsPointLocator.Edge:
+            if match.isValid() and match.type() == QtCompat.PointLocator_Edge:
                 self.snap_marker.setCenter(match.point())
                 self.snap_marker.show()
             else:
@@ -854,7 +854,7 @@ class SegmentSelectTool(QgsMapTool):
         snapped_feat = None
         if self.snapping_utils:
             match = self.snapping_utils.snapToMap(event.pos())
-            if match.isValid() and match.type() == QgsPointLocator.Edge:
+            if match.isValid() and match.type() == QtCompat.PointLocator_Edge:
                 snapped_feat = self._get_feature_from_snap(match)
 
         # If snapping didn't work or is disabled, try searching nearby
@@ -868,7 +868,7 @@ class SegmentSelectTool(QgsMapTool):
                 map_point.y() + tolerance
             )
             for layer in self.canvas.layers():
-                if not isinstance(layer, QgsVectorLayer) or layer.geometryType() != QgsWkbTypes.LineGeometry:
+                if not isinstance(layer, QgsVectorLayer) or layer.geometryType() != QgsWkbTypes.GeometryType.LineGeometry:
                     continue
 
                 request = QgsFeatureRequest()
@@ -934,7 +934,7 @@ class SegmentSelectTool(QgsMapTool):
 
     def _get_feature_from_snap(self, match):
         layer = match.layer()
-        if not layer or not isinstance(layer, QgsVectorLayer) or layer.geometryType() != QgsWkbTypes.LineGeometry:
+        if not layer or not isinstance(layer, QgsVectorLayer) or layer.geometryType() != QgsWkbTypes.GeometryType.LineGeometry:
             return None
         feature = layer.getFeature(match.featureId())
         return (layer, feature, match.point()) if feature.isValid() else None
@@ -982,7 +982,7 @@ class TriangleWidget(QWidget):
         self.lines_drawn = False
         self.point_tool = TrianglePointTool(iface.mapCanvas(), self)
         self.triangle_rubber_band = QgsRubberBand(
-            iface.mapCanvas(), QgsWkbTypes.LineGeometry)
+            iface.mapCanvas(), QgsWkbTypes.GeometryType.LineGeometry)
         self.triangle_rubber_band.setColor(QColor(255, 0, 0, 150))
         self.triangle_rubber_band.setWidth(3)
         self.preview_timer = QTimer()
@@ -1148,7 +1148,7 @@ class TriangleWidget(QWidget):
 
         # ✅ NO CANVAS EXTENT MANIPULATION — VIEW REMAINS UNCHANGED
         layer = LayerManager.get_or_create_layer(
-            "Triangle Lines", QgsWkbTypes.LineGeometry, crs, [
+            "Triangle Lines", QgsWkbTypes.GeometryType.LineGeometry, crs, [
                 QgsField("Type", QVariant.String)]
         )
 
@@ -1333,7 +1333,7 @@ class PlotterWidget(QWidget):
         """Get the highest label from the existing Plotted Points layer and increment it"""
         layer = None
         for lyr in QgsProject.instance().mapLayers().values():
-            if lyr.name() == "Plotted Points" and lyr.geometryType() == QgsWkbTypes.PointGeometry:
+            if lyr.name() == "Plotted Points" and lyr.geometryType() == QgsWkbTypes.GeometryType.PointGeometry:
                 layer = lyr
                 break
 
@@ -1539,7 +1539,7 @@ class PlotterWidget(QWidget):
         fields = [QgsField("Type", QVariant.String),
                   QgsField("Label", QVariant.String)]
         layer = LayerManager.get_or_create_layer(
-            "Plotted Points", QgsWkbTypes.PointGeometry, LayerManager.get_project_crs(), fields
+            "Plotted Points", QgsWkbTypes.GeometryType.PointGeometry, LayerManager.get_project_crs(), fields
         )
         LayerManager.apply_categorized_symbology(layer, POINT_CATEGORIES)
         if not layer.isEditable():
@@ -1740,9 +1740,9 @@ class CombinedMainWidget(QWidget):
 
         layers_to_check = [
             {'drawn': self.triangle_widget.lines_drawn,
-                'name': "Triangle Lines", 'type': QgsWkbTypes.LineGeometry},
+                'name': "Triangle Lines", 'type': QgsWkbTypes.GeometryType.LineGeometry},
             {'drawn': self.plotter_widget.points_drawn,
-                'name': "Plotted Points", 'type': QgsWkbTypes.PointGeometry}
+                'name': "Plotted Points", 'type': QgsWkbTypes.GeometryType.PointGeometry}
         ]
 
         for info in layers_to_check:

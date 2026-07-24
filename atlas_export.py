@@ -44,37 +44,20 @@ from qgis.gui import QgsMessageBar
 from qgis.utils import iface
 
 from .qt_compat import QtCompat
-# Qt5/Qt6 compatibility for enums
-try:
-    # Qt6 style
-    ScrollBarAlwaysOff = Qt.ScrollBarPolicy.ScrollBarAlwaysOff
-    KeepAspectRatio = Qt.AspectRatioMode.KeepAspectRatio
-    SmoothTransformation = Qt.TransformationMode.SmoothTransformation
-    ScrollHandDrag = QGraphicsView.DragMode.ScrollHandDrag
-    AnchorUnderMouse = QGraphicsView.ViewportAnchor.AnchorUnderMouse
-    AnchorViewCenter = QGraphicsView.ViewportAnchor.AnchorViewCenter
-    ControlModifier = Qt.KeyboardModifier.ControlModifier
-    ItemIsMovable = QGraphicsItem.GraphicsItemFlag.ItemIsMovable
-    Antialiasing = QPainter.RenderHint.Antialiasing
-    SmoothPixmapTransform = QPainter.RenderHint.SmoothPixmapTransform
-    WhiteColor = Qt.GlobalColor.white
-    PointingHandCursor = Qt.CursorShape.PointingHandCursor
-    AlignCenter = Qt.AlignmentFlag.AlignCenter
-except AttributeError:
-    # Qt5 style
-    ScrollBarAlwaysOff = Qt.ScrollBarAlwaysOff
-    KeepAspectRatio = Qt.KeepAspectRatio
-    SmoothTransformation = Qt.SmoothTransformation
-    ScrollHandDrag = QGraphicsView.ScrollHandDrag
-    AnchorUnderMouse = QGraphicsView.AnchorUnderMouse
-    AnchorViewCenter = QGraphicsView.AnchorViewCenter
-    ControlModifier = Qt.ControlModifier
-    ItemIsMovable = QGraphicsItem.ItemIsMovable
-    Antialiasing = QPainter.Antialiasing
-    SmoothPixmapTransform = QPainter.SmoothPixmapTransform
-    WhiteColor = Qt.white
-    PointingHandCursor = Qt.PointingHandCursor
-    AlignCenter = Qt.AlignCenter
+# Qt5/Qt6 compatibility for enums via QtCompat
+ScrollBarAlwaysOff = QtCompat.ScrollBarAlwaysOff
+KeepAspectRatio = QtCompat.KeepAspectRatio
+SmoothTransformation = QtCompat.SmoothTransformation
+ScrollHandDrag = QtCompat.ScrollHandDrag
+AnchorUnderMouse = QtCompat.AnchorUnderMouse
+AnchorViewCenter = QtCompat.AnchorViewCenter
+ControlModifier = QtCompat.ControlModifier
+ItemIsMovable = QtCompat.ItemIsMovable
+Antialiasing = QtCompat.Antialiasing
+SmoothPixmapTransform = QtCompat.SmoothPixmapTransform
+WhiteColor = QtCompat.white
+PointingHandCursor = QtCompat.pointing_cursor()
+AlignCenter = QtCompat.AlignCenter
 # ----------------------------------------------------------------------
 # Constants
 # ----------------------------------------------------------------------
@@ -220,25 +203,25 @@ class SimplePreviewGenerator:
                 cnt = atlas.count()
                 if cnt > 0:
                     return cnt
-        except Exception:
+        except Exception:  # nosec B110
             pass
         try:
             if coverage_layer.isValid():
                 cnt = coverage_layer.featureCount()
                 if cnt >= 0:
                     return cnt
-        except Exception:
+        except Exception:  # nosec B110
             pass
         try:
             return len(list(coverage_layer.getFeatures()))
-        except Exception:
+        except Exception:  # nosec B110
             pass
         try:
             if coverage_layer.dataProvider():
                 cnt = coverage_layer.dataProvider().featureCount()
                 if cnt >= 0:
                     return cnt
-        except Exception:
+        except Exception:  # nosec B110
             pass
         return 0
 
@@ -251,14 +234,14 @@ class SimplePreviewGenerator:
             feats = list(coverage_layer.getFeatures())
             if index < len(feats):
                 return feats[index]
-        except Exception:
+        except Exception:  # nosec B110
             pass
         try:
             req = QgsFeatureRequest()
             feats = list(coverage_layer.getFeatures(req))
             if index < len(feats):
                 return feats[index]
-        except Exception:
+        except Exception:  # nosec B110
             pass
         return None
 
@@ -1342,16 +1325,16 @@ class EnhancedAtlasExportDialog(QDialog):
             return 0
         try:
             return layer.featureCount()
-        except Exception:
+        except Exception:  # nosec B110
             pass
         try:
             return len(list(layer.getFeatures()))
-        except Exception:
+        except Exception:  # nosec B110
             pass
         try:
             if layer.dataProvider():
                 return layer.dataProvider().featureCount()
-        except Exception:
+        except Exception:  # nosec B110
             pass
         return 0
 

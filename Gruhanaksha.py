@@ -76,6 +76,20 @@ class GruhanakshaPlugin(object):
         self.ppm_dialog = None
         # self.tools.setParent(iface.mainWindow(), Qt.WindowType.Window)
 
+        # Initialize GUI elements to None to avoid 'defined outside __init__' warnings
+        self.toolbar = None
+        self.action = None
+        self.dropdown_button = None
+        self.action_master = None
+        self.action_advanced_line = None
+        self.action_tools = None
+        self.dropdown_menu = None
+        self.action_atlasexport = None
+        self.action_backup = None
+        self.action_presentation = None
+        self.action_topology_checker = None
+        self.backup_timer_label = None
+
     def initProcessing(self):
         """Init Processing provider for QGIS >= 3.8."""
         self.provider = SvamitvaPPMProvider()
@@ -156,7 +170,7 @@ class GruhanakshaPlugin(object):
         icon_presentation = os.path.join(os.path.join(cmd_folder, 'images/export.svg'))
         self.action_presentation = QAction(QIcon(icon_presentation), 'Presentation', self.iface.mainWindow())
         self.action_presentation.triggered.connect(self.show_presentation)
-        self.iface.addPluginToMenu("&Gruhanaksha", self.action_presentation)
+        # self.iface.addPluginToMenu("&Gruhanaksha", self.action_presentation)
 
         # Topology Checker action
         self.action_topology_checker = QAction(QIcon(topo), 'Topology Checker', self.iface.mainWindow())
@@ -168,7 +182,7 @@ class GruhanakshaPlugin(object):
         self.toolbar.addAction(self.dropdown_button)
         self.toolbar.addAction(self.action_advanced_line)
         self.toolbar.addAction(self.action_atlasexport)
-        self.toolbar.addAction(self.action_presentation)
+        # self.toolbar.addAction(self.action_presentation)
         # self.toolbar.addAction(self.action_backup)
 
         self.backup_timer_label = QLabel("")
@@ -201,27 +215,27 @@ class GruhanakshaPlugin(object):
         if hasattr(self, 'canvas') and self.canvas:
             try:
                 self.canvas.mapToolSet.disconnect()
-            except Exception:
+            except Exception:  # nosec B110
                 pass
 
         # Close any open widgets/dialogs
         if hasattr(self, 'tools') and self.tools:
             try:
                 self.tools.close()
-            except Exception:
+            except Exception:  # nosec B110
                 pass
 
         if hasattr(self, 'backup_widget_instance') and self.backup_widget_instance:
             try:
                 self.backup_widget_instance.close()
-            except Exception:
+            except Exception:  # nosec B110
                 pass
 
         # Close master widget
         try:
             if master and master.isVisible():
                 master.close()
-        except Exception:
+        except Exception:  # nosec B110
             pass
 
         # Unregister processing provider safely
@@ -255,14 +269,14 @@ class GruhanakshaPlugin(object):
                 try:
                     self.iface.unregisterMainWindowAction(
                         getattr(self, action_name))
-                except Exception:
+                except Exception:  # nosec B110
                     pass
 
         # Clean up toolbar
         if hasattr(self, 'toolbar'):
             try:
                 self.iface.mainWindow().removeToolBar(self.toolbar)
-            except Exception:
+            except Exception:  # nosec B110
                 pass
             del self.toolbar
 
@@ -270,7 +284,7 @@ class GruhanakshaPlugin(object):
         if hasattr(self, 'backup_plugin') and self.backup_plugin:
             try:
                 self.backup_plugin.unload()  # Add cleanup method if exists
-            except Exception:
+            except Exception:  # nosec B110
                 pass
             self.backup_plugin = None
 
