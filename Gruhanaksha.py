@@ -51,6 +51,7 @@ from .tools import ToolWidget
 from .advanced_line import activate_tool, ProfessionalLineTool
 from .atlas_export import show_atlas_export_dialog
 from .addon_functions import asksaveProject
+from .presentation import PresentationDialog
 
 
 cmd_folder = os.path.split(inspect.getfile(inspect.currentframe()))[0]
@@ -151,11 +152,23 @@ class GruhanakshaPlugin(object):
 
         self.iface.addPluginToMenu("&Gruhanaksha", self.action_backup)
 
+        # Presentation action
+        icon_presentation = os.path.join(os.path.join(cmd_folder, 'images/export.svg'))
+        self.action_presentation = QAction(QIcon(icon_presentation), 'Presentation', self.iface.mainWindow())
+        self.action_presentation.triggered.connect(self.show_presentation)
+        self.iface.addPluginToMenu("&Gruhanaksha", self.action_presentation)
+
+        # Topology Checker action
+        self.action_topology_checker = QAction(QIcon(topo), 'Topology Checker', self.iface.mainWindow())
+        self.action_topology_checker.triggered.connect(self.show_topology_checker)
+        self.iface.addPluginToMenu("&Gruhanaksha", self.action_topology_checker)
+
         # Adding icons to the toolbar
         self.toolbar.addAction(self.action_tools)
         self.toolbar.addAction(self.dropdown_button)
         self.toolbar.addAction(self.action_advanced_line)
         self.toolbar.addAction(self.action_atlasexport)
+        self.toolbar.addAction(self.action_presentation)
         # self.toolbar.addAction(self.action_backup)
 
         self.backup_timer_label = QLabel("")
@@ -229,11 +242,15 @@ class GruhanakshaPlugin(object):
                 "&Gruhanaksha", self.action_atlasexport)
         if hasattr(self, 'action_backup'):
             self.iface.removePluginMenu("&Gruhanaksha", self.action_backup)
+        if hasattr(self, 'action_presentation'):
+            self.iface.removePluginMenu("&Gruhanaksha", self.action_presentation)
+        if hasattr(self, 'action_topology_checker'):
+            self.iface.removePluginMenu("&Gruhanaksha", self.action_topology_checker)
 
         # Unregister all main window actions
         for action_name in ['action', 'action_master', 'action_advanced_line',
                             'action_tools', 'dropdown_button', 'action_atlasexport',
-                            'action_backup']:
+                            'action_backup', 'action_presentation', 'action_topology_checker']:
             if hasattr(self, action_name):
                 try:
                     self.iface.unregisterMainWindowAction(
@@ -300,6 +317,25 @@ class GruhanakshaPlugin(object):
                 # self.backup_widget_instance.hideTimer.connect(
                 #     self.hide_backup_timer)
             self.backup_plugin.show()
+        else:
+            asksaveProject()
+
+    def show_presentation(self):
+        if QgsProject.instance().fileName():
+            dlg = PresentationDialog(self.iface.mainWindow())
+            dlg.show()
+            dlg.raise_()
+            dlg.activateWindow()
+        else:
+            asksaveProject()
+
+    def show_topology_checker(self):
+        if QgsProject.instance().fileName():
+            from .topology_checker import TopologyCheckerDialog
+            dlg = TopologyCheckerDialog(iface=self.iface)
+            dlg.show()
+            dlg.raise_()
+            dlg.activateWindow()
         else:
             asksaveProject()
 

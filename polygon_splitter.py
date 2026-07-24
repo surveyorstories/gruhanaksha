@@ -2004,10 +2004,28 @@ class SplitMapTool(QgsMapToolEdit):
         return new_points
 
 
-split_window = MyWnd(iface)
-qgis_main_window = iface.mainWindow()
-split_window.setParent(qgis_main_window, QtCompat.Window)
+split_window = None
 
 
 def show_polygon_splitter():
-    split_window.show()
+    global split_window
+    is_valid = False
+    if split_window is not None:
+        try:
+            split_window.parent()
+            is_valid = True
+        except (RuntimeError, AttributeError):
+            is_valid = False
+
+    if not is_valid:
+        split_window = MyWnd(iface)
+        qgis_main_window = iface.mainWindow()
+        split_window.setParent(qgis_main_window, QtCompat.Window)
+
+    if split_window.isMinimized():
+        split_window.showNormal()
+    else:
+        split_window.show()
+    split_window.raise_()
+    split_window.activateWindow()
+
