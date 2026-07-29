@@ -86,8 +86,8 @@ def enable_label(layer_id, font, font_size, field_name, font_weight, is_expressi
         QgsPalLayerSettings.Placement.AroundPoint,
         QgsPalLayerSettings.Placement.Horizontal,
         QgsPalLayerSettings.Placement.Free,
-        QgsPalLayerSettings.PredefinedPointPosition.OverPoint,
-        QgsPalLayerSettings.Placement.OnLine,
+        QgsPalLayerSettings.Placement.OverPoint,
+        QgsPalLayerSettings.Placement.Line,
         QgsPalLayerSettings.Placement.Curved,
 
     ]

@@ -915,7 +915,7 @@ class PointInputDialog(QDialog):
                     msg_level = Qgis.MessageLevel.Critical
                 except AttributeError:
                     try:
-                        msg_level = Qgis.MessageLevel.Critical
+                        msg_level = Qgis.Critical
                     except AttributeError:
                         msg_level = 2
                 self.iface.messageBar().pushMessage("Error", message, msg_level, 5)
@@ -924,7 +924,7 @@ class PointInputDialog(QDialog):
                     msg_level = Qgis.MessageLevel.Success
                 except AttributeError:
                     try:
-                        msg_level = Qgis.MessageLevel.Success
+                        msg_level = Qgis.Success
                     except AttributeError:
                         msg_level = 3
                 self.iface.messageBar().pushMessage("Success", message, msg_level, 3)
@@ -933,7 +933,7 @@ class PointInputDialog(QDialog):
                     msg_level = Qgis.MessageLevel.Warning
                 except AttributeError:
                     try:
-                        msg_level = Qgis.MessageLevel.Warning
+                        msg_level = Qgis.Warning
                     except AttributeError:
                         msg_level = 1
                 self.iface.messageBar().pushMessage("Warning", message, msg_level, 4)

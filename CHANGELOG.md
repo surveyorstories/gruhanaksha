@@ -1,3 +1,3 @@
-Release Notes 3.5.0
-    - Topology Checker
+Release Notes 3.5.1
+    - bug fixes
     

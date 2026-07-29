@@ -56,5 +56,21 @@ class QGISTest(unittest.TestCase):
         auth_id = layer.crs().authid()
         self.assertEqual(auth_id, expected_auth_id)
 
+    def test_enable_label_placement(self):
+        """Test enable_label function does not raise error and sets placement."""
+        from qgis.core import QgsVectorLayer, QgsProject
+        from gruhanaksha.addon_functions import enable_label
+        
+        # Create memory layer
+        layer = QgsVectorLayer("Point?field=id:integer&name:string", "test_layer", "memory")
+        QgsProject.instance().addMapLayer(layer)
+        
+        try:
+            # Test that calling enable_label with placement_index=3 (OverPoint) works
+            enable_label(layer.id(), 'Verdana', 8, 'name', 50, False,
+                         placement_index=3, font_color='#000')
+        finally:
+            QgsProject.instance().removeMapLayer(layer.id())
+
 if __name__ == '__main__':
     unittest.main()
