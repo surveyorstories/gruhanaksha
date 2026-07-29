@@ -14,7 +14,7 @@ from qgis.core import (
     QgsSingleSymbolRenderer, QgsExpression, Qgis, QgsMapLayer, NULL,
     QgsAggregateCalculator, QgsApplication, QgsMapLayerStyle, QgsProject,
     QgsVectorLayer, QgsTextFormat, QgsTextBufferSettings, QgsPalLayerSettings,
-    QgsVectorLayerSimpleLabeling, QgsFeature
+    QgsVectorLayerSimpleLabeling, QgsFeature, QgsMessageLog
 )
 
 from qgis.utils import iface
@@ -152,10 +152,10 @@ class AutoNumberDialog(QDialog):
 
         # Buttons
         button_box = QDialogButtonBox()
-        self.ok_button = button_box.addButton(QDialogButtonBox.Ok)
-        self.cancel_button = button_box.addButton(QDialogButtonBox.Cancel)
+        self.ok_button = button_box.addButton(QDialogButtonBox.StandardButton.Ok)
+        self.cancel_button = button_box.addButton(QDialogButtonBox.StandardButton.Cancel)
         self.preview_button = QPushButton("Preview")
-        button_box.addButton(self.preview_button, QDialogButtonBox.ActionRole)
+        button_box.addButton(self.preview_button, QDialogButtonBox.ButtonRole.ActionRole)
 
         button_box.accepted.connect(self.accept)
         button_box.rejected.connect(self.reject)
