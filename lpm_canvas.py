@@ -3,16 +3,18 @@ from .qt_compat import Qt, QtCompat, QColor
 from qgis.PyQt.QtCore import QPointF, QVariant, QEvent, QSize
 from qgis.gui import (
     QgsMapTool, QgsRubberBand, QgsMapToolZoom, QgsMapCanvas,
-    QgsMapToolPan, QgsMapMouseEvent, QgsMessageBar, QgsMapToolIdentify
+    QgsMapToolPan, QgsMapMouseEvent, QgsMessageBar, QgsMapToolIdentify,
+    QgsMapToolEmitPoint
 )
-from qgis.PyQt.QtGui import QPainter, QIcon
+from qgis.PyQt.QtGui import QPainter, QIcon, QFont
 
 from qgis.core import (
     QgsSymbol, QgsGeometry, QgsPointXY, QgsRuleBasedRenderer, QgsRectangle,
     QgsWkbTypes, QgsFeatureRequest, QgsSpatialIndex, QgsField,
     QgsSingleSymbolRenderer, QgsExpression, Qgis, QgsMapLayer, NULL,
     QgsAggregateCalculator, QgsApplication, QgsMapLayerStyle, QgsProject,
-    QgsVectorLayer
+    QgsVectorLayer, QgsTextFormat, QgsTextBufferSettings, QgsPalLayerSettings,
+    QgsVectorLayerSimpleLabeling, QgsFeature
 )
 
 from qgis.utils import iface
@@ -75,9 +77,13 @@ class DeleteAttributesDialog(QDialog):
 
 
 class AutoNumberDialog(QDialog):
-    def __init__(self, layer, parent=None):
+    def __init__(self, canvas_tool, layer, default_pattern='snake', default_algo='smart', parent=None):
         super().__init__(parent)
+        self.canvas_tool = canvas_tool
         self.layer = layer
+        self.default_pattern = default_pattern
+        self.default_algo = default_algo
+        self.selected_start_feature = None
         self.setWindowTitle("Auto Number Settings")
         self.setup_ui()
 
@@ -108,13 +114,53 @@ class AutoNumberDialog(QDialog):
         self.start_num_spin.setValue(1)
         form_layout.addRow("Start Number:", self.start_num_spin)
 
+        # Start Corner
+        self.corner_combo = QComboBox()
+        self.corner_combo.addItems(["Top-Left", "Top-Right", "Bottom-Left", "Bottom-Right"])
+        form_layout.addRow("Start Corner:", self.corner_combo)
+
+        # Select Start Feature on Canvas
+        self.start_parcel_btn = QPushButton("Select on Canvas...")
+        self.start_parcel_label = QLabel("None (Auto Corner)")
+        form_layout.addRow("Selected Start:", self.start_parcel_label)
+        form_layout.addRow("Manual Start:", self.start_parcel_btn)
+
+        # Flow Direction
+        self.direction_combo = QComboBox()
+        self.direction_combo.addItems(["Row-wise (Horizontal)", "Column-wise (Vertical)"])
+        form_layout.addRow("Flow Direction:", self.direction_combo)
+
+        # Sorting Pattern
+        self.pattern_combo = QComboBox()
+        self.pattern_combo.addItems(["Serpentine (Snake)", "Z-Pattern"])
+        if self.default_pattern == 'z':
+            self.pattern_combo.setCurrentText("Z-Pattern")
+        else:
+            self.pattern_combo.setCurrentText("Serpentine (Snake)")
+        form_layout.addRow("Pattern:", self.pattern_combo)
+
+        # Algorithm
+        self.algo_combo = QComboBox()
+        self.algo_combo.addItems(["Smart (Adjacency)", "Original"])
+        if self.default_algo == 'original':
+            self.algo_combo.setCurrentText("Original")
+        else:
+            self.algo_combo.setCurrentText("Smart (Adjacency)")
+        form_layout.addRow("Algorithm:", self.algo_combo)
+
         layout.addLayout(form_layout)
 
         # Buttons
-        button_box = QDialogButtonBox(
-            QtCompat.DialogOk | QtCompat.DialogCancel)
+        button_box = QDialogButtonBox()
+        self.ok_button = button_box.addButton(QDialogButtonBox.Ok)
+        self.cancel_button = button_box.addButton(QDialogButtonBox.Cancel)
+        self.preview_button = QPushButton("Preview")
+        button_box.addButton(self.preview_button, QDialogButtonBox.ActionRole)
+
         button_box.accepted.connect(self.accept)
         button_box.rejected.connect(self.reject)
+        self.preview_button.clicked.connect(self.on_preview_clicked)
+        self.start_parcel_btn.clicked.connect(self.on_select_start_clicked)
         layout.addWidget(button_box)
 
         # Connect signals
@@ -123,6 +169,31 @@ class AutoNumberDialog(QDialog):
 
         # Initial update
         self.update_start_number()
+
+    def on_select_start_clicked(self):
+        self.canvas_tool.activate_start_parcel_selector(self)
+
+    def set_start_feature(self, feat):
+        self.selected_start_feature = feat
+        if feat:
+            self.start_parcel_label.setText(f"Parcel ID: {feat.id()}")
+        else:
+            self.start_parcel_label.setText("None (Auto Corner)")
+
+    def on_preview_clicked(self):
+        field_name, start_num, corner, direction, pattern, algo, start_feat_id = self.get_values()
+        features = self.layer.selectedFeatures() or list(self.layer.getFeatures())
+        self.canvas_tool.show_numbering_preview(
+            features, field_name, start_num, corner, direction, pattern, algo, start_feat_id
+        )
+
+    def closeEvent(self, event):
+        self.canvas_tool.clear_preview()
+        super().closeEvent(event)
+
+    def reject(self):
+        self.canvas_tool.clear_preview()
+        super().reject()
 
     def update_start_number(self):
         field_name = self.field_combo.currentText()
@@ -295,7 +366,15 @@ class AutoNumberDialog(QDialog):
                                             f"Successfully cleared {cleared_count} duplicate values.\\nFeatures marked as 'cleared' (Blue).")
 
     def get_values(self):
-        return self.field_combo.currentText(), self.start_num_spin.value()
+        return (
+            self.field_combo.currentText().strip(),
+            self.start_num_spin.value(),
+            self.corner_combo.currentText(),
+            self.direction_combo.currentText(),
+            self.pattern_combo.currentText(),
+            self.algo_combo.currentText(),
+            self.selected_start_feature.id() if self.selected_start_feature else None
+        )
 
 
 class SmartSelectionTool(QgsMapTool):
@@ -1556,7 +1635,278 @@ class LpmCanvas(QMainWindow):
             ('Edited', '"STATUS" = \'edited\'', '#ffff00', None),
             ('Duplicate', '"STATUS" = \'duplicate\'', '#ff0000', None),
         )
-        rule_based_symbology(self.layer, rules, False)
+    def detect_dominant_angle(self, features):
+        import math
+        angles = []
+        lengths = []
+        for feat in features:
+            geom = feat.geometry()
+            if not geom:
+                continue
+            try:
+                vertices = list(geom.vertices())
+            except Exception:
+                continue
+            for i in range(len(vertices) - 1):
+                p1 = vertices[i]
+                p2 = vertices[i+1]
+                dx = p2.x() - p1.x()
+                dy = p2.y() - p1.y()
+                length = math.hypot(dx, dy)
+                if length > 0.1:
+                    angle = math.atan2(dy, dx)
+                    angle_mod = angle % (math.pi / 2)
+                    angles.append(angle_mod)
+                    lengths.append(length)
+        if not lengths:
+            return 0.0
+        
+        num_bins = 90
+        bin_size = (math.pi / 2) / num_bins
+        bins = [0.0] * num_bins
+        for angle, length in zip(angles, lengths):
+            bin_idx = min(int(angle / bin_size), num_bins - 1)
+            bins[bin_idx] += length
+        
+        max_bin_idx = bins.index(max(bins))
+        
+        total_weighted_angle = 0.0
+        total_length = 0.0
+        for i in range(-2, 3):
+            idx = (max_bin_idx + i) % num_bins
+            for angle, length in zip(angles, lengths):
+                diff = abs(angle - (idx * bin_size + bin_size / 2))
+                if diff > math.pi / 4:
+                    diff = abs(diff - math.pi / 2)
+                if diff <= bin_size:
+                    total_weighted_angle += angle * length
+                    total_length += length
+        dom_angle = total_weighted_angle / total_length if total_length > 0 else 0.0
+        # Map dominant angle to [-pi/4, pi/4] to prevent axis inversion
+        if dom_angle > math.pi / 4:
+            dom_angle -= math.pi / 2
+            
+        if abs(dom_angle) < 0.035:
+            return 0.0
+        return dom_angle
+
+    def sort_features_spatially_v2(self, features, start_corner, direction, pattern, algo, start_feature_id=None):
+        if not features:
+            return []
+        
+        import math
+        
+        # 1. Calculate centroids and initial info
+        feature_infos = []
+        for feat in features:
+            geom = feat.geometry()
+            if not geom:
+                continue
+            bbox = geom.boundingBox()
+            try:
+                tolerance = bbox.width() * 0.10
+                visual_center_geom = geom.poleOfInaccessibility(tolerance)
+                if visual_center_geom:
+                    visual_center = visual_center_geom.asPoint()
+                else:
+                    visual_center = geom.pointOnSurface().asPoint()
+            except:
+                visual_center = geom.pointOnSurface().asPoint()
+            
+            feature_infos.append({
+                'feature': feat,
+                'id': feat.id(),
+                'x': visual_center.x(),
+                'y': visual_center.y(),
+                'bbox_top': bbox.yMaximum(),
+                'height': bbox.height(),
+                'width': bbox.width(),
+                'geometry': geom
+            })
+            
+        if not feature_infos:
+            return []
+            
+        # 2. PCA of centroids to detect dominant macro angle of the selection block
+        xs = [info['x'] for info in feature_infos]
+        ys = [info['y'] for info in feature_infos]
+        n = len(feature_infos)
+        if n > 1:
+            mean_x = sum(xs) / n
+            mean_y = sum(ys) / n
+            cov_xx = sum((x - mean_x) ** 2 for x in xs) / n
+            cov_yy = sum((y - mean_y) ** 2 for y in ys) / n
+            cov_xy = sum((x - mean_x) * (y - mean_y) for x, y in zip(xs, ys)) / n
+            
+            dominant_angle = 0.5 * math.atan2(2 * cov_xy, cov_xx - cov_yy)
+            # Normalize to [-pi/4, pi/4]
+            if dominant_angle > math.pi / 4:
+                dominant_angle -= math.pi / 2
+            elif dominant_angle < -math.pi / 4:
+                dominant_angle += math.pi / 2
+                
+            # If tilt is very small, ignore it to prevent floating point noise
+            if abs(dominant_angle) < 0.035:
+                dominant_angle = 0.0
+        else:
+            dominant_angle = 0.0
+
+        cos_a = math.cos(-dominant_angle)
+        sin_a = math.sin(-dominant_angle)
+        
+        # Apply rotation to all centroids
+        total_height = 0
+        total_width = 0
+        valid_count = 0
+        for info in feature_infos:
+            rx = info['x'] * cos_a - info['y'] * sin_a
+            ry = info['x'] * sin_a + info['y'] * cos_a
+            info['rx'] = rx
+            info['ry'] = ry
+            if info['height'] > 0 and info['width'] > 0:
+                total_height += info['height']
+                total_width += info['width']
+                valid_count += 1
+                
+        avg_height = total_height / valid_count if valid_count > 0 else 1.0
+        avg_width = total_width / valid_count if valid_count > 0 else 1.0
+        # 3. Spatial grouping begins directly using the rotated coordinates
+
+        # 4. Group into rows or columns
+        groups = []
+        current_group = []
+        
+        if direction == "Row-wise (Horizontal)":
+            is_descending = (start_corner in ["Top-Left", "Top-Right"])
+            # Initial sort by primary vertical coordinate
+            feature_infos.sort(key=lambda k: (-k['ry'] if is_descending else k['ry'], k['rx']))
+            
+            if feature_infos:
+                current_group = [feature_infos[0]]
+                group_tolerance = avg_height * 0.40
+                for info in feature_infos[1:]:
+                    if abs(info['ry'] - current_group[0]['ry']) <= group_tolerance:
+                        current_group.append(info)
+                    else:
+                        groups.append(current_group)
+                        current_group = [info]
+                if current_group:
+                    groups.append(current_group)
+                    
+            # Sort each row horizontally
+            x_descending = (start_corner in ["Top-Right", "Bottom-Right"])
+            for i, row in enumerate(groups):
+                row.sort(key=lambda k: -k['rx'] if x_descending else k['rx'])
+                if pattern == "Serpentine (Snake)" and i % 2 == 1:
+                    row.reverse()
+        else:
+            # Column-wise
+            is_descending = (start_corner in ["Top-Right", "Bottom-Right"])
+            # Initial sort by primary horizontal coordinate
+            feature_infos.sort(key=lambda k: (-k['rx'] if is_descending else k['rx'], k['ry']))
+            
+            if feature_infos:
+                current_group = [feature_infos[0]]
+                group_tolerance = avg_width * 0.40
+                for info in feature_infos[1:]:
+                    if abs(info['rx'] - current_group[0]['rx']) <= group_tolerance:
+                        current_group.append(info)
+                    else:
+                        groups.append(current_group)
+                        current_group = [info]
+                if current_group:
+                    groups.append(current_group)
+                    
+            # Sort each column vertically
+            y_descending = (start_corner in ["Top-Left", "Top-Right"])
+            for i, col in enumerate(groups):
+                col.sort(key=lambda k: -k['ry'] if y_descending else k['ry'])
+                if pattern == "Serpentine (Snake)" and i % 2 == 1:
+                    col.reverse()
+                    
+        ranked_features = []
+        for gp in groups:
+            for info in gp:
+                ranked_features.append(info)
+                
+        for rank, info in enumerate(ranked_features):
+            info['rank'] = rank
+
+        # Debug logging to investigate sorting order
+        try:
+            log_path = r"C:\Users\sslr\.gemini\antigravity-ide\brain\926714c9-e145-4488-b536-72bbac913884\debug_log.txt"
+            with open(log_path, "w") as f_log:
+                f_log.write(f"Dominant Angle: {dominant_angle} rad ({math.degrees(dominant_angle)} deg)\n")
+                f_log.write(f"Avg Height: {avg_height}, Avg Width: {avg_width}\n")
+                f_log.write(f"Groups count: {len(groups)}\n")
+                for idx_gp, gp in enumerate(groups):
+                    f_log.write(f"Group {idx_gp} (count={len(gp)}):\n")
+                    for info in gp:
+                        f_log.write(f"  ID: {info['id']}, x: {info['x']:.2f}, y: {info['y']:.2f}, rx: {info['rx']:.2f}, ry: {info['ry']:.2f}\n")
+        except Exception as e_log:
+            print(f"Failed to write debug log: {str(e_log)}")
+            
+        # 5. Graph Traversal
+        spatial_index = QgsSpatialIndex()
+        id_to_info = {info['id']: info for info in feature_infos}
+        for info in feature_infos:
+            spatial_index.addFeature(info['feature'])
+            
+        sorted_features = []
+        visited_ids = set()
+        
+        # Start with the user-selected parcel if available, otherwise the first ranked feature
+        start_info = None
+        if start_feature_id is not None:
+            start_info = id_to_info.get(start_feature_id)
+        current_info = start_info if start_info is not None else ranked_features[0]
+        
+        while len(sorted_features) < len(features):
+            sorted_features.append(current_info['feature'])
+            visited_ids.add(current_info['id'])
+            
+            if len(sorted_features) == len(features):
+                break
+                
+            geom = current_info['geometry']
+            buffer_dist = avg_height * 0.05
+            search_geom = geom.buffer(buffer_dist, 5)
+            neighbor_ids = spatial_index.intersects(search_geom.boundingBox())
+            
+            candidates = []
+            for nid in neighbor_ids:
+                if nid == current_info['id'] or nid in visited_ids:
+                    continue
+                neighbor_info = id_to_info[nid]
+                intersection = geom.intersection(neighbor_info['geometry'])
+                if not intersection.isEmpty():
+                    candidates.append({
+                        'info': neighbor_info,
+                        'shared_length': intersection.length(),
+                        'rank': neighbor_info['rank']
+                    })
+                    
+            if candidates:
+                if algo == "Smart (Adjacency)":
+                    candidates.sort(key=lambda k: k['rank'])
+                    best_rank = candidates[0]['rank']
+                    local_candidates = [c for c in candidates if c['rank'] <= best_rank + 5]
+                    local_candidates.sort(key=lambda k: k['shared_length'], reverse=True)
+                    next_info = local_candidates[0]['info']
+                else:
+                    candidates.sort(key=lambda k: k['rank'])
+                    next_info = candidates[0]['info']
+            else:
+                next_info = None
+                for info in ranked_features:
+                    if info['id'] not in visited_ids:
+                        next_info = info
+                        break
+            if next_info:
+                current_info = next_info
+            else:
+                break
+        return sorted_features
 
     def sort_features_spatially(self, features, pattern='z', algorithm='smart'):
         """
@@ -1782,45 +2132,169 @@ class LpmCanvas(QMainWindow):
                 current_info = next_info
             else:
                 break  # Should not happen if loop condition is correct
-        return sorted_features
+    def clear_preview(self):
+        if hasattr(self, 'preview_layer') and self.preview_layer:
+            try:
+                # Remove from canvas layers
+                layers = self.canvas.layers()
+                if self.preview_layer in layers:
+                    layers.remove(self.preview_layer)
+                    self.canvas.setLayers(layers)
+                
+                # Remove from project
+                QgsProject.instance().removeMapLayer(self.preview_layer.id())
+            except:
+                pass
+            self.preview_layer = None
+        
+        if hasattr(self, 'preview_rubber_band') and self.preview_rubber_band:
+            try:
+                self.preview_rubber_band.reset()
+            except:
+                pass
+            self.preview_rubber_band = None
+            
+        self.canvas.refresh()
+        
+    def activate_start_parcel_selector(self, dialog):
+        self.temp_tool = QgsMapToolEmitPoint(self.canvas)
+        self.temp_tool_old = self.canvas.mapTool()
+        self.temp_tool.setCursor(QtCompat.cross_cursor())
+        
+        def on_clicked(point, button):
+            self.canvas.setMapTool(self.temp_tool_old)
+            geom = QgsGeometry.fromPointXY(point)
+            clicked_feat = None
+            
+            # Check selected first
+            for feat in self.layer.selectedFeatures():
+                if feat.geometry().contains(geom):
+                    clicked_feat = feat
+                    break
+            if not clicked_feat:
+                for feat in self.layer.getFeatures():
+                    if feat.geometry().contains(geom):
+                        clicked_feat = feat
+                        break
+            
+            if clicked_feat:
+                dialog.set_start_feature(clicked_feat)
+                dialog.on_preview_clicked()
+            else:
+                QMessageBox.warning(self.canvas.window(), "Selection", "No parcel clicked. Please click inside a parcel.")
+                
+        self.temp_tool.canvasClicked.connect(on_clicked)
+        self.canvas.setMapTool(self.temp_tool)
+
+    def show_numbering_preview(self, features, field_name, start_num, corner, direction, pattern, algo, start_feat_id=None):
+        self.clear_preview()
+        
+        if not features:
+            return
+            
+        sorted_features = self.sort_features_spatially_v2(
+            features, corner, direction, pattern, algo, start_feat_id
+        )
+        if not sorted_features:
+            return
+            
+        # Line rubber band
+        self.preview_rubber_band = QgsRubberBand(self.canvas, QgsWkbTypes.GeometryType.LineGeometry)
+        self.preview_rubber_band.setColor(QColor("#e31a1c"))
+        self.preview_rubber_band.setWidth(2)
+        
+        # Memory layer for point labels
+        crs_id = self.layer.crs().authid() if self.layer else "EPSG:4326"
+        self.preview_layer = QgsVectorLayer(f"Point?crs={crs_id}", "Numbering Preview", "memory")
+        pr = self.preview_layer.dataProvider()
+        pr.addAttributes([QgsField("temp_num", QVariant.Int)])
+        self.preview_layer.updateFields()
+        
+        preview_feats = []
+        for i, feat in enumerate(sorted_features):
+            geom = feat.geometry()
+            if not geom:
+                continue
+            bbox = geom.boundingBox()
+            tolerance = bbox.width() * 0.10
+            try:
+                center = geom.poleOfInaccessibility(tolerance).asPoint()
+            except:
+                center = geom.pointOnSurface().asPoint()
+                
+            self.preview_rubber_band.addPoint(center)
+            
+            pf = QgsFeature()
+            pf.setGeometry(QgsGeometry.fromPointXY(center))
+            pf.setAttributes([start_num + i])
+            preview_feats.append(pf)
+            
+        pr.addFeatures(preview_feats)
+        
+        # Labels Configuration
+        settings = QgsPalLayerSettings()
+        settings.fieldName = "temp_num"
+        
+        text_format = QgsTextFormat()
+        text_format.setFont(QFont("Verdana", 9, QFont.Bold))
+        text_format.setColor(QColor("#1f78b4"))
+        
+        buffer = QgsTextBufferSettings()
+        buffer.setEnabled(True)
+        buffer.setSize(1.5)
+        buffer.setColor(QColor("white"))
+        text_format.setBuffer(buffer)
+        
+        settings.setFormat(text_format)
+        settings.placement = QgsPalLayerSettings.Placement.OverPoint
+        
+        labels = QgsVectorLayerSimpleLabeling(settings)
+        self.preview_layer.setLabeling(labels)
+        self.preview_layer.setLabelsEnabled(True)
+        
+        symbol = QgsSymbol.defaultSymbol(self.preview_layer.geometryType())
+        symbol.setSize(0)
+        self.preview_layer.setRenderer(QgsSingleSymbolRenderer(symbol))
+        
+        QgsProject.instance().addMapLayer(self.preview_layer, False)
+        layers = self.canvas.layers()
+        self.canvas.setLayers([self.preview_layer] + layers)
+        self.preview_layer.triggerRepaint()
+        self.canvas.refresh()
 
     def auto_number_serpentine(self):
         """
-        Trigger auto-numbering on the current selection (Smart Algorithm).
+        Trigger auto-numbering on the current selection.
         """
         if not self.layer:
             return
 
         selected_features = self.layer.selectedFeatures()
         if selected_features:
-            self.perform_auto_numbering(
-                selected_features, pattern='snake', algorithm='smart')
+            self.perform_auto_numbering(selected_features, pattern='snake', algorithm='smart')
         else:
             reply = QtCompat.message_box_question(self.canvas.window(), "Auto Number",
-                                                  "No features selected. Number all features in the layer?",
-                                                  QtCompat.Yes | QtCompat.No, QtCompat.No)
+                                                   "No features selected. Number all features in the layer?",
+                                                   QtCompat.Yes | QtCompat.No, QtCompat.No)
             if reply == QtCompat.Yes:
-                self.perform_auto_numbering(
-                    list(self.layer.getFeatures()), pattern='snake', algorithm='smart')
+                self.perform_auto_numbering(list(self.layer.getFeatures()), pattern='snake', algorithm='smart')
 
     def auto_number_original(self):
         """
-        Trigger auto-numbering on the current selection (Original Algorithm).
+        Trigger auto-numbering on the current selection.
         """
         if not self.layer:
             return
 
         selected_features = self.layer.selectedFeatures()
         if selected_features:
-            self.perform_auto_numbering(
-                selected_features, pattern='snake', algorithm='original')
+            self.perform_auto_numbering(selected_features, pattern='snake', algorithm='original')
         else:
             reply = QtCompat.message_box_question(self.canvas.window(), "Auto Number",
-                                                  "No features selected. Number all features in the layer?",
-                                                  QtCompat.Yes | QtCompat.No, QtCompat.No)
+                                                   "No features selected. Number all features in the layer?",
+                                                   QtCompat.Yes | QtCompat.No, QtCompat.No)
             if reply == QtCompat.Yes:
-                self.perform_auto_numbering(
-                    list(self.layer.getFeatures()), pattern='snake', algorithm='original')
+                self.perform_auto_numbering(list(self.layer.getFeatures()), pattern='snake', algorithm='original')
 
     def perform_auto_numbering(self, features, pattern='snake', algorithm='smart'):
         """
@@ -1828,8 +2302,8 @@ class LpmCanvas(QMainWindow):
         """
         if not self.layer.isEditable():
             reply = QtCompat.message_box_question(self.canvas.window(), "Edit Mode",
-                                                  "Layer is not in edit mode. Start editing?",
-                                                  QtCompat.Yes | QtCompat.No, QtCompat.Yes)
+                                                   "Layer is not in edit mode. Start editing?",
+                                                   QtCompat.Yes | QtCompat.No, QtCompat.Yes)
             if reply == QtCompat.Yes:
                 self.layer.startEditing()
             else:
@@ -1838,12 +2312,26 @@ class LpmCanvas(QMainWindow):
         if not features:
             return
 
-        # Custom Dialog for Field Name and Start Number
-        dialog = AutoNumberDialog(self.layer, self.canvas.window())
-        if QtCompat.exec(dialog) != QtCompat.DialogAccepted:
+        # Custom Dialog for Field Name, Start Number, and other sorting options
+        dialog = AutoNumberDialog(self, self.layer, default_pattern=pattern, default_algo=algorithm, parent=self.canvas.window())
+        dialog.setModal(False)
+        dialog.setWindowFlags(QtCompat.Window | QtCompat.WindowStaysOnTopHint)
+        
+        dialog.accepted.connect(lambda: self.on_auto_numbering_accepted(dialog))
+        dialog.rejected.connect(self.clear_preview)
+        
+        # Keep reference to prevent garbage collection
+        self._auto_number_dialog = dialog
+        dialog.show()
+
+    def on_auto_numbering_accepted(self, dialog):
+        self.clear_preview()
+        
+        features = self.layer.selectedFeatures() or list(self.layer.getFeatures())
+        if not features:
             return
 
-        field_name, start_num = dialog.get_values()
+        field_name, start_num, corner, direction, pattern_sel, algo_sel, start_feat_id = dialog.get_values()
 
         # Update class-level label so manual tool uses it too
         self.label = field_name
@@ -1858,8 +2346,7 @@ class LpmCanvas(QMainWindow):
             # Verify creation
             idx = self.layer.fields().indexFromName(field_name)
             if idx == -1:
-                QMessageBox.critical(self.canvas.window(
-                ), "Error", f"Failed to create field '{field_name}'.")
+                QMessageBox.critical(self.canvas.window(), "Error", f"Failed to create field '{field_name}'.")
                 return
 
         # Ensure STATUS field exists for tracking
@@ -1884,8 +2371,6 @@ class LpmCanvas(QMainWindow):
                             existing_values_count += 1
                     except:  # nosec B110
                         pass
-            else:
-                pass
 
         skip_existing = False
         if existing_values_count > 0:
@@ -1913,16 +2398,15 @@ class LpmCanvas(QMainWindow):
 
                 features = features_to_number
                 if not features:
-                    QMessageBox.information(self.canvas.window(
-                    ), "Info", "No features to number after skipping existing values.")
+                    QMessageBox.information(self.canvas.window(), "Info", "No features to number after skipping existing values.")
                     return
 
         # Sort features
-        sorted_features = self.sort_features_spatially(
-            features, pattern, algorithm)
+        sorted_features = self.sort_features_spatially_v2(
+            features, corner, direction, pattern_sel, algo_sel, start_feat_id)
 
         # Apply numbering
-        self.layer.beginEditCommand(f"Auto Number ({pattern})")
+        self.layer.beginEditCommand(f"Auto Number ({pattern_sel})")
         try:
             current_num = start_num
 
@@ -1988,7 +2472,6 @@ class LpmCanvas(QMainWindow):
                          placement_index=1, font_color='#000')
 
             self.layer.endEditCommand()
-            # self.canvas.refresh()
             QMessageBox.information(
                 self.canvas.window(), "Success", "Auto-numbering completed.")
 
