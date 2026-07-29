@@ -2148,15 +2148,23 @@ class LpmCanvas(QMainWindow):
                 
                 # Remove from project
                 QgsProject.instance().removeMapLayer(self.preview_layer.id())
-            except:
-                pass
+            except Exception as e:
+                QgsMessageLog.logMessage(
+                    f"Error removing preview layer: {e}",
+                    "Gruhanaksha",
+                    Qgis.MessageLevel.Warning
+                )
             self.preview_layer = None
         
         if hasattr(self, 'preview_rubber_band') and self.preview_rubber_band:
             try:
                 self.preview_rubber_band.reset()
-            except:
-                pass
+            except Exception as e:
+                QgsMessageLog.logMessage(
+                    f"Error resetting preview rubber band: {e}",
+                    "Gruhanaksha",
+                    Qgis.MessageLevel.Warning
+                )
             self.preview_rubber_band = None
             
         self.canvas.refresh()
