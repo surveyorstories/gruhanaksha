@@ -914,28 +914,19 @@ class PointInputDialog(QDialog):
                 try:
                     msg_level = Qgis.MessageLevel.Critical
                 except AttributeError:
-                    try:
-                        msg_level = Qgis.Critical
-                    except AttributeError:
-                        msg_level = 2
+                    msg_level = getattr(Qgis, 'Critical', 2)
                 self.iface.messageBar().pushMessage("Error", message, msg_level, 5)
             elif level == "success":
                 try:
                     msg_level = Qgis.MessageLevel.Success
                 except AttributeError:
-                    try:
-                        msg_level = Qgis.Success
-                    except AttributeError:
-                        msg_level = 3
+                    msg_level = getattr(Qgis, 'Success', 3)
                 self.iface.messageBar().pushMessage("Success", message, msg_level, 3)
             elif level == "warning":
                 try:
                     msg_level = Qgis.MessageLevel.Warning
                 except AttributeError:
-                    try:
-                        msg_level = Qgis.Warning
-                    except AttributeError:
-                        msg_level = 1
+                    msg_level = getattr(Qgis, 'Warning', 1)
                 self.iface.messageBar().pushMessage("Warning", message, msg_level, 4)
         except Exception:  # nosec B110
             pass

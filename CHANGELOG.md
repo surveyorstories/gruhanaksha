@@ -1,3 +1,3 @@
-Release Notes 3.5.1
+Release Notes 3.5.2
     - bug fixes
     
