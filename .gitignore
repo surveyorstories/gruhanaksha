@@ -7,7 +7,7 @@ canvas.py
 test.py
 *tests.py
 *test.py
-docs/*
+docs/
 *.md
 *.pyc
 **/__pycache__
