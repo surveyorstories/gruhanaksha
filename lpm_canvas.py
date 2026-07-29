@@ -1645,7 +1645,12 @@ class LpmCanvas(QMainWindow):
                 continue
             try:
                 vertices = list(geom.vertices())
-            except Exception:
+            except (AttributeError, TypeError, ValueError) as e:
+                QgsMessageLog.logMessage(
+                    f"Error getting geometry vertices: {e}",
+                    "Gruhanaksha",
+                    Qgis.MessageLevel.Warning
+                )
                 continue
             for i in range(len(vertices) - 1):
                 p1 = vertices[i]
@@ -2236,7 +2241,7 @@ class LpmCanvas(QMainWindow):
         settings.fieldName = "temp_num"
         
         text_format = QgsTextFormat()
-        text_format.setFont(QFont("Verdana", 9, QFont.Bold))
+        text_format.setFont(QFont("Verdana", 9, QFont.Weight.Bold))
         text_format.setColor(QColor("#1f78b4"))
         
         buffer = QgsTextBufferSettings()
