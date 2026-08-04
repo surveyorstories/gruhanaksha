@@ -467,6 +467,78 @@ class TopologyFixer:
                 return True
         return False
 
+    @staticmethod
+    def fix_overlap_geometry(layer, fid1, fid2):
+        feat1 = layer.getFeature(fid1)
+        feat2 = layer.getFeature(fid2)
+        if not feat1.isValid() or not feat2.isValid():
+            return False
+
+        smaller_feat = feat1 if feat1.geometry().area() < feat2.geometry().area() else feat2
+        larger_feat = feat2 if smaller_feat.id() == feat1.id() else feat1
+
+        new_geom = smaller_feat.geometry().difference(larger_feat.geometry())
+        if new_geom and not new_geom.isEmpty():
+            layer.changeGeometry(smaller_feat.id(), new_geom)
+            return True
+        return False
+
+    @staticmethod
+    def fix_sliver_geometry(layer, fid):
+        sliver_feat = layer.getFeature(fid)
+        if not sliver_feat.isValid():
+            return False
+        sliver_geom = sliver_feat.geometry()
+        if not sliver_geom or sliver_geom.isEmpty():
+            return False
+
+        spatial_index = QgsSpatialIndex(layer.getFeatures())
+        candidate_ids = spatial_index.intersects(sliver_geom.boundingBox())
+
+        longest_boundary_len = 0.0
+        best_neighbor_id = None
+        for cand_id in candidate_ids:
+            if cand_id == fid:
+                continue
+            neighbor_feat = layer.getFeature(cand_id)
+            if not neighbor_feat.isValid():
+                continue
+            neighbor_geom = neighbor_feat.geometry()
+            if not neighbor_geom or neighbor_geom.isEmpty():
+                continue
+
+            inter = sliver_geom.intersection(neighbor_geom)
+            if not inter.isEmpty():
+                boundary_len = inter.length()
+                if boundary_len > longest_boundary_len:
+                    longest_boundary_len = boundary_len
+                    best_neighbor_id = cand_id
+
+        if best_neighbor_id is not None:
+            neighbor_feat = layer.getFeature(best_neighbor_id)
+            new_geom = neighbor_feat.geometry().combine(sliver_geom)
+            if new_geom and not new_geom.isEmpty():
+                layer.changeGeometry(best_neighbor_id, new_geom)
+                layer.deleteFeature(fid)
+                return True
+        return False
+
+    @staticmethod
+    def fix_overshoot_geometry(layer, fid):
+        feat = layer.getFeature(fid)
+        if not feat.isValid():
+            return False
+        geom = feat.geometry()
+        if not geom or geom.isEmpty():
+            return False
+        valid_geom = geom.makeValid()
+        if valid_geom and not valid_geom.isEmpty():
+            coerced_geom, _ = valid_geom.coerceToType(layer.wkbType())
+            if coerced_geom and not coerced_geom.isEmpty():
+                layer.changeGeometry(fid, coerced_geom)
+                return True
+        return False
+
 
 class TopologyCheckerDialog(QDialog):
     """UI Dialog for Layer selection, processing options, and error inspection."""
@@ -815,7 +887,10 @@ class TopologyCheckerDialog(QDialog):
             'Invalid Geometry',
             'Duplicate Geometry',
             'Multipart Geometry',
-            'Spike / Acute Vertex'
+            'Spike / Acute Vertex',
+            'Overlap',
+            'Micro Polygon / Sliver',
+            'Prolonged Edge / Overshoot'
         }
 
         fixable_errors = [e for e in selected_errors if e.error_type in supported_types]
@@ -861,6 +936,30 @@ class TopologyCheckerDialog(QDialog):
 
                 elif err.error_type == 'Spike / Acute Vertex':
                     if TopologyFixer.fix_spike_geometry(layer, err.feature_ids[0], err.location_x, err.location_y):
+                        fixed_count += 1
+                        all_affected_fids.extend(err.feature_ids)
+                    else:
+                        failed_count += 1
+
+                elif err.error_type == 'Overlap':
+                    if len(err.feature_ids) >= 2:
+                        if TopologyFixer.fix_overlap_geometry(layer, err.feature_ids[0], err.feature_ids[1]):
+                            fixed_count += 1
+                            all_affected_fids.extend(err.feature_ids)
+                        else:
+                            failed_count += 1
+                    else:
+                        failed_count += 1
+
+                elif err.error_type == 'Micro Polygon / Sliver':
+                    if TopologyFixer.fix_sliver_geometry(layer, err.feature_ids[0]):
+                        fixed_count += 1
+                        all_affected_fids.extend(err.feature_ids)
+                    else:
+                        failed_count += 1
+
+                elif err.error_type == 'Prolonged Edge / Overshoot':
+                    if TopologyFixer.fix_overshoot_geometry(layer, err.feature_ids[0]):
                         fixed_count += 1
                         all_affected_fids.extend(err.feature_ids)
                     else:

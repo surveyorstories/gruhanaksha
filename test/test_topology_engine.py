@@ -263,5 +263,56 @@ class TestTopologyEngine(unittest.TestCase):
         gap_errs = [e for e in errors if e.error_type == 'Enclosed Gap / Void']
         self.assertGreaterEqual(len(gap_errs), 1)
 
+    def test_fix_overlap(self):
+        layer = QgsVectorLayer("Polygon?crs=EPSG:4326", "test_fix_overlap", "memory")
+        pr = layer.dataProvider()
+        f1 = QgsFeature(1)
+        f1.setGeometry(QgsGeometry.fromPolygonXY([[QgsPointXY(0,0), QgsPointXY(0,10), QgsPointXY(10,10), QgsPointXY(10,0), QgsPointXY(0,0)]]))
+        f2 = QgsFeature(2) # Area 25, overlaps f1 (area 100)
+        f2.setGeometry(QgsGeometry.fromPolygonXY([[QgsPointXY(8,0), QgsPointXY(8,10), QgsPointXY(13,10), QgsPointXY(13,0), QgsPointXY(8,0)]]))
+        pr.addFeatures([f1, f2])
+        
+        layer.startEditing()
+        success = TopologyFixer.fix_overlap_geometry(layer, 1, 2)
+        layer.commitChanges()
+        self.assertTrue(success)
+        # Check that overlap is resolved
+        self.assertAlmostEqual(layer.getFeature(2).geometry().intersection(layer.getFeature(1).geometry()).area(), 0.0, places=5)
+
+    def test_fix_sliver(self):
+        layer = QgsVectorLayer("Polygon?crs=EPSG:4326", "test_fix_sliver", "memory")
+        pr = layer.dataProvider()
+        # Large neighbor
+        f1 = QgsFeature(1)
+        f1.setGeometry(QgsGeometry.fromPolygonXY([[QgsPointXY(0,0), QgsPointXY(0,10), QgsPointXY(10,10), QgsPointXY(10,0), QgsPointXY(0,0)]]))
+        # Sliver sharing border at X=10
+        f2 = QgsFeature(2)
+        f2.setGeometry(QgsGeometry.fromPolygonXY([[QgsPointXY(10,0), QgsPointXY(10,10), QgsPointXY(10.001,10), QgsPointXY(10.001,0), QgsPointXY(10,0)]]))
+        pr.addFeatures([f1, f2])
+        
+        layer.startEditing()
+        success = TopologyFixer.fix_sliver_geometry(layer, 2)
+        layer.commitChanges()
+        self.assertTrue(success)
+        # Sliver should be deleted and merged into neighbor
+        self.assertFalse(layer.getFeature(2).isValid())
+        self.assertGreater(layer.getFeature(1).geometry().area(), 100.0)
+
+    def test_fix_overshoot(self):
+        layer = QgsVectorLayer("Polygon?crs=EPSG:4326", "test_fix_overshoot", "memory")
+        pr = layer.dataProvider()
+        f1 = QgsFeature(1)
+        f1.setGeometry(QgsGeometry.fromWkt('POLYGON((0 0, 0 10, 5 10, 5 15, 5 10, 10 10, 10 0, 0 0))'))
+        pr.addFeatures([f1])
+        
+        layer.startEditing()
+        success = TopologyFixer.fix_overshoot_geometry(layer, 1)
+        layer.commitChanges()
+        self.assertTrue(success)
+        # Geometry should be valid and have no dangling line
+        geom = layer.getFeature(1).geometry()
+        self.assertTrue(geom.isGeosValid())
+        self.assertNotIn("LineString", geom.asWkt())
+
 if __name__ == '__main__':
     unittest.main()
