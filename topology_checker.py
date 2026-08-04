@@ -347,7 +347,8 @@ class TopologyEngine:
                             mid_x = (ptA.x() + ptB.x()) / 2.0
                             mid_y = (ptA.y() + ptB.y()) / 2.0
                             desc = f"Unmapped Gap / Void between FID {feat.id()} and FID {candidate_id} (Distance: {dist:.6f} units)"
-                            errors.append(TopologyError('Gap / Sliver Void', [feat.id(), candidate_id], desc, mid_x, mid_y, QgsGeometry.fromPointXY(QgsPointXY(mid_x, mid_y))))
+                            gap_geom = geomA.shortestLine(geomB)
+                            errors.append(TopologyError('Gap / Sliver Void', [feat.id(), candidate_id], desc, mid_x, mid_y, gap_geom))
 
         # 6. Check Duplicate Geometries
         if options.get('check_duplicates', True):
@@ -426,9 +427,20 @@ class TopologyEngine:
                                     if hole_geom.boundingBox().intersects(target_bbox):
                                         centroid = hole_geom.centroid().asPoint()
                                         desc = f"Enclosed Gap / Void (Area: {hole_geom.area():.4f} sq units)"
+                                        
+                                        # Find surrounding feature IDs
+                                        surrounding_fids = []
+                                        expanded_hole = hole_geom.boundingBox()
+                                        expanded_hole.grow(0.1)
+                                        candidates = spatial_index.intersects(expanded_hole)
+                                        for cid in candidates:
+                                            f = features_dict.get(cid)
+                                            if f and f.geometry() and f.geometry().intersects(hole_geom):
+                                                surrounding_fids.append(cid)
+
                                         errors.append(TopologyError(
                                             'Enclosed Gap / Void',
-                                            [],
+                                            surrounding_fids,
                                             desc,
                                             centroid.x(),
                                             centroid.y(),
@@ -449,9 +461,20 @@ class TopologyEngine:
                                 hole_geom = QgsGeometry.fromPolygonXY([int_ring])
                                 centroid = hole_geom.centroid().asPoint()
                                 desc = f"Enclosed Gap / Void (Area: {hole_geom.area():.4f} sq units)"
+                                
+                                # Find surrounding feature IDs
+                                surrounding_fids = []
+                                expanded_hole = hole_geom.boundingBox()
+                                expanded_hole.grow(0.1)
+                                candidates = spatial_index.intersects(expanded_hole)
+                                for cid in candidates:
+                                    f = features_dict.get(cid)
+                                    if f and f.geometry() and f.geometry().intersects(hole_geom):
+                                        surrounding_fids.append(cid)
+
                                 errors.append(TopologyError(
                                     'Enclosed Gap / Void',
-                                    [],
+                                    surrounding_fids,
                                     desc,
                                     centroid.x(),
                                     centroid.y(),
@@ -1214,9 +1237,11 @@ class TopologyCheckerDialog(QDialog):
         for err in filtered:
             # Create rubberband outline for geometry
             if err.geometry:
-                rb = QgsRubberBand(canvas, True)
+                is_poly = (err.geometry.type() == QgsWkbTypes.PolygonGeometry)
+                rb = QgsRubberBand(canvas, is_poly)
                 rb.setColor(QColor(255, 0, 0, 120))
-                rb.setWidth(2)
+                rb.setStrokeColor(QColor(255, 0, 0, 220))
+                rb.setWidth(3)
                 rb.setToGeometry(err.geometry, None)
                 self.all_rubber_bands.append(rb)
 
@@ -1282,9 +1307,14 @@ class TopologyCheckerDialog(QDialog):
                     parent_rb.setToGeometry(feat.geometry(), None)
                     self.parent_rubber_bands.append(parent_rb)
 
-        self.rubber_band = QgsRubberBand(canvas, True)
+        is_poly = False
+        if err.geometry:
+            is_poly = (err.geometry.type() == QgsWkbTypes.PolygonGeometry)
+
+        self.rubber_band = QgsRubberBand(canvas, is_poly)
         self.rubber_band.setColor(QColor(255, 0, 0, 150))
-        self.rubber_band.setWidth(3)
+        self.rubber_band.setStrokeColor(QColor(255, 0, 0, 255))
+        self.rubber_band.setWidth(4)
 
         if err.geometry:
             self.rubber_band.setToGeometry(err.geometry, None)
