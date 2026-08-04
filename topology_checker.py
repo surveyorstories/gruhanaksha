@@ -64,21 +64,29 @@ class TopologyEngine:
             canonical_parts.append((ext_ring, int_rings))
         return tuple(sorted(canonical_parts))
 
-    def run_checks(self, layer: QgsVectorLayer, options: dict, progress_callback=None, target_fids=None):
+    def run_checks(self, layer_or_features, options: dict, progress_callback=None, target_fids=None):
         errors = []
-        if not layer or not layer.isValid():
+        if not layer_or_features:
             return errors
 
-        features = list(layer.getFeatures())
+        if isinstance(layer_or_features, list):
+            features = layer_or_features
+        else:
+            if not layer_or_features.isValid():
+                return errors
+            features = list(layer_or_features.getFeatures())
+
         total_count = len(features)
         if total_count == 0:
             return errors
 
-        # Cache features in memory to avoid costly layer.getFeature() calls
-        features_dict = {f.id(): f for f in features}
-        
-        # Build spatial index once and reuse it across checks
-        spatial_index = QgsSpatialIndex(layer.getFeatures())
+        # Cache features in memory and build spatial index once
+        features_dict = {}
+        spatial_index = QgsSpatialIndex()
+        for f in features:
+            features_dict[f.id()] = f
+            if f.geometry() and not f.geometry().isEmpty():
+                spatial_index.addFeature(f)
 
         target_set = set(target_fids) if target_fids is not None else None
 
@@ -590,7 +598,7 @@ class TopologyCheckTask(QgsTask):
     """Task to run topology checks asynchronously in a background thread."""
     def __init__(self, layer, options, target_fids, callback):
         super().__init__("Running Topology Check", QgsTask.Flags())
-        self.layer = layer
+        self.features = [QgsFeature(f) for f in layer.getFeatures()]
         self.options = options
         self.target_fids = target_fids
         self.callback = callback
@@ -607,7 +615,7 @@ class TopologyCheckTask(QgsTask):
                 return True
             
             self.errors = self.engine.run_checks(
-                self.layer, self.options, 
+                self.features, self.options, 
                 progress_callback=progress_cb, 
                 target_fids=self.target_fids
             )
