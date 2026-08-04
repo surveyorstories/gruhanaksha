@@ -854,6 +854,11 @@ class TopologyCheckerDialog(QDialog):
         self.search_edit.textChanged.connect(self.populate_table)
         filter_layout.addWidget(self.search_edit)
         
+        self.cb_show_highlights = QCheckBox("Show Highlights")
+        self.cb_show_highlights.setChecked(True)
+        self.cb_show_highlights.stateChanged.connect(self.on_show_highlights_changed)
+        filter_layout.addWidget(self.cb_show_highlights)
+        
         layout.addLayout(filter_layout)
         
         # Progress Bar
@@ -1224,6 +1229,8 @@ class TopologyCheckerDialog(QDialog):
     def highlight_all_errors(self):
         if not self.iface:
             return
+        if hasattr(self, 'cb_show_highlights') and not self.cb_show_highlights.isChecked():
+            self.cb_show_highlights.setChecked(True)
         self.clear_all_canvas_markers()
         canvas = self.iface.mapCanvas()
 
@@ -1267,6 +1274,9 @@ class TopologyCheckerDialog(QDialog):
             canvas.refresh()
 
     def on_table_select(self):
+        if not hasattr(self, 'cb_show_highlights') or not self.cb_show_highlights.isChecked():
+            self.clear_all_canvas_markers()
+            return
         selected_rows = self.table.selectionModel().selectedRows()
         if not selected_rows:
             self.clear_all_canvas_markers()
@@ -1347,6 +1357,12 @@ class TopologyCheckerDialog(QDialog):
         canvas.setCenter(QgsPointXY(err.location_x, err.location_y))
         canvas.refresh()
         self.highlight_error(err)
+
+    def on_show_highlights_changed(self):
+        if not self.cb_show_highlights.isChecked():
+            self.clear_all_canvas_markers()
+        else:
+            self.on_table_select()
 
     def create_error_memory_layer(self, source_layer):
         if not self.errors:
