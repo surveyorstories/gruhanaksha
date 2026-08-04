@@ -10,7 +10,7 @@ import math
 from qgis.core import (
     QgsVectorLayer, QgsFeature, QgsGeometry, QgsSpatialIndex,
     QgsRectangle, QgsPointXY, QgsField, QgsProject, QgsMapLayerProxyModel,
-    QgsTask, QgsApplication
+    QgsTask, QgsApplication, QgsWkbTypes
 )
 from qgis.PyQt.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QGroupBox,
@@ -63,6 +63,12 @@ class TopologyEngine:
             int_rings = tuple(sorted(self.canonicalize_ring(r) for r in poly[1:]))
             canonical_parts.append((ext_ring, int_rings))
         return tuple(sorted(canonical_parts))
+
+    def _get_polygon_parts(self, geom):
+        if not geom or geom.isEmpty():
+            return []
+        comps = geom.coerceToType(QgsWkbTypes.Polygon)
+        return [c for c in comps if c.type() == QgsWkbTypes.PolygonGeometry and not c.isEmpty()]
 
     def run_checks(self, layer_or_features, options: dict, progress_callback=None, target_fids=None):
         errors = []
@@ -403,7 +409,7 @@ class TopologyEngine:
                     for cid in candidate_ids:
                         f = features_dict.get(cid)
                         if f and f.geometry() and not f.geometry().isEmpty():
-                            local_geoms.append(f.geometry())
+                            local_geoms.extend(self._get_polygon_parts(f.geometry().makeValid()))
                     
                     if local_geoms:
                         union_geom = QgsGeometry.unaryUnion(local_geoms)
@@ -430,7 +436,10 @@ class TopologyEngine:
                                         ))
             else:
                 # Full layer check
-                valid_geoms = [f.geometry() for f in features if f.geometry() and not f.geometry().isEmpty()]
+                valid_geoms = []
+                for f in features:
+                    if f.geometry() and not f.geometry().isEmpty():
+                        valid_geoms.extend(self._get_polygon_parts(f.geometry().makeValid()))
                 if valid_geoms:
                     union_geom = QgsGeometry.unaryUnion(valid_geoms)
                     if union_geom and not union_geom.isEmpty():
@@ -587,7 +596,12 @@ class TopologyFixer:
             return False
         valid_geom = geom.makeValid()
         if valid_geom and not valid_geom.isEmpty():
-            coerced_geom, _ = valid_geom.coerceToType(layer.wkbType())
+            components = valid_geom.coerceToType(layer.wkbType())
+            coerced_geom = None
+            for comp in components:
+                if comp.type() == QgsWkbTypes.PolygonGeometry:
+                    coerced_geom = comp
+                    break
             if coerced_geom and not coerced_geom.isEmpty():
                 layer.changeGeometry(fid, coerced_geom)
                 return True
@@ -803,8 +817,7 @@ class TopologyCheckerDialog(QDialog):
             "Spike / Acute Vertex",
             "Prolonged Edge / Overshoot",
             "Overlap",
-            "Gap / Sliver Void",
-            "Enclosed Gap / Void",
+            "Gap / Void",
             "Duplicate Geometry",
             "Multipart Geometry",
             "Micro Polygon / Sliver"
@@ -1102,7 +1115,10 @@ class TopologyCheckerDialog(QDialog):
 
         res = self.errors
         if selected_type and selected_type != "All Error Types":
-            res = [e for e in res if e.error_type == selected_type]
+            if selected_type == "Gap / Void":
+                res = [e for e in res if e.error_type in ("Gap / Sliver Void", "Enclosed Gap / Void")]
+            else:
+                res = [e for e in res if e.error_type == selected_type]
 
         if query:
             res = [
