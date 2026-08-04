@@ -1,6 +1,6 @@
 import unittest
 from qgis.core import QgsVectorLayer, QgsFeature, QgsGeometry, QgsPointXY, QgsApplication
-from gruhanaksha.topology_checker import TopologyEngine, TopologyError
+from gruhanaksha.topology_checker import TopologyEngine, TopologyError, TopologyFixer
 
 # Initialize QgsApplication for tests
 qgis_app = QgsApplication([], False)
@@ -194,6 +194,40 @@ class TestTopologyEngine(unittest.TestCase):
         multipart_errs = [e for e in errors if e.error_type == 'Multipart Geometry']
         self.assertEqual(len(multipart_errs), 1)
         self.assertEqual(multipart_errs[0].feature_ids, [2])
+
+    def test_selective_recheck_larger_id_bug(self):
+        layer = QgsVectorLayer("Polygon?crs=EPSG:4326", "test_layer_recheck_bug", "memory")
+        pr = layer.dataProvider()
+        
+        f1 = QgsFeature(1)
+        f1.setGeometry(QgsGeometry.fromPolygonXY([[QgsPointXY(0,0), QgsPointXY(0,10), QgsPointXY(10,10), QgsPointXY(10,0), QgsPointXY(0,0)]]))
+        
+        f2 = QgsFeature(2)
+        f2.setGeometry(QgsGeometry.fromPolygonXY([[QgsPointXY(5,5), QgsPointXY(5,15), QgsPointXY(15,15), QgsPointXY(15,5), QgsPointXY(5,5)]]))
+        
+        pr.addFeatures([f1, f2])
+        
+        engine = TopologyEngine()
+        options = {'check_overlaps': True, 'overlap_tolerance': 0.0001}
+        
+        # Re-check only Feature 2 (the larger ID)
+        recheck_errs = engine.run_checks_for_features(layer, [2], options)
+        overlap_errs = [e for e in recheck_errs if e.error_type == 'Overlap']
+        self.assertEqual(len(overlap_errs), 1)
+        self.assertEqual(set(overlap_errs[0].feature_ids), {1, 2})
+
+    def test_topology_fixer_invalid(self):
+        layer = QgsVectorLayer("Polygon?crs=EPSG:4326", "test_fix_layer", "memory")
+        pr = layer.dataProvider()
+        f1 = QgsFeature(1)
+        f1.setGeometry(QgsGeometry.fromPolygonXY([[QgsPointXY(20,0), QgsPointXY(30,10), QgsPointXY(20,10), QgsPointXY(30,0), QgsPointXY(20,0)]]))
+        pr.addFeatures([f1])
+        
+        layer.startEditing()
+        success = TopologyFixer.fix_invalid_geometry(layer, 1)
+        layer.commitChanges()
+        self.assertTrue(success)
+        self.assertTrue(layer.getFeature(1).geometry().isGeosValid())
 
 if __name__ == '__main__':
     unittest.main()

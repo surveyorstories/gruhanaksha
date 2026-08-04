@@ -145,6 +145,7 @@ class TopologyEngine:
                             lines.append(ring)
                     boundary_dict[f.id()] = QgsGeometry.fromMultiPolylineXY(lines) if lines else None
 
+            seen_overshoot_pairs = set()
             for idx, feat in enumerate(features):
                 if target_set is not None and feat.id() not in target_set:
                     continue
@@ -183,8 +184,14 @@ class TopologyEngine:
                 boundary_a = boundary_dict.get(feat.id())
 
                 for cand_id in candidates:
-                    if cand_id <= feat.id() and (target_set is None or cand_id not in target_set):
+                    if cand_id == feat.id():
                         continue
+                    if target_set is not None and feat.id() not in target_set and cand_id not in target_set:
+                        continue
+                    pair = (min(feat.id(), cand_id), max(feat.id(), cand_id))
+                    if pair in seen_overshoot_pairs:
+                        continue
+                    seen_overshoot_pairs.add(pair)
                     featB = features_dict.get(cand_id)
                     if not featB:
                         continue
@@ -222,9 +229,11 @@ class TopologyEngine:
 
                 candidates = spatial_index.intersects(geomA.boundingBox())
                 for candidate_id in candidates:
-                    if candidate_id <= feat.id() and (target_set is None or candidate_id not in target_set):
+                    if candidate_id == feat.id():
                         continue
-                    pair = (feat.id(), candidate_id)
+                    if target_set is not None and feat.id() not in target_set and candidate_id not in target_set:
+                        continue
+                    pair = (min(feat.id(), candidate_id), max(feat.id(), candidate_id))
                     if pair in seen_pairs:
                         continue
                     seen_pairs.add(pair)
@@ -262,9 +271,11 @@ class TopologyEngine:
                 candidates = spatial_index.intersects(bbox_expanded)
 
                 for candidate_id in candidates:
-                    if candidate_id <= feat.id() and (target_set is None or candidate_id not in target_set):
+                    if candidate_id == feat.id():
                         continue
-                    pair = (feat.id(), candidate_id)
+                    if target_set is not None and feat.id() not in target_set and candidate_id not in target_set:
+                        continue
+                    pair = (min(feat.id(), candidate_id), max(feat.id(), candidate_id))
                     if pair in seen_gap_pairs:
                         continue
                     seen_gap_pairs.add(pair)
@@ -345,6 +356,68 @@ class TopologyEngine:
 
         # Run checks only targeting the selected feature IDs to maximize processing speed!
         return self.run_checks(layer, options, target_fids=feature_ids)
+
+
+class TopologyFixer:
+    """Handles editing operations on layers to resolve topological errors."""
+
+    @staticmethod
+    def fix_invalid_geometry(layer, fid):
+        feat = layer.getFeature(fid)
+        if not feat.isValid():
+            return False
+        new_geom = feat.geometry().makeValid()
+        if new_geom and not new_geom.isEmpty():
+            layer.changeGeometry(fid, new_geom)
+            return True
+        return False
+
+    @staticmethod
+    def fix_duplicate_geometry(layer, fid):
+        return layer.deleteFeature(fid)
+
+    @staticmethod
+    def fix_multipart_geometry(layer, fid):
+        feat = layer.getFeature(fid)
+        if not feat.isValid() or not feat.geometry().isMultipart():
+            return False
+        geom = feat.geometry()
+        polygon_list = geom.asMultiPolygon()
+        new_features = []
+        for poly in polygon_list:
+            new_feat = QgsFeature(layer.fields())
+            geom_part = QgsGeometry.fromPolygonXY(poly)
+            geom_part, _ = geom_part.coerceToType(layer.wkbType())
+            new_feat.setGeometry(geom_part)
+            new_feat.setAttributes(feat.attributes())
+            new_features.append(new_feat)
+
+        if new_features:
+            layer.addFeatures(new_features)
+            layer.deleteFeature(fid)
+            return True
+        return False
+
+    @staticmethod
+    def fix_spike_geometry(layer, fid, location_x, location_y):
+        feat = layer.getFeature(fid)
+        if not feat.isValid():
+            return False
+        geom = feat.geometry()
+        vertex_idx = -1
+        min_dist = 0.0001
+        for idx in range(geom.constGet().vertexCount()):
+            pt = geom.vertexAt(idx)
+            dist = QgsPointXY(pt).distance(QgsPointXY(location_x, location_y))
+            if dist < min_dist:
+                min_dist = dist
+                vertex_idx = idx
+
+        if vertex_idx != -1:
+            if geom.deleteVertex(vertex_idx):
+                layer.changeGeometry(fid, geom)
+                return True
+        return False
 
 
 class TopologyCheckerDialog(QDialog):
@@ -712,77 +785,30 @@ class TopologyCheckerDialog(QDialog):
         try:
             for err in fixable_errors:
                 if err.error_type == 'Invalid Geometry':
-                    fid = err.feature_ids[0]
-                    feat = layer.getFeature(fid)
-                    if feat.isValid():
-                        new_geom = feat.geometry().makeValid()
-                        if new_geom and not new_geom.isEmpty():
-                            layer.changeGeometry(fid, new_geom)
-                            fixed_count += 1
-                            all_affected_fids.extend(err.feature_ids)
-                        else:
-                            failed_count += 1
+                    if TopologyFixer.fix_invalid_geometry(layer, err.feature_ids[0]):
+                        fixed_count += 1
+                        all_affected_fids.extend(err.feature_ids)
                     else:
                         failed_count += 1
 
                 elif err.error_type == 'Duplicate Geometry':
-                    fid_to_delete = err.feature_ids[0]
-                    feat = layer.getFeature(fid_to_delete)
-                    if feat.isValid():
-                        layer.deleteFeature(fid_to_delete)
+                    if TopologyFixer.fix_duplicate_geometry(layer, err.feature_ids[0]):
                         fixed_count += 1
                         all_affected_fids.extend(err.feature_ids)
                     else:
-                        fixed_count += 1
+                        failed_count += 1
 
                 elif err.error_type == 'Multipart Geometry':
-                    fid = err.feature_ids[0]
-                    feat = layer.getFeature(fid)
-                    if feat.isValid() and feat.geometry().isMultipart():
-                        geom = feat.geometry()
-                        polygon_list = geom.asMultiPolygon()
-                        new_features = []
-                        for poly in polygon_list:
-                            new_feat = QgsFeature(layer.fields())
-                            geom_part = QgsGeometry.fromPolygonXY(poly)
-                            geom_part, _ = geom_part.coerceToType(layer.wkbType())
-                            new_feat.setGeometry(geom_part)
-                            new_feat.setAttributes(feat.attributes())
-                            new_features.append(new_feat)
-                        
-                        if new_features:
-                            layer.addFeatures(new_features)
-                            layer.deleteFeature(fid)
-                            fixed_count += 1
-                            all_affected_fids.extend(err.feature_ids)
-                        else:
-                            failed_count += 1
+                    if TopologyFixer.fix_multipart_geometry(layer, err.feature_ids[0]):
+                        fixed_count += 1
+                        all_affected_fids.extend(err.feature_ids)
                     else:
                         failed_count += 1
 
                 elif err.error_type == 'Spike / Acute Vertex':
-                    fid = err.feature_ids[0]
-                    feat = layer.getFeature(fid)
-                    if feat.isValid():
-                        geom = feat.geometry()
-                        vertex_idx = -1
-                        min_dist = 0.0001
-                        for idx in range(geom.constGet().vertexCount()):
-                            pt = geom.vertexAt(idx)
-                            dist = QgsPointXY(pt).distance(QgsPointXY(err.location_x, err.location_y))
-                            if dist < min_dist:
-                                min_dist = dist
-                                vertex_idx = idx
-
-                        if vertex_idx != -1:
-                            if geom.deleteVertex(vertex_idx):
-                                layer.changeGeometry(fid, geom)
-                                fixed_count += 1
-                                all_affected_fids.extend(err.feature_ids)
-                            else:
-                                failed_count += 1
-                        else:
-                            failed_count += 1
+                    if TopologyFixer.fix_spike_geometry(layer, err.feature_ids[0], err.location_x, err.location_y):
+                        fixed_count += 1
+                        all_affected_fids.extend(err.feature_ids)
                     else:
                         failed_count += 1
 
