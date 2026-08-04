@@ -751,7 +751,7 @@ class TopologyCheckerDialog(QDialog):
         col2_form = QFormLayout(col2_widget)
         col2_form.setContentsMargins(0, 0, 0, 0)
         
-        self.cb_gaps = QCheckBox("Check Gaps / Voids (Zero Gap)")
+        self.cb_gaps = QCheckBox("Check Gaps Between Adjacent Polygons (Sliver Gaps)")
         self.cb_gaps.setChecked(True)
         col2_form.addRow(self.cb_gaps)
         
@@ -761,7 +761,7 @@ class TopologyCheckerDialog(QDialog):
         self.gap_spin.setValue(1.0)
         col2_form.addRow("  Gap Distance Limit:", self.gap_spin)
         
-        self.cb_enclosed_gaps = QCheckBox("Check Enclosed Gaps / Voids")
+        self.cb_enclosed_gaps = QCheckBox("Check Enclosed Holes / Voids (Must Not Have Gaps)")
         self.cb_enclosed_gaps.setChecked(True)
         col2_form.addRow(self.cb_enclosed_gaps)
         
