@@ -735,7 +735,7 @@ class TopologyCheckerDialog(QDialog):
         self.gap_spin = QDoubleSpinBox()
         self.gap_spin.setRange(0.000001, 1000000.0)
         self.gap_spin.setDecimals(6)
-        self.gap_spin.setValue(0.000001)
+        self.gap_spin.setValue(1.0)
         col2_form.addRow("  Gap Distance Limit:", self.gap_spin)
         
         self.cb_enclosed_gaps = QCheckBox("Check Enclosed Gaps / Voids")
