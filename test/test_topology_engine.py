@@ -229,5 +229,39 @@ class TestTopologyEngine(unittest.TestCase):
         self.assertTrue(success)
         self.assertTrue(layer.getFeature(1).geometry().isGeosValid())
 
+    def test_canonical_duplicate_check(self):
+        layer = QgsVectorLayer("Polygon?crs=EPSG:4326", "test_dup_canonical", "memory")
+        pr = layer.dataProvider()
+        
+        # F1 and F2 are spatially identical, but starting point is shifted and F2 winding is reversed
+        f1 = QgsFeature(1)
+        f1.setGeometry(QgsGeometry.fromPolygonXY([[QgsPointXY(0,0), QgsPointXY(0,5), QgsPointXY(5,5), QgsPointXY(5,0), QgsPointXY(0,0)]]))
+        f2 = QgsFeature(2)
+        f2.setGeometry(QgsGeometry.fromPolygonXY([[QgsPointXY(5,5), QgsPointXY(0,5), QgsPointXY(0,0), QgsPointXY(5,0), QgsPointXY(5,5)]]))
+        
+        pr.addFeatures([f1, f2])
+        engine = TopologyEngine()
+        errors = engine.run_checks(layer, {'check_duplicates': True})
+        dup_errs = [e for e in errors if e.error_type == 'Duplicate Geometry']
+        self.assertEqual(len(dup_errs), 1)
+
+    def test_enclosed_gap_check(self):
+        layer = QgsVectorLayer("Polygon?crs=EPSG:4326", "test_enclosed_gaps", "memory")
+        pr = layer.dataProvider()
+        
+        # Three touching triangles leaving an enclosed central triangular void
+        f1 = QgsFeature(1)
+        f1.setGeometry(QgsGeometry.fromPolygonXY([[QgsPointXY(0,0), QgsPointXY(5,0), QgsPointXY(3,2), QgsPointXY(2,2), QgsPointXY(0,0)]]))
+        f2 = QgsFeature(2)
+        f2.setGeometry(QgsGeometry.fromPolygonXY([[QgsPointXY(5,0), QgsPointXY(2.5,5), QgsPointXY(2.5,3), QgsPointXY(3,2), QgsPointXY(5,0)]]))
+        f3 = QgsFeature(3)
+        f3.setGeometry(QgsGeometry.fromPolygonXY([[QgsPointXY(0,0), QgsPointXY(2,2), QgsPointXY(2.5,3), QgsPointXY(2.5,5), QgsPointXY(0,0)]]))
+        
+        pr.addFeatures([f1, f2, f3])
+        engine = TopologyEngine()
+        errors = engine.run_checks(layer, {'check_enclosed_gaps': True})
+        gap_errs = [e for e in errors if e.error_type == 'Enclosed Gap / Void']
+        self.assertGreaterEqual(len(gap_errs), 1)
+
 if __name__ == '__main__':
     unittest.main()

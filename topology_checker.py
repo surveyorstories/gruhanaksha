@@ -36,6 +36,33 @@ class TopologyError:
 class TopologyEngine:
     """Core evaluation engine running geometry checks without external dependencies."""
 
+    def canonicalize_ring(self, ring):
+        if not ring:
+            return ()
+        pts = ring[:-1] if ring[0] == ring[-1] else ring
+        if not pts:
+            return ()
+        coords = [(round(p.x(), 8), round(p.y(), 8)) for p in pts]
+        n = len(coords)
+        rotations = []
+        for i in range(n):
+            rotations.append(tuple(coords[i:] + coords[:i]))
+        coords_rev = coords[::-1]
+        for i in range(n):
+            rotations.append(tuple(coords_rev[i:] + coords_rev[:i]))
+        return min(rotations)
+
+    def canonicalize_polygon(self, geom):
+        if geom.isEmpty():
+            return ()
+        poly_list = geom.asMultiPolygon() if geom.isMultipart() else [geom.asPolygon()]
+        canonical_parts = []
+        for poly in poly_list:
+            ext_ring = self.canonicalize_ring(poly[0])
+            int_rings = tuple(sorted(self.canonicalize_ring(r) for r in poly[1:]))
+            canonical_parts.append((ext_ring, int_rings))
+        return tuple(sorted(canonical_parts))
+
     def run_checks(self, layer: QgsVectorLayer, options: dict, progress_callback=None, target_fids=None):
         errors = []
         if not layer or not layer.isValid():
@@ -314,16 +341,16 @@ class TopologyEngine:
                 geom = feat.geometry()
                 if not geom or geom.isEmpty():
                     continue
-                wkt = geom.asWkt()
-                if wkt in seen_geoms:
-                    other_id = seen_geoms[wkt]
+                canonical_key = self.canonicalize_polygon(geom)
+                if canonical_key in seen_geoms:
+                    other_id = seen_geoms[canonical_key]
                     # If target_set is active, we only flag if either features are in target_set
                     if target_set is not None and feat.id() not in target_set and other_id not in target_set:
                         continue
                     centroid = geom.centroid().asPoint()
                     errors.append(TopologyError('Duplicate Geometry', [feat.id(), other_id], f"Identical geometry to FID {other_id}", centroid.x(), centroid.y(), geom))
                 else:
-                    seen_geoms[wkt] = feat.id()
+                    seen_geoms[canonical_key] = feat.id()
 
         # 7. Check Multipart Geometries
         if options.get('check_multipart', True):
@@ -346,6 +373,27 @@ class TopologyEngine:
                 if geom and not geom.isEmpty() and geom.area() < min_area:
                     centroid = geom.centroid().asPoint()
                     errors.append(TopologyError('Micro Polygon / Sliver', [feat.id()], f"Area ({geom.area():.6f}) is below minimum threshold ({min_area})", centroid.x(), centroid.y(), geom))
+
+        # 9. Check Enclosed Gaps / Voids
+        if options.get('check_enclosed_gaps', True):
+            valid_geoms = [f.geometry() for f in features if f.geometry() and not f.geometry().isEmpty()]
+            if valid_geoms:
+                union_geom = QgsGeometry.unaryUnion(valid_geoms)
+                if union_geom and not union_geom.isEmpty():
+                    polys = union_geom.asMultiPolygon() if union_geom.isMultipart() else [union_geom.asPolygon()]
+                    for poly in polys:
+                        for int_ring in poly[1:]:
+                            hole_geom = QgsGeometry.fromPolygonXY([int_ring])
+                            centroid = hole_geom.centroid().asPoint()
+                            desc = f"Enclosed Gap / Void (Area: {hole_geom.area():.4f} sq units)"
+                            errors.append(TopologyError(
+                                'Enclosed Gap / Void',
+                                [],
+                                desc,
+                                centroid.x(),
+                                centroid.y(),
+                                hole_geom
+                            ))
 
         return errors
 
@@ -515,6 +563,10 @@ class TopologyCheckerDialog(QDialog):
         self.gap_spin.setValue(0.000001)
         col2_form.addRow("  Gap Distance Limit:", self.gap_spin)
         
+        self.cb_enclosed_gaps = QCheckBox("Check Enclosed Gaps / Voids")
+        self.cb_enclosed_gaps.setChecked(True)
+        col2_form.addRow(self.cb_enclosed_gaps)
+        
         self.cb_duplicates = QCheckBox("Check Duplicate Geometries")
         self.cb_duplicates.setChecked(True)
         col2_form.addRow(self.cb_duplicates)
@@ -591,6 +643,7 @@ class TopologyCheckerDialog(QDialog):
             "Prolonged Edge / Overshoot",
             "Overlap",
             "Gap / Sliver Void",
+            "Enclosed Gap / Void",
             "Duplicate Geometry",
             "Multipart Geometry",
             "Micro Polygon / Sliver"
@@ -633,12 +686,12 @@ class TopologyCheckerDialog(QDialog):
 
     def select_all_rules(self):
         for cb in [self.cb_validity, self.cb_spikes, self.cb_prolonged_edges, self.cb_overlaps,
-                   self.cb_gaps, self.cb_duplicates, self.cb_multipart, self.cb_min_area]:
+                   self.cb_gaps, self.cb_enclosed_gaps, self.cb_duplicates, self.cb_multipart, self.cb_min_area]:
             cb.setChecked(True)
 
     def deselect_all_rules(self):
         for cb in [self.cb_validity, self.cb_spikes, self.cb_prolonged_edges, self.cb_overlaps,
-                   self.cb_gaps, self.cb_duplicates, self.cb_multipart, self.cb_min_area]:
+                   self.cb_gaps, self.cb_enclosed_gaps, self.cb_duplicates, self.cb_multipart, self.cb_min_area]:
             cb.setChecked(False)
 
     def get_options(self):
@@ -651,6 +704,7 @@ class TopologyCheckerDialog(QDialog):
             'overlap_tolerance': self.overlap_spin.value(),
             'check_gaps': self.cb_gaps.isChecked(),
             'gap_distance_tolerance': self.gap_spin.value(),
+            'check_enclosed_gaps': self.cb_enclosed_gaps.isChecked(),
             'check_duplicates': self.cb_duplicates.isChecked(),
             'check_multipart': self.cb_multipart.isChecked(),
             'check_min_area': self.cb_min_area.isChecked(),
