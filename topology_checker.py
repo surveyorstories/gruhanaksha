@@ -9,7 +9,8 @@ import csv
 import math
 from qgis.core import (
     QgsVectorLayer, QgsFeature, QgsGeometry, QgsSpatialIndex,
-    QgsRectangle, QgsPointXY, QgsField, QgsProject, QgsMapLayerProxyModel
+    QgsRectangle, QgsPointXY, QgsField, QgsProject, QgsMapLayerProxyModel,
+    QgsTask, QgsApplication
 )
 from qgis.PyQt.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QGroupBox,
@@ -585,6 +586,41 @@ class TopologyFixer:
         return False
 
 
+class TopologyCheckTask(QgsTask):
+    """Task to run topology checks asynchronously in a background thread."""
+    def __init__(self, layer, options, target_fids, callback):
+        super().__init__("Running Topology Check", QgsTask.Flags())
+        self.layer = layer
+        self.options = options
+        self.target_fids = target_fids
+        self.callback = callback
+        self.errors = []
+        self.engine = TopologyEngine()
+
+    def run(self):
+        try:
+            # Background thread execution
+            def progress_cb(progress):
+                self.setProgress(progress)
+                if self.isCanceled():
+                    return False
+                return True
+            
+            self.errors = self.engine.run_checks(
+                self.layer, self.options, 
+                progress_callback=progress_cb, 
+                target_fids=self.target_fids
+            )
+            return True
+        except Exception as e:
+            print(f"Error in TopologyCheckTask: {str(e)}")
+            return False
+
+    def finished(self, result):
+        # Main thread callback
+        self.callback(self.errors, result)
+
+
 class TopologyCheckerDialog(QDialog):
     """UI Dialog for Layer selection, processing options, and error inspection."""
 
@@ -828,6 +864,25 @@ class TopologyCheckerDialog(QDialog):
             'min_area_tolerance': self.min_area_spin.value()
         }
 
+    def on_check_completed(self, errors, success):
+        self.progress_bar.setValue(100)
+        self.btn_run.setEnabled(True)
+        
+        if success:
+            self.errors = errors
+            self.populate_table()
+            
+            has_errs = len(self.errors) > 0
+            self.btn_recheck_selected.setEnabled(has_errs)
+            self.btn_autofix.setEnabled(has_errs)
+            self.btn_toggle_highlight.setEnabled(has_errs)
+            self.btn_export.setEnabled(has_errs)
+            layer = self.layer_cb.currentLayer()
+            self.lbl_summary.setText(f"Inspection Complete: Found {len(self.errors)} topology error(s) in layer '{layer.name()}'.")
+        else:
+            QMessageBox.critical(self, "Error", "Topology checking failed or was cancelled.")
+            self.lbl_summary.setText("Inspection failed.")
+
     def run_check(self):
         layer = self.layer_cb.currentLayer()
         if not layer:
@@ -837,17 +892,11 @@ class TopologyCheckerDialog(QDialog):
         options = self.get_options()
 
         self.progress_bar.setValue(0)
-        self.errors = self.engine.run_checks(layer, options, lambda val: self.progress_bar.setValue(val))
-        self.progress_bar.setValue(100)
-
-        self.populate_table()
-
-        has_errs = len(self.errors) > 0
-        self.btn_recheck_selected.setEnabled(has_errs)
-        self.btn_autofix.setEnabled(has_errs)
-        self.btn_toggle_highlight.setEnabled(has_errs)
-        self.btn_export.setEnabled(has_errs)
-        self.lbl_summary.setText(f"Inspection Complete: Found {len(self.errors)} topology error(s) in layer '{layer.name()}'.")
+        self.btn_run.setEnabled(False)
+        self.lbl_summary.setText("Running check in background...")
+        
+        self.check_task = TopologyCheckTask(layer, options, None, self.on_check_completed)
+        QgsApplication.taskManager().addTask(self.check_task)
 
     def toggle_highlights(self):
         if self.highlights_active:
@@ -870,6 +919,31 @@ class TopologyCheckerDialog(QDialog):
         elif action == "Create Error Layer":
             self.user_create_error_layer()
 
+    def run_recheck_async(self, layer, fids):
+        options = self.get_options()
+        self.btn_recheck_selected.setEnabled(False)
+        self.btn_autofix.setEnabled(False)
+        self.lbl_summary.setText(f"Re-checking feature(s) {', '.join(map(str, fids))}...")
+        
+        def on_recheck_completed(errors, success):
+            self.btn_recheck_selected.setEnabled(len(self.errors) > 0)
+            self.btn_autofix.setEnabled(len(self.errors) > 0)
+            if success:
+                target_set = set(fids)
+                self.errors = [e for e in self.errors if not any(fid in target_set for fid in e.feature_ids)]
+                self.errors.extend(errors)
+                self.populate_table()
+                if not errors:
+                    self.lbl_summary.setText(f"Re-check Complete: Feature ID(s) {', '.join(map(str, fids))} fixed!")
+                    QMessageBox.information(self, "Feature Fixed", f"Feature ID(s) {', '.join(map(str, fids))} passed successfully!")
+                else:
+                    self.lbl_summary.setText(f"Re-check Complete: {len(self.errors)} error(s) remaining.")
+            else:
+                self.lbl_summary.setText("Re-check failed.")
+        
+        self.recheck_task = TopologyCheckTask(layer, options, fids, on_recheck_completed)
+        QgsApplication.taskManager().addTask(self.recheck_task)
+
     def recheck_selected_error(self):
         selected_rows = self.table.selectionModel().selectedRows()
         if not selected_rows:
@@ -887,29 +961,7 @@ class TopologyCheckerDialog(QDialog):
         if not layer or not fids:
             return
 
-        options = self.get_options()
-        new_errs = self.engine.run_checks_for_features(layer, fids, options)
-
-        # Remove previous errors involving these feature IDs
-        target_set = set(fids)
-        self.errors = [e for e in self.errors if not any(fid in target_set for fid in e.feature_ids)]
-
-        # Append any new errors found
-        self.errors.extend(new_errs)
-
-        self.populate_table()
-
-        has_errs = len(self.errors) > 0
-        self.btn_recheck_selected.setEnabled(has_errs)
-        self.btn_autofix.setEnabled(has_errs)
-        self.btn_toggle_highlight.setEnabled(has_errs)
-        self.btn_export.setEnabled(has_errs)
-
-        if not new_errs:
-            self.lbl_summary.setText(f"Re-check Complete: Feature ID(s) {', '.join(map(str, fids))} fixed! Errors resolved.")
-            QMessageBox.information(self, "Feature Fixed", f"Feature ID(s) {', '.join(map(str, fids))} passed all topology checks successfully!")
-        else:
-            self.lbl_summary.setText(f"Re-check Complete: Feature ID(s) {', '.join(map(str, fids))} still has {len(new_errs)} error(s).")
+        self.run_recheck_async(layer, fids)
 
     def autofix_selected_error(self):
         selected_rows = self.table.selectionModel().selectedRows()
@@ -1025,19 +1077,7 @@ class TopologyCheckerDialog(QDialog):
             QMessageBox.critical(self, "Error", f"An error occurred during auto-fix: {str(e)}")
 
     def recheck_after_autofix(self, layer, fids):
-        options = self.get_options()
-        new_errs = self.engine.run_checks_for_features(layer, fids, options)
-
-        target_set = set(fids)
-        self.errors = [e for e in self.errors if not any(fid in target_set for fid in e.feature_ids)]
-        self.errors.extend(new_errs)
-        self.populate_table()
-
-        has_errs = len(self.errors) > 0
-        self.btn_recheck_selected.setEnabled(has_errs)
-        self.btn_autofix.setEnabled(has_errs)
-        self.btn_toggle_highlight.setEnabled(has_errs)
-        self.btn_export.setEnabled(has_errs)
+        self.run_recheck_async(layer, fids)
 
     def user_create_error_layer(self):
         layer = self.layer_cb.currentLayer()

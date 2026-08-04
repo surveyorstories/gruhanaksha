@@ -341,5 +341,29 @@ class TestTopologyEngine(unittest.TestCase):
         gap_errs2 = [e for e in errors2 if e.error_type == 'Enclosed Gap / Void']
         self.assertEqual(len(gap_errs2), 0)
 
+    def test_task_execution(self):
+        from gruhanaksha.topology_checker import TopologyCheckTask
+        layer = QgsVectorLayer("Polygon?crs=EPSG:4326", "test_task", "memory")
+        pr = layer.dataProvider()
+        f1 = QgsFeature(1)
+        f1.setGeometry(QgsGeometry.fromPolygonXY([[QgsPointXY(0,0), QgsPointXY(0,5), QgsPointXY(5,5), QgsPointXY(5,0), QgsPointXY(0,0)]]))
+        pr.addFeatures([f1])
+        
+        # We need a callback to receive result
+        result_data = []
+        def callback(errors, success):
+            result_data.append((errors, success))
+        
+        # Create task
+        task = TopologyCheckTask(layer, {'check_validity': True}, None, callback)
+        
+        # Run task synchronously for test validation
+        success = task.run()
+        task.finished(success)
+        
+        self.assertTrue(success)
+        self.assertEqual(len(result_data), 1)
+        self.assertEqual(result_data[0][1], True) # success is True
+
 if __name__ == '__main__':
     unittest.main()
