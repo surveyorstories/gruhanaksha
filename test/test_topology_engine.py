@@ -314,5 +314,32 @@ class TestTopologyEngine(unittest.TestCase):
         self.assertTrue(geom.isGeosValid())
         self.assertNotIn("LineString", geom.asWkt())
 
+    def test_localized_enclosed_gap_check(self):
+        layer = QgsVectorLayer("Polygon?crs=EPSG:4326", "test_local_gaps", "memory")
+        pr = layer.dataProvider()
+        
+        # Three touching triangles leaving an enclosed central triangular void
+        f1 = QgsFeature(1)
+        f1.setGeometry(QgsGeometry.fromPolygonXY([[QgsPointXY(0,0), QgsPointXY(5,0), QgsPointXY(3,2), QgsPointXY(2,2), QgsPointXY(0,0)]]))
+        f2 = QgsFeature(2)
+        f2.setGeometry(QgsGeometry.fromPolygonXY([[QgsPointXY(5,0), QgsPointXY(2.5,5), QgsPointXY(2.5,3), QgsPointXY(3,2), QgsPointXY(5,0)]]))
+        f3 = QgsFeature(3)
+        f3.setGeometry(QgsGeometry.fromPolygonXY([[QgsPointXY(0,0), QgsPointXY(2,2), QgsPointXY(2.5,3), QgsPointXY(2.5,5), QgsPointXY(0,0)]]))
+        # A far-away clean feature
+        f4 = QgsFeature(4)
+        f4.setGeometry(QgsGeometry.fromPolygonXY([[QgsPointXY(100,100), QgsPointXY(100,110), QgsPointXY(110,110), QgsPointXY(110,100), QgsPointXY(100,100)]]))
+        
+        pr.addFeatures([f1, f2, f3, f4])
+        engine = TopologyEngine()
+        # Selective check on f1, f2, f3. It should find the gap locally
+        errors1 = engine.run_checks(layer, {'check_enclosed_gaps': True}, target_fids=[1, 2, 3])
+        gap_errs1 = [e for e in errors1 if e.error_type == 'Enclosed Gap / Void']
+        self.assertEqual(len(gap_errs1), 1)
+
+        # Selective check on f4. It should NOT find the gap since f4 is far away and has no gaps
+        errors2 = engine.run_checks(layer, {'check_enclosed_gaps': True}, target_fids=[4])
+        gap_errs2 = [e for e in errors2 if e.error_type == 'Enclosed Gap / Void']
+        self.assertEqual(len(gap_errs2), 0)
+
 if __name__ == '__main__':
     unittest.main()

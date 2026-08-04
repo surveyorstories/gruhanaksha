@@ -376,24 +376,69 @@ class TopologyEngine:
 
         # 9. Check Enclosed Gaps / Voids
         if options.get('check_enclosed_gaps', True):
-            valid_geoms = [f.geometry() for f in features if f.geometry() and not f.geometry().isEmpty()]
-            if valid_geoms:
-                union_geom = QgsGeometry.unaryUnion(valid_geoms)
-                if union_geom and not union_geom.isEmpty():
-                    polys = union_geom.asMultiPolygon() if union_geom.isMultipart() else [union_geom.asPolygon()]
-                    for poly in polys:
-                        for int_ring in poly[1:]:
-                            hole_geom = QgsGeometry.fromPolygonXY([int_ring])
-                            centroid = hole_geom.centroid().asPoint()
-                            desc = f"Enclosed Gap / Void (Area: {hole_geom.area():.4f} sq units)"
-                            errors.append(TopologyError(
-                                'Enclosed Gap / Void',
-                                [],
-                                desc,
-                                centroid.x(),
-                                centroid.y(),
-                                hole_geom
-                            ))
+            if target_set is not None:
+                # Localized gap check around target features
+                target_geoms = [features_dict[fid].geometry() for fid in target_set if fid in features_dict]
+                if target_geoms:
+                    # Combine target bounding boxes
+                    bbox = QgsRectangle()
+                    bbox.setMinimal()
+                    for g in target_geoms:
+                        bbox.combineExtentWith(g.boundingBox())
+                    # Grow bbox slightly to include neighbor features
+                    bbox.grow(50.0)
+                    
+                    # Find candidate features intersecting the expanded bounding box
+                    candidate_ids = spatial_index.intersects(bbox)
+                    local_geoms = []
+                    for cid in candidate_ids:
+                        f = features_dict.get(cid)
+                        if f and f.geometry() and not f.geometry().isEmpty():
+                            local_geoms.append(f.geometry())
+                    
+                    if local_geoms:
+                        union_geom = QgsGeometry.unaryUnion(local_geoms)
+                        if union_geom and not union_geom.isEmpty():
+                            polys = union_geom.asMultiPolygon() if union_geom.isMultipart() else [union_geom.asPolygon()]
+                            for poly in polys:
+                                for int_ring in poly[1:]:
+                                    hole_geom = QgsGeometry.fromPolygonXY([int_ring])
+                                    # Only report if the hole intersects the original target bounding box
+                                    target_bbox = QgsRectangle()
+                                    target_bbox.setMinimal()
+                                    for g in target_geoms:
+                                        target_bbox.combineExtentWith(g.boundingBox())
+                                    if hole_geom.boundingBox().intersects(target_bbox):
+                                        centroid = hole_geom.centroid().asPoint()
+                                        desc = f"Enclosed Gap / Void (Area: {hole_geom.area():.4f} sq units)"
+                                        errors.append(TopologyError(
+                                            'Enclosed Gap / Void',
+                                            [],
+                                            desc,
+                                            centroid.x(),
+                                            centroid.y(),
+                                            hole_geom
+                                        ))
+            else:
+                # Full layer check
+                valid_geoms = [f.geometry() for f in features if f.geometry() and not f.geometry().isEmpty()]
+                if valid_geoms:
+                    union_geom = QgsGeometry.unaryUnion(valid_geoms)
+                    if union_geom and not union_geom.isEmpty():
+                        polys = union_geom.asMultiPolygon() if union_geom.isMultipart() else [union_geom.asPolygon()]
+                        for poly in polys:
+                            for int_ring in poly[1:]:
+                                hole_geom = QgsGeometry.fromPolygonXY([int_ring])
+                                centroid = hole_geom.centroid().asPoint()
+                                desc = f"Enclosed Gap / Void (Area: {hole_geom.area():.4f} sq units)"
+                                errors.append(TopologyError(
+                                    'Enclosed Gap / Void',
+                                    [],
+                                    desc,
+                                    centroid.x(),
+                                    centroid.y(),
+                                    hole_geom
+                                ))
 
         return errors
 
