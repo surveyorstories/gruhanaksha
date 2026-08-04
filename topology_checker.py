@@ -1063,10 +1063,11 @@ class TopologyCheckerDialog(QDialog):
                         failed_count += 1
 
             if fixed_count > 0:
-                layer.commitChanges()
-                msg = f"Successfully fixed {fixed_count} error(s) automatically."
+                # Do NOT call layer.commitChanges() so the user can review/rollback.
+                msg = f"Auto-fixed {fixed_count} error(s) in edit buffer."
                 if failed_count > 0:
                     msg += f" (Failed to fix {failed_count} error(s))."
+                msg += "\n\nNote: The fixes have been applied in edit mode. Please review them and save or discard layer changes manually in QGIS."
                 QMessageBox.information(self, "Success", msg)
                 self.recheck_after_autofix(layer, list(set(all_affected_fids)))
             else:
