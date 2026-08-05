@@ -22,6 +22,16 @@ from qgis.PyQt.QtCore import Qt, QVariant
 from qgis.PyQt.QtGui import QColor
 from qgis.gui import QgsMapLayerComboBox, QgsRubberBand, QgsVertexMarker
 
+# PyQt5 / PyQt6 compatibility for Qt enums
+try:
+    CHECKED = Qt.CheckState.Checked
+    USER_ROLE = Qt.ItemDataRole.UserRole
+    ITEM_IS_USER_CHECKABLE = Qt.ItemFlag.ItemIsUserCheckable
+except AttributeError:
+    CHECKED = Qt.Checked
+    USER_ROLE = Qt.UserRole
+    ITEM_IS_USER_CHECKABLE = Qt.ItemIsUserCheckable
+
 
 class TopologyError:
     """Represents an identified topological anomaly or error."""
@@ -1106,9 +1116,9 @@ class TopologyCheckerDialog(QDialog):
                 if main_layer and layer.id() == main_layer.id():
                     continue
                 item = QListWidgetItem(layer.name())
-                item.setData(Qt.UserRole, layer.id())
-                item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
-                item.setCheckState(Qt.Checked) # default checked
+                item.setData(USER_ROLE, layer.id())
+                item.setFlags(item.flags() | ITEM_IS_USER_CHECKABLE)
+                item.setCheckState(CHECKED) # default checked
                 self.other_layers_list.addItem(item)
 
     def select_all_rules(self):
@@ -1187,8 +1197,8 @@ class TopologyCheckerDialog(QDialog):
             other_layers_data = {}
             for i in range(self.other_layers_list.count()):
                 item = self.other_layers_list.item(i)
-                if item.checkState() == Qt.Checked:
-                    l_id = item.data(Qt.UserRole)
+                if item.checkState() == CHECKED:
+                    l_id = item.data(USER_ROLE)
                     layer_ref = QgsProject.instance().mapLayer(l_id)
                     if layer_ref:
                         other_layers_data[l_id] = layer_ref
@@ -1261,8 +1271,8 @@ class TopologyCheckerDialog(QDialog):
             other_layers_data = {}
             for i in range(self.other_layers_list.count()):
                 item = self.other_layers_list.item(i)
-                if item.checkState() == Qt.Checked:
-                    l_id = item.data(Qt.UserRole)
+                if item.checkState() == CHECKED:
+                    l_id = item.data(USER_ROLE)
                     layer_ref = QgsProject.instance().mapLayer(l_id)
                     if layer_ref:
                         other_layers_data[l_id] = layer_ref
