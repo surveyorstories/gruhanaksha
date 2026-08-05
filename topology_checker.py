@@ -25,13 +25,14 @@ from qgis.gui import QgsMapLayerComboBox, QgsRubberBand, QgsVertexMarker
 
 class TopologyError:
     """Represents an identified topological anomaly or error."""
-    def __init__(self, error_type, feature_ids, description, location_x=0.0, location_y=0.0, geometry=None):
+    def __init__(self, error_type, feature_ids, description, location_x=0.0, location_y=0.0, geometry=None, layer_map=None):
         self.error_type = error_type
         self.feature_ids = feature_ids
         self.description = description
         self.location_x = location_x
         self.location_y = location_y
         self.geometry = geometry
+        self.layer_map = layer_map if layer_map is not None else {}
 
 
 class TopologyEngine:
@@ -481,6 +482,103 @@ class TopologyEngine:
                                     hole_geom
                                 ))
 
+        return errors
+
+    def run_cross_layer_checks(self, main_features, main_layer, other_layers_features, options: dict, progress_callback=None, target_fids=None):
+        errors = []
+        target_set = set(target_fids) if target_fids is not None else None
+        total_count = len(main_features)
+        if total_count == 0:
+            return errors
+
+        # Pre-build spatial index for each other layer
+        spatial_indexes = {}
+        for layer_id, (layer, feats) in other_layers_features.items():
+            sp_idx = QgsSpatialIndex()
+            feats_map = {}
+            for f in feats:
+                feats_map[f.id()] = f
+                if f.geometry() and not f.geometry().isEmpty():
+                    sp_idx.addFeature(f)
+            spatial_indexes[layer_id] = (layer, sp_idx, feats_map)
+
+        for idx, feat_main in enumerate(main_features):
+            if target_set is not None and feat_main.id() not in target_set:
+                continue
+            if progress_callback:
+                progress_callback(int((idx / total_count) * 100))
+
+            geom_main = feat_main.geometry()
+            if not geom_main or geom_main.isEmpty():
+                continue
+
+            # 1. Cross-Layer Overlap Check
+            if options.get('check_cross_overlaps', True):
+                tol = options.get('cross_overlap_tolerance', 0.0001)
+                for layer_id, (layer_other, sp_idx, feats_map) in spatial_indexes.items():
+                    candidates = sp_idx.intersects(geom_main.boundingBox())
+                    for c_id in candidates:
+                        feat_other = feats_map.get(c_id)
+                        if not feat_other or not feat_other.geometry() or feat_other.geometry().isEmpty():
+                            continue
+                        
+                        geom_other = feat_other.geometry()
+                        if geom_main.boundingBox().intersects(geom_other.boundingBox()):
+                            if geom_main.intersects(geom_other):
+                                inter = geom_main.intersection(geom_other)
+                                if not inter.isEmpty() and inter.area() > tol:
+                                    centroid = inter.centroid().asPoint() if not inter.centroid().isEmpty() else geom_main.centroid().asPoint()
+                                    desc = f"Overlaps with FID {c_id} in layer '{layer_other.name()}' (Area: {inter.area():.4f} sq units)"
+                                    layer_map = {feat_main.id(): main_layer, c_id: layer_other}
+                                    errors.append(TopologyError(
+                                        'Cross-Layer Overlap', 
+                                        [feat_main.id(), c_id], 
+                                        desc, 
+                                        centroid.x(), 
+                                        centroid.y(), 
+                                        inter,
+                                        layer_map=layer_map
+                                    ))
+
+            # 2. Cross-Layer Gap Check
+            if options.get('check_cross_gaps', True):
+                gap_tol = options.get('cross_gap_tolerance', 0.000001)
+                for layer_id, (layer_other, sp_idx, feats_map) in spatial_indexes.items():
+                    bbox_expanded = geom_main.boundingBox()
+                    bbox_expanded.grow(max(gap_tol * 2.0, 1.0))
+                    candidates = sp_idx.intersects(bbox_expanded)
+                    for c_id in candidates:
+                        feat_other = feats_map.get(c_id)
+                        if not feat_other or not feat_other.geometry() or feat_other.geometry().isEmpty():
+                            continue
+                        
+                        geom_other = feat_other.geometry()
+                        rectA = geom_main.boundingBox()
+                        rectB = geom_other.boundingBox()
+                        dx = max(0.0, rectA.xMinimum() - rectB.xMaximum(), rectB.xMinimum() - rectA.xMaximum())
+                        dy = max(0.0, rectA.yMinimum() - rectB.yMaximum(), rectB.yMinimum() - rectA.yMaximum())
+                        if math.hypot(dx, dy) > gap_tol:
+                            continue
+
+                        if not geom_main.intersects(geom_other) and not geom_main.touches(geom_other):
+                            dist = geom_main.distance(geom_other)
+                            if 0.0 < dist <= gap_tol:
+                                ptA = geom_main.centroid().asPoint()
+                                ptB = geom_other.centroid().asPoint()
+                                mid_x = (ptA.x() + ptB.x()) / 2.0
+                                mid_y = (ptA.y() + ptB.y()) / 2.0
+                                desc = f"Unmapped Gap between main FID {feat_main.id()} and FID {c_id} in layer '{layer_other.name()}' (Distance: {dist:.6f} units)"
+                                gap_geom = geom_main.shortestLine(geom_other)
+                                layer_map = {feat_main.id(): main_layer, c_id: layer_other}
+                                errors.append(TopologyError(
+                                    'Cross-Layer Gap / Sliver Void', 
+                                    [feat_main.id(), c_id], 
+                                    desc, 
+                                    mid_x, 
+                                    mid_y, 
+                                    gap_geom,
+                                    layer_map=layer_map
+                                ))
         return errors
 
     def run_checks_for_features(self, layer: QgsVectorLayer, feature_ids: list, options: dict):
