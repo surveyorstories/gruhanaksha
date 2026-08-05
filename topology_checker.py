@@ -343,12 +343,17 @@ class TopologyEngine:
                     if not geomA.intersects(geomB) and not geomA.touches(geomB):
                         dist = geomA.distance(geomB)
                         if 0.0 < dist <= gap_tol:
-                            ptA = geomA.centroid().asPoint()
-                            ptB = geomB.centroid().asPoint()
-                            mid_x = (ptA.x() + ptB.x()) / 2.0
-                            mid_y = (ptA.y() + ptB.y()) / 2.0
-                            desc = f"Unmapped Gap / Void between FID {feat.id()} and FID {candidate_id} (Distance: {dist:.6f} units)"
                             gap_geom = geomA.shortestLine(geomB)
+                            if not gap_geom.isEmpty():
+                                cent = gap_geom.centroid().asPoint() if not gap_geom.centroid().isEmpty() else QgsPointXY(0,0)
+                                mid_x = cent.x()
+                                mid_y = cent.y()
+                            else:
+                                ptA = geomA.centroid().asPoint()
+                                ptB = geomB.centroid().asPoint()
+                                mid_x = (ptA.x() + ptB.x()) / 2.0
+                                mid_y = (ptA.y() + ptB.y()) / 2.0
+                            desc = f"Unmapped Gap / Void between FID {feat.id()} and FID {candidate_id} (Distance: {dist:.6f} units)"
                             errors.append(TopologyError('Gap / Sliver Void', [feat.id(), candidate_id], desc, mid_x, mid_y, gap_geom))
 
         # 6. Check Duplicate Geometries
@@ -563,12 +568,17 @@ class TopologyEngine:
                         if not geom_main.intersects(geom_other) and not geom_main.touches(geom_other):
                             dist = geom_main.distance(geom_other)
                             if 0.0 < dist <= gap_tol:
-                                ptA = geom_main.centroid().asPoint()
-                                ptB = geom_other.centroid().asPoint()
-                                mid_x = (ptA.x() + ptB.x()) / 2.0
-                                mid_y = (ptA.y() + ptB.y()) / 2.0
-                                desc = f"Unmapped Gap between main FID {feat_main.id()} and FID {c_id} in layer '{layer_other.name()}' (Distance: {dist:.6f} units)"
                                 gap_geom = geom_main.shortestLine(geom_other)
+                                if not gap_geom.isEmpty():
+                                    cent = gap_geom.centroid().asPoint() if not gap_geom.centroid().isEmpty() else QgsPointXY(0,0)
+                                    mid_x = cent.x()
+                                    mid_y = cent.y()
+                                else:
+                                    ptA = geom_main.centroid().asPoint()
+                                    ptB = geom_other.centroid().asPoint()
+                                    mid_x = (ptA.x() + ptB.x()) / 2.0
+                                    mid_y = (ptA.y() + ptB.y()) / 2.0
+                                desc = f"Unmapped Gap between main FID {feat_main.id()} and FID {c_id} in layer '{layer_other.name()}' (Distance: {dist:.6f} units)"
                                 feature_layers = [main_layer, layer_other]
                                 errors.append(TopologyError(
                                     'Cross-Layer Gap / Sliver Void', 

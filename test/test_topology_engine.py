@@ -432,6 +432,8 @@ class TestTopologyEngine(unittest.TestCase):
         self.assertEqual(gap_errs[0].feature_ids, [fid_main, fid_other])
         self.assertEqual(gap_errs[0].feature_layers[0], main_layer)
         self.assertEqual(gap_errs[0].feature_layers[1], other_layer)
+        self.assertAlmostEqual(gap_errs[0].location_x, 10.00005, places=5)
+        self.assertAlmostEqual(gap_errs[0].location_y, 10.0, places=5)
 
     def test_cross_layer_autofix(self):
         main_layer = QgsVectorLayer("Polygon?crs=EPSG:4326", "main_layer", "memory")
