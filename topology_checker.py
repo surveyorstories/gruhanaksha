@@ -824,6 +824,7 @@ class TopologyCheckerDialog(QDialog):
         self.errors = []
         self.rubber_band = None
         self.vertex_marker = None
+        self.preview_rubber_bands = []
         self.setup_ui()
 
     def setup_ui(self):
@@ -1526,6 +1527,14 @@ class TopologyCheckerDialog(QDialog):
                 pass
         self.parent_rubber_bands = []
 
+        for prb in getattr(self, 'preview_rubber_bands', []):
+            try:
+                prb.reset()
+                canvas.scene().removeItem(prb)
+            except Exception:  # nosec B110
+                pass
+        self.preview_rubber_bands = []
+
         self.highlights_active = False
         if hasattr(self, 'btn_toggle_highlight') and self.btn_toggle_highlight:
             self.btn_toggle_highlight.setText("Highlight Errors")
@@ -1605,6 +1614,8 @@ class TopologyCheckerDialog(QDialog):
             if hasattr(self, 'btn_toggle_highlight') and self.btn_toggle_highlight:
                 self.btn_toggle_highlight.setText("Clear Highlights")
                 self.btn_toggle_highlight.setStyleSheet("background-color: #6c757d; color: white; font-weight: bold; padding: 6px;")
+            if err.error_type in ('Overlap', 'Cross-Layer Overlap') and hasattr(self, 'lbl_summary'):
+                self.lbl_summary.setText(f"Selected: {err.error_type}. Proposed fix preview shown in dashed green on map.")
 
     def on_table_double_click(self, row, column):
         filtered = self.get_filtered_errors()
@@ -1656,6 +1667,45 @@ class TopologyCheckerDialog(QDialog):
         self.vertex_marker.setPenWidth(3)
         self.vertex_marker.setIconSize(16)
         self.vertex_marker.setIconType(QgsVertexMarker.IconType.ICON_X)
+
+        # Check if the error is automatically fixable and generate proposed geometry preview
+        if err.error_type == 'Cross-Layer Overlap':
+            main_fid = err.feature_ids[0]
+            other_fid = err.feature_ids[1]
+            main_l = err.feature_layers[0] if len(err.feature_layers) > 0 else None
+            other_l = err.feature_layers[1] if len(err.feature_layers) > 1 else None
+            if main_l and other_l:
+                f_main = main_l.getFeature(main_fid)
+                f_other = other_l.getFeature(other_fid)
+                if f_main.isValid() and f_other.isValid():
+                    new_geom = f_main.geometry().difference(f_other.geometry())
+                    if new_geom and not new_geom.isEmpty():
+                        preview_rb = QgsRubberBand(canvas, True)
+                        preview_rb.setColor(QColor(46, 204, 113, 80)) # Semi-transparent green
+                        preview_rb.setSecondaryStrokeColor(QColor(39, 174, 96, 220)) # Darker green border
+                        preview_rb.setWidth(3)
+                        preview_rb.setLineStyle(Qt.DashLine)
+                        preview_rb.setToGeometry(new_geom, None)
+                        self.preview_rubber_bands.append(preview_rb)
+                        
+        elif err.error_type == 'Overlap':
+            layer = self.layer_cb.currentLayer()
+            if layer and len(err.feature_ids) >= 2:
+                feat1 = layer.getFeature(err.feature_ids[0])
+                feat2 = layer.getFeature(err.feature_ids[1])
+                if feat1.isValid() and feat2.isValid():
+                    smaller_feat = feat1 if feat1.geometry().area() < feat2.geometry().area() else feat2
+                    larger_feat = feat2 if smaller_feat.id() == feat1.id() else feat1
+                    new_geom = smaller_feat.geometry().difference(larger_feat.geometry())
+                    if new_geom and not new_geom.isEmpty():
+                        preview_rb = QgsRubberBand(canvas, True)
+                        preview_rb.setColor(QColor(46, 204, 113, 80))
+                        preview_rb.setSecondaryStrokeColor(QColor(39, 174, 96, 220))
+                        preview_rb.setWidth(3)
+                        preview_rb.setLineStyle(Qt.DashLine)
+                        preview_rb.setToGeometry(new_geom, None)
+                        self.preview_rubber_bands.append(preview_rb)
+
         canvas.refresh()
 
     def zoom_to_error(self, err):
