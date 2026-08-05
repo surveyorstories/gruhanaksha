@@ -382,19 +382,24 @@ class TestTopologyEngine(unittest.TestCase):
         f_other.setGeometry(QgsGeometry.fromPolygonXY([[QgsPointXY(8,2), QgsPointXY(8,8), QgsPointXY(12,8), QgsPointXY(12,2), QgsPointXY(8,2)]]))
         other_layer.dataProvider().addFeatures([f_other])
         
+        feat_main_added = list(main_layer.getFeatures())[0]
+        feat_other_added = list(other_layer.getFeatures())[0]
+        fid_main = feat_main_added.id()
+        fid_other = feat_other_added.id()
+        
         engine = TopologyEngine()
         options = {'check_cross_overlaps': True, 'cross_overlap_tolerance': 0.0001, 'check_cross_gaps': False}
-        other_layers_features = {"other_layer_id": (other_layer, [QgsFeature(f_other)])}
+        other_layers_features = {"other_layer_id": (other_layer, [feat_other_added])}
         
         errors = engine.run_cross_layer_checks(
-            [QgsFeature(f_main)], main_layer, other_layers_features, options
+            [feat_main_added], main_layer, other_layers_features, options
         )
         
         overlap_errs = [e for e in errors if e.error_type == 'Cross-Layer Overlap']
         self.assertEqual(len(overlap_errs), 1)
-        self.assertEqual(overlap_errs[0].feature_ids, [1, 10])
-        self.assertEqual(overlap_errs[0].layer_map[1], main_layer)
-        self.assertEqual(overlap_errs[0].layer_map[10], other_layer)
+        self.assertEqual(overlap_errs[0].feature_ids, [fid_main, fid_other])
+        self.assertEqual(overlap_errs[0].feature_layers[0], main_layer)
+        self.assertEqual(overlap_errs[0].feature_layers[1], other_layer)
 
     def test_cross_layer_gaps(self):
         main_layer = QgsVectorLayer("Polygon?crs=EPSG:4326", "main_layer", "memory")
@@ -409,19 +414,50 @@ class TestTopologyEngine(unittest.TestCase):
         f_other.setGeometry(QgsGeometry.fromPolygonXY([[QgsPointXY(10.0001,0), QgsPointXY(10.0001,10), QgsPointXY(20,10), QgsPointXY(20,0), QgsPointXY(10.0001,0)]]))
         other_layer.dataProvider().addFeatures([f_other])
         
+        feat_main_added = list(main_layer.getFeatures())[0]
+        feat_other_added = list(other_layer.getFeatures())[0]
+        fid_main = feat_main_added.id()
+        fid_other = feat_other_added.id()
+        
         engine = TopologyEngine()
         options = {'check_cross_overlaps': False, 'check_cross_gaps': True, 'cross_gap_tolerance': 0.0002}
-        other_layers_features = {"other_layer_id": (other_layer, [QgsFeature(f_other)])}
+        other_layers_features = {"other_layer_id": (other_layer, [feat_other_added])}
         
         errors = engine.run_cross_layer_checks(
-            [QgsFeature(f_main)], main_layer, other_layers_features, options
+            [feat_main_added], main_layer, other_layers_features, options
         )
         
         gap_errs = [e for e in errors if e.error_type == 'Cross-Layer Gap / Sliver Void']
         self.assertEqual(len(gap_errs), 1)
-        self.assertEqual(gap_errs[0].feature_ids, [1, 10])
-        self.assertEqual(gap_errs[0].layer_map[1], main_layer)
-        self.assertEqual(gap_errs[0].layer_map[10], other_layer)
+        self.assertEqual(gap_errs[0].feature_ids, [fid_main, fid_other])
+        self.assertEqual(gap_errs[0].feature_layers[0], main_layer)
+        self.assertEqual(gap_errs[0].feature_layers[1], other_layer)
+
+    def test_cross_layer_autofix(self):
+        main_layer = QgsVectorLayer("Polygon?crs=EPSG:4326", "main_layer", "memory")
+        other_layer = QgsVectorLayer("Polygon?crs=EPSG:4326", "other_layer", "memory")
+        
+        f_main = QgsFeature(1)
+        f_main.setGeometry(QgsGeometry.fromPolygonXY([[QgsPointXY(0,0), QgsPointXY(0,10), QgsPointXY(10,10), QgsPointXY(10,0), QgsPointXY(0,0)]]))
+        main_layer.dataProvider().addFeatures([f_main])
+        
+        f_other = QgsFeature(10)
+        f_other.setGeometry(QgsGeometry.fromPolygonXY([[QgsPointXY(8,0), QgsPointXY(8,10), QgsPointXY(13,10), QgsPointXY(13,0), QgsPointXY(8,0)]]))
+        other_layer.dataProvider().addFeatures([f_other])
+        
+        feat_main_added = list(main_layer.getFeatures())[0]
+        feat_other_added = list(other_layer.getFeatures())[0]
+        fid_main = feat_main_added.id()
+        fid_other = feat_other_added.id()
+        
+        main_layer.startEditing()
+        success = TopologyFixer.fix_cross_layer_overlap(main_layer, fid_main, other_layer, fid_other)
+        main_layer.commitChanges()
+        
+        self.assertTrue(success)
+        # Verify overlap is removed from main_layer feature
+        updated_feat = main_layer.getFeature(fid_main)
+        self.assertAlmostEqual(updated_feat.geometry().intersection(feat_other_added.geometry()).area(), 0.0, places=5)
 
 if __name__ == '__main__':
     unittest.main()

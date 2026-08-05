@@ -25,14 +25,14 @@ from qgis.gui import QgsMapLayerComboBox, QgsRubberBand, QgsVertexMarker
 
 class TopologyError:
     """Represents an identified topological anomaly or error."""
-    def __init__(self, error_type, feature_ids, description, location_x=0.0, location_y=0.0, geometry=None, layer_map=None):
+    def __init__(self, error_type, feature_ids, description, location_x=0.0, location_y=0.0, geometry=None, feature_layers=None):
         self.error_type = error_type
         self.feature_ids = feature_ids
         self.description = description
         self.location_x = location_x
         self.location_y = location_y
         self.geometry = geometry
-        self.layer_map = layer_map if layer_map is not None else {}
+        self.feature_layers = feature_layers if feature_layers is not None else []
 
 
 class TopologyEngine:
@@ -529,7 +529,7 @@ class TopologyEngine:
                                 if not inter.isEmpty() and inter.area() > tol:
                                     centroid = inter.centroid().asPoint() if not inter.centroid().isEmpty() else geom_main.centroid().asPoint()
                                     desc = f"Overlaps with FID {c_id} in layer '{layer_other.name()}' (Area: {inter.area():.4f} sq units)"
-                                    layer_map = {feat_main.id(): main_layer, c_id: layer_other}
+                                    feature_layers = [main_layer, layer_other]
                                     errors.append(TopologyError(
                                         'Cross-Layer Overlap', 
                                         [feat_main.id(), c_id], 
@@ -537,7 +537,7 @@ class TopologyEngine:
                                         centroid.x(), 
                                         centroid.y(), 
                                         inter,
-                                        layer_map=layer_map
+                                        feature_layers=feature_layers
                                     ))
 
             # 2. Cross-Layer Gap Check
@@ -569,7 +569,7 @@ class TopologyEngine:
                                 mid_y = (ptA.y() + ptB.y()) / 2.0
                                 desc = f"Unmapped Gap between main FID {feat_main.id()} and FID {c_id} in layer '{layer_other.name()}' (Distance: {dist:.6f} units)"
                                 gap_geom = geom_main.shortestLine(geom_other)
-                                layer_map = {feat_main.id(): main_layer, c_id: layer_other}
+                                feature_layers = [main_layer, layer_other]
                                 errors.append(TopologyError(
                                     'Cross-Layer Gap / Sliver Void', 
                                     [feat_main.id(), c_id], 
@@ -577,7 +577,7 @@ class TopologyEngine:
                                     mid_x, 
                                     mid_y, 
                                     gap_geom,
-                                    layer_map=layer_map
+                                    feature_layers=feature_layers
                                 ))
         return errors
 
@@ -726,6 +726,19 @@ class TopologyFixer:
             if coerced_geom and not coerced_geom.isEmpty():
                 layer.changeGeometry(fid, coerced_geom)
                 return True
+        return False
+
+    @staticmethod
+    def fix_cross_layer_overlap(main_layer, main_fid, other_layer, other_fid):
+        main_feat = main_layer.getFeature(main_fid)
+        other_feat = other_layer.getFeature(other_fid)
+        if not main_feat.isValid() or not other_feat.isValid():
+            return False
+
+        new_geom = main_feat.geometry().difference(other_feat.geometry())
+        if new_geom and not new_geom.isEmpty():
+            main_layer.changeGeometry(main_fid, new_geom)
+            return True
         return False
 
 
