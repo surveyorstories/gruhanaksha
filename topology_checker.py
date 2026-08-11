@@ -618,10 +618,15 @@ class TopologyFixer:
         feat = layer.getFeature(fid)
         if not feat.isValid():
             return False
-        new_geom = feat.geometry().makeValid()
+        geom = feat.geometry()
+        if not geom or geom.isEmpty():
+            return False
+        new_geom = geom.makeValid()
         if new_geom and not new_geom.isEmpty():
-            layer.changeGeometry(fid, new_geom)
-            return True
+            res = new_geom.coerceToType(layer.wkbType())
+            coerced_geom = res[0] if isinstance(res, list) else res
+            if coerced_geom and not coerced_geom.isEmpty():
+                return layer.changeGeometry(fid, coerced_geom)
         return False
 
     @staticmethod
@@ -639,15 +644,17 @@ class TopologyFixer:
         for poly in polygon_list:
             new_feat = QgsFeature(layer.fields())
             geom_part = QgsGeometry.fromPolygonXY(poly)
-            geom_part, _ = geom_part.coerceToType(layer.wkbType())
-            new_feat.setGeometry(geom_part)
+            res = geom_part.coerceToType(layer.wkbType())
+            coerced_geom = res[0] if isinstance(res, list) else res
+            new_feat.setGeometry(coerced_geom)
             new_feat.setAttributes(feat.attributes())
             new_features.append(new_feat)
 
         if new_features:
-            layer.addFeatures(new_features)
-            layer.deleteFeature(fid)
-            return True
+            res_add = layer.addFeatures(new_features)
+            success = res_add[0] if isinstance(res_add, tuple) else res_add
+            if success:
+                return layer.deleteFeature(fid)
         return False
 
     @staticmethod
@@ -656,6 +663,8 @@ class TopologyFixer:
         if not feat.isValid():
             return False
         geom = feat.geometry()
+        if not geom or geom.isEmpty():
+            return False
         vertex_idx = -1
         min_dist = 0.0001
         for idx in range(geom.constGet().vertexCount()):
@@ -667,8 +676,10 @@ class TopologyFixer:
 
         if vertex_idx != -1:
             if geom.deleteVertex(vertex_idx):
-                layer.changeGeometry(fid, geom)
-                return True
+                res = geom.coerceToType(layer.wkbType())
+                coerced_geom = res[0] if isinstance(res, list) else res
+                if coerced_geom and not coerced_geom.isEmpty():
+                    return layer.changeGeometry(fid, coerced_geom)
         return False
 
     @staticmethod
@@ -683,8 +694,10 @@ class TopologyFixer:
 
         new_geom = smaller_feat.geometry().difference(larger_feat.geometry())
         if new_geom and not new_geom.isEmpty():
-            layer.changeGeometry(smaller_feat.id(), new_geom)
-            return True
+            res = new_geom.coerceToType(layer.wkbType())
+            coerced_geom = res[0] if isinstance(res, list) else res
+            if coerced_geom and not coerced_geom.isEmpty():
+                return layer.changeGeometry(smaller_feat.id(), coerced_geom)
         return False
 
     @staticmethod
@@ -722,9 +735,11 @@ class TopologyFixer:
             neighbor_feat = layer.getFeature(best_neighbor_id)
             new_geom = neighbor_feat.geometry().combine(sliver_geom)
             if new_geom and not new_geom.isEmpty():
-                layer.changeGeometry(best_neighbor_id, new_geom)
-                layer.deleteFeature(fid)
-                return True
+                res = new_geom.coerceToType(layer.wkbType())
+                coerced_geom = res[0] if isinstance(res, list) else res
+                if coerced_geom and not coerced_geom.isEmpty():
+                    if layer.changeGeometry(best_neighbor_id, coerced_geom):
+                        return layer.deleteFeature(fid)
         return False
 
     @staticmethod
@@ -737,15 +752,10 @@ class TopologyFixer:
             return False
         valid_geom = geom.makeValid()
         if valid_geom and not valid_geom.isEmpty():
-            components = valid_geom.coerceToType(layer.wkbType())
-            coerced_geom = None
-            for comp in components:
-                if comp.type() == QgsWkbTypes.PolygonGeometry:
-                    coerced_geom = comp
-                    break
+            res = valid_geom.coerceToType(layer.wkbType())
+            coerced_geom = res[0] if isinstance(res, list) else res
             if coerced_geom and not coerced_geom.isEmpty():
-                layer.changeGeometry(fid, coerced_geom)
-                return True
+                return layer.changeGeometry(fid, coerced_geom)
         return False
 
     @staticmethod
@@ -757,8 +767,10 @@ class TopologyFixer:
 
         new_geom = main_feat.geometry().difference(other_feat.geometry())
         if new_geom and not new_geom.isEmpty():
-            main_layer.changeGeometry(main_fid, new_geom)
-            return True
+            res = new_geom.coerceToType(main_layer.wkbType())
+            coerced_geom = res[0] if isinstance(res, list) else res
+            if coerced_geom and not coerced_geom.isEmpty():
+                return main_layer.changeGeometry(main_fid, coerced_geom)
         return False
 
 
@@ -1023,10 +1035,17 @@ class TopologyCheckerDialog(QDialog):
         self.btn_recheck_selected.setEnabled(False)
         btn_layout.addWidget(self.btn_recheck_selected)
 
-        self.btn_autofix = QPushButton("Auto-Fix Selected")
+        self.autofix_cb = QComboBox()
+        self.autofix_cb.setSizeAdjustPolicy(QComboBox.AdjustToContentsOnFirstShow)
+        self.autofix_cb.addItems(["Auto-Fix Selected", "Auto-Fix All"])
+        self.autofix_cb.setFixedWidth(160)
+        btn_layout.addWidget(self.autofix_cb)
+
+        self.btn_autofix = QPushButton("Auto-Fix")
         self.btn_autofix.setStyleSheet("background-color: #f0ad4e; color: white; font-weight: bold; padding: 6px;")
-        self.btn_autofix.clicked.connect(self.autofix_selected_error)
+        self.btn_autofix.clicked.connect(self.apply_autofix)
         self.btn_autofix.setEnabled(False)
+        self.btn_autofix.setFixedWidth(100)
         btn_layout.addWidget(self.btn_autofix)
         
         # Unified show/hide highlight button
@@ -1090,6 +1109,7 @@ class TopologyCheckerDialog(QDialog):
         # Status Summary Label
         self.lbl_summary = QLabel("Select layer and click 'Run Topology Check'.")
         self.lbl_summary.setStyleSheet("font-weight: bold;")
+        self.lbl_summary.setWordWrap(True)
         layout.addWidget(self.lbl_summary)
         
         # Error Table Widget
@@ -1246,19 +1266,22 @@ class TopologyCheckerDialog(QDialog):
     def run_recheck_async(self, layer, fids):
         self.btn_recheck_selected.setEnabled(False)
         self.btn_autofix.setEnabled(False)
-        self.lbl_summary.setText(f"Re-checking feature(s) {', '.join(map(str, fids))}...")
+        fid_label = f"{len(fids)} features" if len(fids) > 5 else f"feature(s) {', '.join(map(str, fids))}"
+        self.lbl_summary.setText(f"Re-checking {fid_label}...")
         
         def on_recheck_completed(errors, success):
-            self.btn_recheck_selected.setEnabled(len(self.errors) > 0)
-            self.btn_autofix.setEnabled(len(self.errors) > 0)
+            has_errs = len(self.errors) > 0
+            self.btn_recheck_selected.setEnabled(has_errs)
+            self.btn_autofix.setEnabled(has_errs)
             if success:
                 target_set = set(fids)
                 self.errors = [e for e in self.errors if not any(fid in target_set for fid in e.feature_ids)]
                 self.errors.extend(errors)
                 self.populate_table()
                 if not errors:
-                    self.lbl_summary.setText(f"Re-check Complete: Feature ID(s) {', '.join(map(str, fids))} fixed!")
-                    QMessageBox.information(self, "Feature Fixed", f"Feature ID(s) {', '.join(map(str, fids))} passed successfully!")
+                    fid_msg = f"{len(fids)} features" if len(fids) > 5 else f"Feature ID(s) {', '.join(map(str, fids))}"
+                    self.lbl_summary.setText(f"Re-check Complete: {fid_msg} fixed!")
+                    QMessageBox.information(self.iface.mainWindow() if (hasattr(self, 'iface') and self.iface) else self, "Feature Fixed", f"{fid_msg} passed successfully!")
                 else:
                     self.lbl_summary.setText(f"Re-check Complete: {len(self.errors)} error(s) remaining.")
             else:
@@ -1293,11 +1316,14 @@ class TopologyCheckerDialog(QDialog):
             QMessageBox.information(self, "Info", "Please select an error row in the table to re-check.")
             return
         row = selected_rows[0].row()
-        filtered = self.get_filtered_errors()
-        if not (0 <= row < len(filtered)):
+        item = self.table.item(row, 0)
+        if not item:
+            return
+        original_idx = item.data(USER_ROLE)
+        if original_idx is None or not (0 <= original_idx < len(self.errors)):
             return
 
-        selected_err = filtered[row]
+        selected_err = self.errors[original_idx]
         fids = selected_err.feature_ids
         layer = self.layer_cb.currentLayer() if self.tab_widget.currentIndex() == 0 else self.main_layer_cb.currentLayer()
 
@@ -1306,18 +1332,27 @@ class TopologyCheckerDialog(QDialog):
 
         self.run_recheck_async(layer, fids)
 
+    def apply_autofix(self):
+        mode = self.autofix_cb.currentText()
+        if mode == "Auto-Fix Selected":
+            self.autofix_selected_error()
+        elif mode == "Auto-Fix All":
+            self.autofix_all_errors()
+
     def autofix_selected_error(self):
         selected_rows = self.table.selectionModel().selectedRows()
         if not selected_rows:
             QMessageBox.information(self, "Info", "Please select one or more error rows in the table to auto-fix.")
             return
 
-        filtered = self.get_filtered_errors()
         selected_errors = []
         for s_row in selected_rows:
             row = s_row.row()
-            if 0 <= row < len(filtered):
-                selected_errors.append(filtered[row])
+            item = self.table.item(row, 0)
+            if item:
+                original_idx = item.data(USER_ROLE)
+                if original_idx is not None and 0 <= original_idx < len(self.errors):
+                    selected_errors.append(self.errors[original_idx])
 
         active_layer = self.layer_cb.currentLayer() if self.tab_widget.currentIndex() == 0 else self.main_layer_cb.currentLayer()
         if not active_layer:
@@ -1347,6 +1382,8 @@ class TopologyCheckerDialog(QDialog):
         if reply != QMessageBox.StandardButton.Yes:
             return
 
+        self.btn_autofix.setEnabled(False)
+
         fixed_count = 0
         failed_count = 0
         all_affected_fids = []
@@ -1360,6 +1397,10 @@ class TopologyCheckerDialog(QDialog):
                     main_l = err.feature_layers[0] if len(err.feature_layers) > 0 else None
                     other_l = err.feature_layers[1] if len(err.feature_layers) > 1 else None
                     if main_l and other_l:
+                        if not main_l.getFeature(main_fid).isValid():
+                            fixed_count += 1
+                            continue
+
                         main_l.startEditing()
                         edited_layers.add(main_l)
                         if TopologyFixer.fix_cross_layer_overlap(main_l, main_fid, other_l, other_fid):
@@ -1370,7 +1411,16 @@ class TopologyCheckerDialog(QDialog):
                     else:
                         failed_count += 1
                 else:
-                    # Single-layer checks: apply on active_layer
+                    features_exist = True
+                    for fid in err.feature_ids:
+                        f = active_layer.getFeature(fid)
+                        if not f.isValid():
+                            features_exist = False
+                            break
+                    if not features_exist:
+                        fixed_count += 1
+                        continue
+
                     active_layer.startEditing()
                     edited_layers.add(active_layer)
                     if err.error_type == 'Invalid Geometry':
@@ -1426,7 +1476,6 @@ class TopologyCheckerDialog(QDialog):
                             failed_count += 1
 
             if fixed_count > 0:
-                # Do NOT call layer.commitChanges() so the user can review/rollback.
                 msg = f"Auto-fixed {fixed_count} error(s) in edit buffer."
                 if failed_count > 0:
                     msg += f" (Failed to fix {failed_count} error(s))."
@@ -1441,6 +1490,155 @@ class TopologyCheckerDialog(QDialog):
             for l in edited_layers:
                 l.rollBack()
             QMessageBox.critical(self, "Error", f"An error occurred during auto-fix: {str(e)}")
+        finally:
+            has_errs = len(self.errors) > 0
+            self.btn_autofix.setEnabled(has_errs)
+
+    def autofix_all_errors(self):
+        filtered = self.get_filtered_errors()
+        if not filtered:
+            QMessageBox.information(self, "Info", "No errors to auto-fix.")
+            return
+
+        active_layer = self.layer_cb.currentLayer() if self.tab_widget.currentIndex() == 0 else self.main_layer_cb.currentLayer()
+        if not active_layer:
+            return
+
+        supported_types = {
+            'Invalid Geometry',
+            'Duplicate Geometry',
+            'Multipart Geometry',
+            'Spike / Acute Vertex',
+            'Overlap',
+            'Micro Polygon / Sliver',
+            'Prolonged Edge / Overshoot',
+            'Cross-Layer Overlap'
+        }
+
+        fixable_errors = [e for e in filtered if e.error_type in supported_types]
+        if not fixable_errors:
+            QMessageBox.warning(self, "No Fixable Errors", "None of the errors can be automatically fixed.")
+            return
+
+        reply = QMessageBox.question(
+            self, "Confirm Bulk Auto-Fix All",
+            f"Are you sure you want to automatically fix all {len(fixable_errors)} fixable error(s)?\nThis will modify the vector layer.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        self.btn_autofix.setEnabled(False)
+
+        fixed_count = 0
+        failed_count = 0
+        all_affected_fids = []
+        edited_layers = set()
+
+        try:
+            for err in fixable_errors:
+                if err.error_type == 'Cross-Layer Overlap':
+                    main_fid = err.feature_ids[0]
+                    other_fid = err.feature_ids[1]
+                    main_l = err.feature_layers[0] if len(err.feature_layers) > 0 else None
+                    other_l = err.feature_layers[1] if len(err.feature_layers) > 1 else None
+                    if main_l and other_l:
+                        if not main_l.getFeature(main_fid).isValid():
+                            fixed_count += 1
+                            continue
+
+                        main_l.startEditing()
+                        edited_layers.add(main_l)
+                        if TopologyFixer.fix_cross_layer_overlap(main_l, main_fid, other_l, other_fid):
+                            fixed_count += 1
+                            all_affected_fids.append(main_fid)
+                        else:
+                            failed_count += 1
+                    else:
+                        failed_count += 1
+                else:
+                    features_exist = True
+                    for fid in err.feature_ids:
+                        f = active_layer.getFeature(fid)
+                        if not f.isValid():
+                            features_exist = False
+                            break
+                    if not features_exist:
+                        fixed_count += 1
+                        continue
+
+                    active_layer.startEditing()
+                    edited_layers.add(active_layer)
+                    if err.error_type == 'Invalid Geometry':
+                        if TopologyFixer.fix_invalid_geometry(active_layer, err.feature_ids[0]):
+                            fixed_count += 1
+                            all_affected_fids.extend(err.feature_ids)
+                        else:
+                            failed_count += 1
+
+                    elif err.error_type == 'Duplicate Geometry':
+                        if TopologyFixer.fix_duplicate_geometry(active_layer, err.feature_ids[0]):
+                            fixed_count += 1
+                            all_affected_fids.extend(err.feature_ids)
+                        else:
+                            failed_count += 1
+
+                    elif err.error_type == 'Multipart Geometry':
+                        if TopologyFixer.fix_multipart_geometry(active_layer, err.feature_ids[0]):
+                            fixed_count += 1
+                            all_affected_fids.extend(err.feature_ids)
+                        else:
+                            failed_count += 1
+
+                    elif err.error_type == 'Spike / Acute Vertex':
+                        if TopologyFixer.fix_spike_geometry(active_layer, err.feature_ids[0], err.location_x, err.location_y):
+                            fixed_count += 1
+                            all_affected_fids.extend(err.feature_ids)
+                        else:
+                            failed_count += 1
+
+                    elif err.error_type == 'Overlap':
+                        if len(err.feature_ids) >= 2:
+                            if TopologyFixer.fix_overlap_geometry(active_layer, err.feature_ids[0], err.feature_ids[1]):
+                                fixed_count += 1
+                                all_affected_fids.extend(err.feature_ids)
+                            else:
+                                failed_count += 1
+                        else:
+                            failed_count += 1
+
+                    elif err.error_type == 'Micro Polygon / Sliver':
+                        if TopologyFixer.fix_sliver_geometry(active_layer, err.feature_ids[0]):
+                            fixed_count += 1
+                            all_affected_fids.extend(err.feature_ids)
+                        else:
+                            failed_count += 1
+
+                    elif err.error_type == 'Prolonged Edge / Overshoot':
+                        if TopologyFixer.fix_overshoot_geometry(active_layer, err.feature_ids[0]):
+                            fixed_count += 1
+                            all_affected_fids.extend(err.feature_ids)
+                        else:
+                            failed_count += 1
+
+            if fixed_count > 0:
+                msg = f"Auto-fixed {fixed_count} error(s) in edit buffer."
+                if failed_count > 0:
+                    msg += f" (Failed to fix {failed_count} error(s))."
+                msg += "\n\nNote: The fixes have been applied in edit mode. Please review them and save or discard layer changes manually in QGIS."
+                QMessageBox.information(self, "Success", msg)
+                self.recheck_after_autofix(active_layer, list(set(all_affected_fids)))
+            else:
+                for l in edited_layers:
+                    l.rollBack()
+                QMessageBox.warning(self, "Error", "Failed to fix the error(s) automatically.")
+        except Exception as e:
+            for l in edited_layers:
+                l.rollBack()
+            QMessageBox.critical(self, "Error", f"An error occurred during auto-fix: {str(e)}")
+        finally:
+            has_errs = len(self.errors) > 0
+            self.btn_autofix.setEnabled(has_errs)
 
     def recheck_after_autofix(self, layer, fids):
         self.run_recheck_async(layer, fids)
@@ -1476,8 +1674,14 @@ class TopologyCheckerDialog(QDialog):
         self.table.setRowCount(0)
         filtered = self.get_filtered_errors()
         for idx, err in enumerate(filtered):
+            try:
+                original_idx = self.errors.index(err)
+            except ValueError:
+                original_idx = -1
             self.table.insertRow(idx)
-            self.table.setItem(idx, 0, QTableWidgetItem(str(idx + 1)))
+            item = QTableWidgetItem(str(idx + 1))
+            item.setData(USER_ROLE, original_idx)
+            self.table.setItem(idx, 0, item)
             self.table.setItem(idx, 1, QTableWidgetItem(", ".join(map(str, err.feature_ids))))
             self.table.setItem(idx, 2, QTableWidgetItem(err.error_type))
             self.table.setItem(idx, 3, QTableWidgetItem(err.description))
@@ -1606,9 +1810,12 @@ class TopologyCheckerDialog(QDialog):
             self.clear_all_canvas_markers()
             return
         row = selected_rows[0].row()
-        filtered = self.get_filtered_errors()
-        if 0 <= row < len(filtered):
-            err = filtered[row]
+        item = self.table.item(row, 0)
+        if not item:
+            return
+        original_idx = item.data(USER_ROLE)
+        if original_idx is not None and 0 <= original_idx < len(self.errors):
+            err = self.errors[original_idx]
             self.highlight_error(err)
             self.highlights_active = True
             if hasattr(self, 'btn_toggle_highlight') and self.btn_toggle_highlight:
@@ -1618,10 +1825,12 @@ class TopologyCheckerDialog(QDialog):
                 self.lbl_summary.setText(f"Selected: {err.error_type}. Proposed fix preview shown in dashed green on map.")
 
     def on_table_double_click(self, row, column):
-        filtered = self.get_filtered_errors()
-        if 0 <= row < len(filtered):
-            err = filtered[row]
-            self.zoom_to_error(err)
+        item = self.table.item(row, 0)
+        if item:
+            original_idx = item.data(USER_ROLE)
+            if original_idx is not None and 0 <= original_idx < len(self.errors):
+                err = self.errors[original_idx]
+                self.zoom_to_error(err)
 
     def highlight_error(self, err):
         if not self.iface:

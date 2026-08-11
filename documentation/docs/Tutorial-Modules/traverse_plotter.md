@@ -14,7 +14,7 @@ slug: traverseplotter
 
 # 🗺️ Traverse Plotter Tool
 
-`Available from v3.5.0`
+`Available from v3.6.0`
 
 :::info
 The **Traverse Plotter** is an interactive survey utility designed to plot polyline or polygon traverses directly from field survey sheets containing bearings, angles, and distances.

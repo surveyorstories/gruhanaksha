@@ -461,5 +461,20 @@ class TestTopologyEngine(unittest.TestCase):
         updated_feat = main_layer.getFeature(fid_main)
         self.assertAlmostEqual(updated_feat.geometry().intersection(feat_other_added.geometry()).area(), 0.0, places=5)
 
+    def test_fix_overshoot_multipolygon(self):
+        # Test on MultiPolygon layer to ensure coerceToType and overshoot logic works
+        layer = QgsVectorLayer("MultiPolygon?crs=EPSG:4326", "test_fix_overshoot_multi", "memory")
+        pr = layer.dataProvider()
+        f1 = QgsFeature(1)
+        f1.setGeometry(QgsGeometry.fromWkt('MULTIPOLYGON(((0 0, 0 10, 5 10, 5 15, 5 10, 10 10, 10 0, 0 0)))'))
+        pr.addFeatures([f1])
+        
+        layer.startEditing()
+        success = TopologyFixer.fix_overshoot_geometry(layer, 1)
+        layer.commitChanges()
+        self.assertTrue(success)
+        geom = layer.getFeature(1).geometry()
+        self.assertTrue(geom.isGeosValid())
+
 if __name__ == '__main__':
     unittest.main()

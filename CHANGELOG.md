@@ -1,6 +1,7 @@
-Release Notes 3.5.2
-    - bug fixes
-    -qt6 issues
-    -tweaks in lpm numbering
+Release Notes 3.6.0
+    - improvements in the Topology checker
+    - Addition of new boundary checker in topology checker
+    - tweaks in lpm numbering
+    
     
     

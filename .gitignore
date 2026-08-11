@@ -1,3 +1,4 @@
+# User custom ignores
 .env
 *.code-workspace
 .vscode/
@@ -12,3 +13,37 @@ docs/
 *.pyc
 **/__pycache__
 __pycache__/
+
+# Python build and cache
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.tox/
+.coverage
+htmlcov/
+build/
+dist/
+*.egg-info/
+venv/
+.venv/
+env/
+
+# Editor/OS specific
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Agent & Workspace plugin artifacts
+.superpowers/
+.trae/
+.agents/
+
+# QGIS temporary and backup files
+*.qgs~
+*.qgz~
+*.qgd~
+*.backup
+skills-lock.json
+documentation/
