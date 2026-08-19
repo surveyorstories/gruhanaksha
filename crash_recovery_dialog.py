@@ -548,9 +548,9 @@ class CrashRecoveryDialog(QDialog):
         reply = QMessageBox.question(
             self, "Wipe Entire Database",
             "⚠️ WARNING: This will permanently delete ALL snapshots, recovery logs, and history for ALL layers and projects.\n\nAre you sure you want to completely empty the database?",
-            QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No
         )
-        if reply == QMessageBox.Yes:
+        if reply == QMessageBox.StandardButton.Yes:
             self.db.clear_entire_database()
             self.load_restore_points()
             self.attr_table.clear()
@@ -1080,9 +1080,9 @@ class CrashRecoveryDialog(QDialog):
             reply = QMessageBox.question(
                 self, "Layer Not Found in Project",
                 f"Layer '{layer_name}' is not currently loaded in project.\nDo you want to restore it as a new layer?",
-                QMessageBox.Yes | QMessageBox.No
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
             )
-            if reply == QMessageBox.Yes:
+            if reply == QMessageBox.StandardButton.Yes:
                 self._restore_as_new_layer()
             return
 
@@ -1090,9 +1090,9 @@ class CrashRecoveryDialog(QDialog):
             self, "Confirm In-Place Restore",
             f"Are you sure you want to restore layer '{layer_name}' to state at {snap_info['timestamp'][:19]}?\n"
             f"Current edits will be replaced.",
-            QMessageBox.Yes | QMessageBox.No
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
-        if confirm != QMessageBox.Yes:
+        if confirm != QMessageBox.StandardButton.Yes:
             return
 
         # Snapshot current state right before rollback just in case
@@ -1245,7 +1245,7 @@ class CrashRecoveryDialog(QDialog):
             self.preview_layer, file_path, transform_context, options
         )
 
-        if error == QgsVectorFileWriter.NoError:
+        if error == QgsVectorFileWriter.WriterError.NoError:
             QMessageBox.information(self, "Export Success", f"Layer exported to:\n{file_path}")
         else:
             QMessageBox.critical(self, "Export Failed", f"Export failed: {msg}")
@@ -1278,9 +1278,9 @@ class CrashRecoveryDialog(QDialog):
         reply = QMessageBox.question(
             self, "Delete Restore Point",
             "Are you sure you want to delete this restore point?",
-            QMessageBox.Yes | QMessageBox.No
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
-        if reply == QMessageBox.Yes:
+        if reply == QMessageBox.StandardButton.Yes:
             self.db.delete_snapshot(self.selected_snapshot_id)
             self.load_restore_points()
 
@@ -1294,8 +1294,8 @@ class CrashRecoveryDialog(QDialog):
         reply = QMessageBox.question(
             self, "Clear Layer History",
             "Are you sure you want to clear all recovery history for this layer?",
-            QMessageBox.Yes | QMessageBox.No
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
-        if reply == QMessageBox.Yes:
+        if reply == QMessageBox.StandardButton.Yes:
             self.db.clear_layer_history(layer_id)
             self.load_restore_points()

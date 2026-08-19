@@ -215,7 +215,7 @@ class GruhanakshaPlugin(object):
             self.recovery_status_btn = QToolButton()
             self.recovery_status_btn.setIcon(QIcon(icon_shield))
             self.recovery_status_btn.setText(" Recovery: Active")
-            self.recovery_status_btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+            self.recovery_status_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
             self.recovery_status_btn.setToolTip("Gruhanaksha Data Recovery is active in background.\n• Left Click: Open Manager\n• Right Click: Quick Options (Pause / Snapshot)")
             self.recovery_status_btn.setStyleSheet("""
                 QToolButton {
@@ -233,7 +233,7 @@ class GruhanakshaPlugin(object):
                 }
             """)
             self.recovery_status_btn.clicked.connect(self.show_crash_recovery)
-            self.recovery_status_btn.setContextMenuPolicy(Qt.CustomContextMenu)
+            self.recovery_status_btn.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
             self.recovery_status_btn.customContextMenuRequested.connect(self._show_recovery_context_menu)
 
             if self.recovery_daemon:
@@ -404,7 +404,7 @@ class GruhanakshaPlugin(object):
         act_snap = menu.addAction("📸 Save Snapshot of Active Layer Now")
         act_snap.triggered.connect(self._take_instant_snapshot)
 
-        menu.exec_(self.recovery_status_btn.mapToGlobal(pos))
+        menu.exec(self.recovery_status_btn.mapToGlobal(pos))
 
     def _take_instant_snapshot(self):
         """Take instant snapshot of currently active vector layer."""

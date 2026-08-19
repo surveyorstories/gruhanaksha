@@ -23,14 +23,9 @@ from qgis.PyQt.QtGui import QColor
 from qgis.gui import QgsMapLayerComboBox, QgsRubberBand, QgsVertexMarker
 
 # PyQt5 / PyQt6 compatibility for Qt enums
-try:
-    CHECKED = Qt.CheckState.Checked
-    USER_ROLE = Qt.ItemDataRole.UserRole
-    ITEM_IS_USER_CHECKABLE = Qt.ItemFlag.ItemIsUserCheckable
-except AttributeError:
-    CHECKED = Qt.Checked
-    USER_ROLE = Qt.UserRole
-    ITEM_IS_USER_CHECKABLE = Qt.ItemIsUserCheckable
+CHECKED = Qt.CheckState.Checked
+USER_ROLE = Qt.ItemDataRole.UserRole
+ITEM_IS_USER_CHECKABLE = Qt.ItemFlag.ItemIsUserCheckable
 
 
 class TopologyError:
@@ -78,8 +73,8 @@ class TopologyEngine:
     def _get_polygon_parts(self, geom):
         if not geom or geom.isEmpty():
             return []
-        comps = geom.coerceToType(QgsWkbTypes.Polygon)
-        return [c for c in comps if c.type() == QgsWkbTypes.PolygonGeometry and not c.isEmpty()]
+        comps = geom.coerceToType(QgsWkbTypes.Type.Polygon)
+        return [c for c in comps if c.type() == QgsWkbTypes.GeometryType.PolygonGeometry and not c.isEmpty()]
 
     def run_checks(self, layer_or_features, options: dict, progress_callback=None, target_fids=None):
         errors = []
@@ -585,12 +580,12 @@ class TopologyEngine:
                         inter = bA.intersection(bB)
                         if not inter.isEmpty():
                             inter_pts = []
-                            if inter.type() == QgsWkbTypes.PointGeometry:
+                            if inter.type() == QgsWkbTypes.GeometryType.PointGeometry:
                                 if inter.isMultipart():
                                     inter_pts.extend(inter.asMultiPoint())
                                 else:
                                     inter_pts.append(inter.asPoint())
-                            elif inter.type() == QgsWkbTypes.LineGeometry:
+                            elif inter.type() == QgsWkbTypes.GeometryType.LineGeometry:
                                 plines = inter.asMultiPolyline() if inter.isMultipart() else [inter.asPolyline()]
                                 for pl in plines:
                                     if pl:
@@ -598,9 +593,9 @@ class TopologyEngine:
                                         inter_pts.append(pl[-1])
                             elif inter.isMultipart():
                                 for part in inter.asGeometryCollection():
-                                    if part.type() == QgsWkbTypes.PointGeometry:
+                                    if part.type() == QgsWkbTypes.GeometryType.PointGeometry:
                                         inter_pts.append(part.asPoint())
-                                    elif part.type() == QgsWkbTypes.LineGeometry:
+                                    elif part.type() == QgsWkbTypes.GeometryType.LineGeometry:
                                         pl = part.asPolyline()
                                         if pl:
                                             inter_pts.append(pl[0])
@@ -1375,7 +1370,7 @@ class TopologyCheckerDialog(QDialog):
         btn_layout.addStretch()
 
         self.autofix_cb = QComboBox()
-        self.autofix_cb.setSizeAdjustPolicy(QComboBox.AdjustToContentsOnFirstShow)
+        self.autofix_cb.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContentsOnFirstShow)
         self.autofix_cb.addItems(["Auto-Fix Selected", "Auto-Fix All"])
         self.autofix_cb.setFixedWidth(150)
         self.autofix_cb.setToolTip("Choose whether Auto-Fix applies to only selected rows or all detected errors in the layer")
@@ -1470,7 +1465,7 @@ class TopologyCheckerDialog(QDialog):
         all_layers = QgsProject.instance().mapLayers().values()
         
         for layer in all_layers:
-            if isinstance(layer, QgsVectorLayer) and layer.geometryType() == QgsWkbTypes.PolygonGeometry:
+            if isinstance(layer, QgsVectorLayer) and layer.geometryType() == QgsWkbTypes.GeometryType.PolygonGeometry:
                 if main_layer and layer.id() == main_layer.id():
                     continue
                 item = QListWidgetItem(layer.name())
@@ -2165,7 +2160,7 @@ class TopologyCheckerDialog(QDialog):
         for err in filtered:
             # Create rubberband outline for geometry
             if err.geometry:
-                is_poly = (err.geometry.type() == QgsWkbTypes.PolygonGeometry)
+                is_poly = (err.geometry.type() == QgsWkbTypes.GeometryType.PolygonGeometry)
                 rb = QgsRubberBand(canvas, is_poly)
                 rb.setColor(QColor(255, 0, 0, 120))
                 rb.setStrokeColor(QColor(255, 0, 0, 220))
@@ -2253,7 +2248,7 @@ class TopologyCheckerDialog(QDialog):
 
         is_poly = False
         if err.geometry:
-            is_poly = (err.geometry.type() == QgsWkbTypes.PolygonGeometry)
+            is_poly = (err.geometry.type() == QgsWkbTypes.GeometryType.PolygonGeometry)
 
         self.rubber_band = QgsRubberBand(canvas, is_poly)
         self.rubber_band.setColor(QColor(255, 0, 0, 150))
@@ -2286,7 +2281,7 @@ class TopologyCheckerDialog(QDialog):
                         preview_rb.setColor(QColor(46, 204, 113, 80)) # Semi-transparent green
                         preview_rb.setSecondaryStrokeColor(QColor(39, 174, 96, 220)) # Darker green border
                         preview_rb.setWidth(3)
-                        preview_rb.setLineStyle(Qt.DashLine)
+                        preview_rb.setLineStyle(Qt.PenStyle.DashLine)
                         preview_rb.setToGeometry(new_geom, None)
                         self.preview_rubber_bands.append(preview_rb)
                         
@@ -2304,7 +2299,7 @@ class TopologyCheckerDialog(QDialog):
                         preview_rb.setColor(QColor(46, 204, 113, 80))
                         preview_rb.setSecondaryStrokeColor(QColor(39, 174, 96, 220))
                         preview_rb.setWidth(3)
-                        preview_rb.setLineStyle(Qt.DashLine)
+                        preview_rb.setLineStyle(Qt.PenStyle.DashLine)
                         preview_rb.setToGeometry(new_geom, None)
                         self.preview_rubber_bands.append(preview_rb)
 

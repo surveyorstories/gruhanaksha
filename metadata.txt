@@ -6,16 +6,22 @@
 name=Gruhanaksha
 qgisMinimumVersion=3.26
 qgisMaximumVersion=4.99
-#supportsQt6=True
 
-description= Gruhanaksha is developed specifically to support the deliverables of the SVAMITVA by offering various tools Polygon adjuster, Plotter, auto backup and save , free hand adjuster, ppm generation, other tools for geometry adjustments and manipulation
+description=Comprehensive GIS toolkit for land survey, SVAMITVA, and resurvey workflows with advanced parcel plotting, geometry editing, auto-backup, crash recovery, and map generation.
 
 version=3.6.0
 
 author=Surveyor Stories
 email=surveyorstories@gmail.com
 
-about= Gruhanaksha is a QGIS plugin developed specifically to support the deliverables of the SVAMITVA by offering various tools Polygon adjuster, Plotter, auto backup and save , free hand adjuster, ppm generation, other tools for geometry adjustments and manipulation
+about=Gruhanaksha is a comprehensive QGIS plugin designed for land surveyors, GIS professionals, and mapping teams supporting SVAMITVA deliverables, large-scale resurvey projects, and parcel mapping.
+    
+    Key Features:
+    • Parcel & Map Production: Automated PPM/LPM generation, atlas exporting, and auto LP numbering.
+    • Survey & Traverse Plotting: Traverse plotter, FMB plotter, point/CSV coordinate importer, and KMZ integration.
+    • Precision Geometry Editing: Polygon adjuster, polygon splitter, AutoCAD-style aligner, freehand adjuster, trim & extend, and topology verification.
+    • Data Protection & Recovery: Automatic background backups, auto-save, and accidental crash data recovery.
+    • Styling & Workflow Tools: Pre-built symbology styles and automated processing algorithms.
 
 tracker=https://github.com/surveyorstories/gruhanaksha/issues
 repository=https://github.com/surveyorstories/gruhanaksha
@@ -27,16 +33,9 @@ hasProcessingProvider=yes
 # Uncomment the following line and add your changelog:
 changelog= <a href=https://surveyorstories.github.io/gruhanakshaweb/releases>Visit Releases page </a>
 
-    Release Notes 3.3.0
-    - Changed to new ppm template and updated the workflow
-    
-    Release Notes 3.2.0
-    - Improvement in autosave and backup tool Layer selection
-    - Added Vertices to selected polygon in splitter tool
-    - Added categorised symbology support in KMZ
-    - Added no pin in KMZ
-    - Bug fix in polygon splitter tool
-    - Bug fix in KMZ 
+    Release Notes 3.6.0
+    -New traverse plotter 
+    -New accidental data recovery
 
 # Tags are comma separated with spaces allowed
 tags=svamitva,resurvey,ppm, polygon adjuster, triangle, autocad aligner,csv importer, geometry,auto backup and auto save, auto lpnumbering
