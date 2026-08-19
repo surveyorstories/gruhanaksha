@@ -413,9 +413,9 @@ class TopologyEngine:
                 target_geoms = [features_dict[fid].geometry() for fid in target_set if fid in features_dict]
                 if target_geoms:
                     # Combine target bounding boxes
-                    bbox = QgsRectangle()
-                    bbox.setMinimal()
-                    for g in target_geoms:
+                    # Combine target bounding boxes
+                    bbox = QgsRectangle(target_geoms[0].boundingBox())
+                    for g in target_geoms[1:]:
                         bbox.combineExtentWith(g.boundingBox())
                     # Grow bbox slightly to include neighbor features
                     bbox.grow(50.0)
@@ -436,9 +436,8 @@ class TopologyEngine:
                                 for int_ring in poly[1:]:
                                     hole_geom = QgsGeometry.fromPolygonXY([int_ring])
                                     # Only report if the hole intersects the original target bounding box
-                                    target_bbox = QgsRectangle()
-                                    target_bbox.setMinimal()
-                                    for g in target_geoms:
+                                    target_bbox = QgsRectangle(target_geoms[0].boundingBox())
+                                    for g in target_geoms[1:]:
                                         target_bbox.combineExtentWith(g.boundingBox())
                                     if hole_geom.boundingBox().intersects(target_bbox):
                                         centroid = hole_geom.centroid().asPoint()
@@ -496,6 +495,129 @@ class TopologyEngine:
                                     centroid.y(),
                                     hole_geom
                                 ))
+
+        # 10. Check Missing Nodes / Line Intersections (T-Junctions & Boundary Crossings)
+        if options.get('check_missing_nodes', True):
+            node_tol = options.get('missing_node_tolerance', 0.1)
+            boundary_dict = {}
+            vertices_dict = {}
+            for f in features:
+                geom = f.geometry()
+                if geom and not geom.isEmpty():
+                    lines = []
+                    pts = []
+                    poly_list = geom.asMultiPolygon() if geom.isMultipart() else [geom.asPolygon()]
+                    for p in poly_list:
+                        for ring in p:
+                            lines.append(ring)
+                            pts.extend(ring[:-1] if (len(ring) > 1 and ring[0] == ring[-1]) else ring)
+                    boundary_dict[f.id()] = QgsGeometry.fromMultiPolylineXY(lines) if lines else None
+                    vertices_dict[f.id()] = pts
+
+            seen_missing_pairs = set()
+            seen_node_errors = set()
+            for idx, featA in enumerate(features):
+                if target_set is not None and featA.id() not in target_set:
+                    continue
+                geomA = featA.geometry()
+                if not geomA or geomA.isEmpty():
+                    continue
+
+                bbox_expanded = geomA.boundingBox()
+                bbox_expanded.grow(max(node_tol * 2.0, 0.5))
+                candidates = spatial_index.intersects(bbox_expanded)
+
+                bA = boundary_dict.get(featA.id())
+                vA = vertices_dict.get(featA.id(), [])
+                if not bA:
+                    continue
+
+                for cand_id in candidates:
+                    if cand_id == featA.id():
+                        continue
+                    if target_set is not None and featA.id() not in target_set and cand_id not in target_set:
+                        continue
+                    pair = (min(featA.id(), cand_id), max(featA.id(), cand_id))
+                    if pair in seen_missing_pairs:
+                        continue
+                    seen_missing_pairs.add(pair)
+
+                    featB = features_dict.get(cand_id)
+                    if not featB:
+                        continue
+                    geomB = featB.geometry()
+                    if not geomB or geomB.isEmpty():
+                        continue
+
+                    bB = boundary_dict.get(cand_id)
+                    vB = vertices_dict.get(cand_id, [])
+                    if not bB:
+                        continue
+
+                    # 1. Vertices of A touching/on boundary of B (Missing node in B)
+                    for pt in vA:
+                        if bB.distance(QgsGeometry.fromPointXY(pt)) <= node_tol:
+                            if not any(pt.distance(pB) <= node_tol for pB in vB):
+                                err_key = (cand_id, round(pt.x(), 4), round(pt.y(), 4))
+                                if err_key not in seen_node_errors:
+                                    seen_node_errors.add(err_key)
+                                    desc = f"Missing node / T-junction at ({pt.x():.4f}, {pt.y():.4f}) in FID {cand_id} (shared with FID {featA.id()})"
+                                    errors.append(TopologyError(
+                                        'Missing Node / Line Intersection', [cand_id, featA.id()], desc,
+                                        pt.x(), pt.y(), QgsGeometry.fromPointXY(pt)
+                                    ))
+
+                    # 2. Vertices of B touching/on boundary of A (Missing node in A)
+                    for pt in vB:
+                        if bA.distance(QgsGeometry.fromPointXY(pt)) <= node_tol:
+                            if not any(pt.distance(pA) <= node_tol for pA in vA):
+                                err_key = (featA.id(), round(pt.x(), 4), round(pt.y(), 4))
+                                if err_key not in seen_node_errors:
+                                    seen_node_errors.add(err_key)
+                                    desc = f"Missing node / T-junction at ({pt.x():.4f}, {pt.y():.4f}) in FID {featA.id()} (shared with FID {cand_id})"
+                                    errors.append(TopologyError(
+                                        'Missing Node / Line Intersection', [featA.id(), cand_id], desc,
+                                        pt.x(), pt.y(), QgsGeometry.fromPointXY(pt)
+                                    ))
+
+                    # 3. Proper Line-Line Crossing Intersections
+                    if bA.intersects(bB):
+                        inter = bA.intersection(bB)
+                        if not inter.isEmpty():
+                            inter_pts = []
+                            if inter.type() == QgsWkbTypes.PointGeometry:
+                                if inter.isMultipart():
+                                    inter_pts.extend(inter.asMultiPoint())
+                                else:
+                                    inter_pts.append(inter.asPoint())
+                            elif inter.type() == QgsWkbTypes.LineGeometry:
+                                plines = inter.asMultiPolyline() if inter.isMultipart() else [inter.asPolyline()]
+                                for pl in plines:
+                                    if pl:
+                                        inter_pts.append(pl[0])
+                                        inter_pts.append(pl[-1])
+                            elif inter.isMultipart():
+                                for part in inter.asGeometryCollection():
+                                    if part.type() == QgsWkbTypes.PointGeometry:
+                                        inter_pts.append(part.asPoint())
+                                    elif part.type() == QgsWkbTypes.LineGeometry:
+                                        pl = part.asPolyline()
+                                        if pl:
+                                            inter_pts.append(pl[0])
+                                            inter_pts.append(pl[-1])
+
+                            for ipt in inter_pts:
+                                in_A = any(ipt.distance(pA) <= node_tol for pA in vA)
+                                in_B = any(ipt.distance(pB) <= node_tol for pB in vB)
+                                if not in_A and not in_B:
+                                    err_key_cross = (min(featA.id(), cand_id), max(featA.id(), cand_id), round(ipt.x(), 4), round(ipt.y(), 4))
+                                    if err_key_cross not in seen_node_errors:
+                                        seen_node_errors.add(err_key_cross)
+                                        desc = f"Line intersection without node at ({ipt.x():.4f}, {ipt.y():.4f}) between FID {featA.id()} and FID {cand_id}"
+                                        errors.append(TopologyError(
+                                            'Missing Node / Line Intersection', [featA.id(), cand_id], desc,
+                                            ipt.x(), ipt.y(), QgsGeometry.fromPointXY(ipt)
+                                        ))
 
         return errors
 
@@ -599,6 +721,69 @@ class TopologyEngine:
                                     gap_geom,
                                     feature_layers=feature_layers
                                 ))
+
+            # 3. Cross-Layer Missing Node / Line Intersection Check
+            if options.get('check_cross_missing_nodes', True):
+                cross_node_tol = options.get('cross_missing_node_tolerance', 0.1)
+                lines_m = []
+                pts_m = []
+                poly_list_m = geom_main.asMultiPolygon() if geom_main.isMultipart() else [geom_main.asPolygon()]
+                for p in poly_list_m:
+                    for ring in p:
+                        lines_m.append(ring)
+                        pts_m.extend(ring[:-1] if (len(ring) > 1 and ring[0] == ring[-1]) else ring)
+                b_main = QgsGeometry.fromMultiPolylineXY(lines_m) if lines_m else None
+
+                if b_main:
+                    for layer_id, (layer_other, sp_idx, feats_map) in spatial_indexes.items():
+                        bbox_expanded = geom_main.boundingBox()
+                        bbox_expanded.grow(max(cross_node_tol * 2.0, 0.5))
+                        candidates = sp_idx.intersects(bbox_expanded)
+                        for c_id in candidates:
+                            feat_other = feats_map.get(c_id)
+                            if not feat_other or not feat_other.geometry() or feat_other.geometry().isEmpty():
+                                continue
+                            geom_other = feat_other.geometry()
+                            lines_o = []
+                            pts_o = []
+                            poly_list_o = geom_other.asMultiPolygon() if geom_other.isMultipart() else [geom_other.asPolygon()]
+                            for p in poly_list_o:
+                                for ring in p:
+                                    lines_o.append(ring)
+                                    pts_o.extend(ring[:-1] if (len(ring) > 1 and ring[0] == ring[-1]) else ring)
+                            b_other = QgsGeometry.fromMultiPolylineXY(lines_o) if lines_o else None
+                            if not b_other:
+                                continue
+
+                            # Check vertices of other on main boundary
+                            for pt in pts_o:
+                                if b_main.distance(QgsGeometry.fromPointXY(pt)) <= cross_node_tol:
+                                    if not any(pt.distance(pm) <= cross_node_tol for pm in pts_m):
+                                        desc = f"Missing node in main FID {feat_main.id()} at ({pt.x():.4f}, {pt.y():.4f}) matching vertex from layer '{layer_other.name()}' FID {c_id}"
+                                        errors.append(TopologyError(
+                                            'Cross-Layer Missing Node / Line Intersection',
+                                            [feat_main.id(), c_id],
+                                            desc,
+                                            pt.x(),
+                                            pt.y(),
+                                            QgsGeometry.fromPointXY(pt),
+                                            feature_layers=[main_layer, layer_other]
+                                        ))
+
+                            # Check vertices of main on other boundary
+                            for pt in pts_m:
+                                if b_other.distance(QgsGeometry.fromPointXY(pt)) <= cross_node_tol:
+                                    if not any(pt.distance(po) <= cross_node_tol for po in pts_o):
+                                        desc = f"Missing node in layer '{layer_other.name()}' FID {c_id} at ({pt.x():.4f}, {pt.y():.4f}) matching vertex from main FID {feat_main.id()}"
+                                        errors.append(TopologyError(
+                                            'Cross-Layer Missing Node / Line Intersection',
+                                            [feat_main.id(), c_id],
+                                            desc,
+                                            pt.x(),
+                                            pt.y(),
+                                            QgsGeometry.fromPointXY(pt),
+                                            feature_layers=[main_layer, layer_other]
+                                        ))
         return errors
 
     def run_checks_for_features(self, layer: QgsVectorLayer, feature_ids: list, options: dict):
@@ -759,6 +944,53 @@ class TopologyFixer:
         return False
 
     @staticmethod
+    def fix_missing_node(layer, fid, location_x, location_y, tolerance=0.001):
+        feat = layer.getFeature(fid)
+        if not feat.isValid():
+            return False
+        geom = feat.geometry()
+        if not geom or geom.isEmpty():
+            return False
+        pt = QgsPointXY(location_x, location_y)
+
+        poly_list = geom.asMultiPolygon() if geom.isMultipart() else [geom.asPolygon()]
+        new_polys = []
+        inserted = False
+
+        for poly in poly_list:
+            new_poly = []
+            for ring in poly:
+                new_ring = []
+                pts = ring[:-1] if (len(ring) > 1 and ring[0] == ring[-1]) else ring
+                n = len(pts)
+                ring_inserted = False
+                for i in range(n):
+                    p1 = pts[i]
+                    p2 = pts[(i + 1) % n]
+                    new_ring.append(p1)
+
+                    if p1.distance(pt) <= tolerance:
+                        continue
+
+                    seg_geom = QgsGeometry.fromPolylineXY([p1, p2])
+                    if not ring_inserted and not inserted and seg_geom.distance(QgsGeometry.fromPointXY(pt)) <= tolerance:
+                        if p2.distance(pt) > tolerance:
+                            new_ring.append(pt)
+                            ring_inserted = True
+                            inserted = True
+                new_ring.append(new_ring[0])
+                new_poly.append(new_ring)
+            new_polys.append(new_poly)
+
+        if inserted:
+            new_geom = QgsGeometry.fromMultiPolygonXY(new_polys) if geom.isMultipart() else QgsGeometry.fromPolygonXY(new_polys[0])
+            res = new_geom.coerceToType(layer.wkbType())
+            coerced_geom = res[0] if isinstance(res, list) else res
+            if coerced_geom and not coerced_geom.isEmpty():
+                return layer.changeGeometry(fid, coerced_geom)
+        return False
+
+    @staticmethod
     def fix_cross_layer_overlap(main_layer, main_fid, other_layer, other_fid):
         main_feat = main_layer.getFeature(main_fid)
         other_feat = other_layer.getFeature(other_fid)
@@ -831,7 +1063,7 @@ class TopologyCheckerDialog(QDialog):
         super().__init__(parent or (iface.mainWindow() if iface else None))
         self.iface = iface
         self.setWindowTitle("Comprehensive Topology Checker")
-        self.resize(780, 640)
+        self.resize(920, 720)
         self.engine = TopologyEngine()
         self.errors = []
         self.rubber_band = None
@@ -860,14 +1092,16 @@ class TopologyCheckerDialog(QDialog):
         layer_group.setLayout(layer_layout)
         tab1_layout.addWidget(layer_group)
 
-        # Rules and Settings (Grid Layout for compactness on first page)
+        # Rules and Settings (Balanced Grid Layout)
         rules_group = QGroupBox("Topology Rules & Tolerances")
         rules_layout = QVBoxLayout()
         
         # Select/Deselect All buttons layout
         sel_btn_layout = QHBoxLayout()
         self.btn_select_all = QPushButton("Select All")
+        self.btn_select_all.setToolTip("Check and enable all topology validation rules")
         self.btn_deselect_all = QPushButton("Deselect All")
+        self.btn_deselect_all.setToolTip("Uncheck and disable all topology validation rules")
         self.btn_select_all.setStyleSheet("padding: 3px 8px; max-width: 100px;")
         self.btn_deselect_all.setStyleSheet("padding: 3px 8px; max-width: 100px;")
         self.btn_select_all.clicked.connect(self.select_all_rules)
@@ -879,77 +1113,141 @@ class TopologyCheckerDialog(QDialog):
         
         columns_layout = QHBoxLayout()
         
-        # Column 1
+        # Column 1 (5 Rules: Validity, Spikes, Prolonged, Overlaps, Missing Nodes)
         col1_widget = QWidget()
-        col1_form = QFormLayout(col1_widget)
-        col1_form.setContentsMargins(0, 0, 0, 0)
+        col1_vbox = QVBoxLayout(col1_widget)
+        col1_vbox.setContentsMargins(5, 5, 5, 5)
+        col1_vbox.setSpacing(8)
         
         self.cb_validity = QCheckBox("Check Invalid Geometry / Self-Intersections")
         self.cb_validity.setChecked(True)
-        col1_form.addRow(self.cb_validity)
+        self.cb_validity.setToolTip("Identify OGC / GEOS invalid geometries (e.g., self-intersecting rings, bowties, unclosed rings)")
+        row_val = QHBoxLayout()
+        row_val.addWidget(self.cb_validity)
+        row_val.addStretch()
+        col1_vbox.addLayout(row_val)
         
-        self.cb_spikes = QCheckBox("Check Spikes & Acute Angles")
+        self.cb_spikes = QCheckBox("Check Spikes & Acute Angles (deg ≤):")
         self.cb_spikes.setChecked(True)
-        col1_form.addRow(self.cb_spikes)
-        
+        self.cb_spikes.setToolTip("Detect acute zig-zag vertices (spikes) where interior angle is less than or equal to threshold")
         self.spike_angle_spin = QDoubleSpinBox()
         self.spike_angle_spin.setRange(0.1, 90.0)
         self.spike_angle_spin.setDecimals(1)
         self.spike_angle_spin.setValue(15.0)
-        col1_form.addRow("  Angle Threshold (deg):", self.spike_angle_spin)
+        self.spike_angle_spin.setFixedWidth(85)
+        self.spike_angle_spin.setToolTip("Spike angle threshold in degrees (angles ≤ this value are flagged as spikes)")
+        self.cb_spikes.toggled.connect(self.spike_angle_spin.setEnabled)
+        row_spike = QHBoxLayout()
+        row_spike.addWidget(self.cb_spikes)
+        row_spike.addWidget(self.spike_angle_spin)
+        row_spike.addStretch()
+        col1_vbox.addLayout(row_spike)
         
         self.cb_prolonged_edges = QCheckBox("Check Prolonged Edges / Overshoots")
         self.cb_prolonged_edges.setChecked(True)
-        col1_form.addRow(self.cb_prolonged_edges)
+        self.cb_prolonged_edges.setToolTip("Detect degenerate overshoots where an edge doubles back upon itself with zero/near-zero enclosed area")
+        row_pro = QHBoxLayout()
+        row_pro.addWidget(self.cb_prolonged_edges)
+        row_pro.addStretch()
+        col1_vbox.addLayout(row_pro)
         
-        self.cb_overlaps = QCheckBox("Check Polygon Overlaps")
+        self.cb_overlaps = QCheckBox("Check Polygon Overlaps (area ≥):")
         self.cb_overlaps.setChecked(True)
-        col1_form.addRow(self.cb_overlaps)
-        
+        self.cb_overlaps.setToolTip("Detect overlapping polygon areas within the layer exceeding the specified area threshold")
         self.overlap_spin = QDoubleSpinBox()
         self.overlap_spin.setRange(0.000001, 1000000.0)
-        self.overlap_spin.setDecimals(6)
+        self.overlap_spin.setDecimals(4)
         self.overlap_spin.setValue(0.0001)
-        col1_form.addRow("  Overlap Area Tolerance:", self.overlap_spin)
+        self.overlap_spin.setFixedWidth(85)
+        self.overlap_spin.setToolTip("Minimum overlapping area threshold in square layer units")
+        self.cb_overlaps.toggled.connect(self.overlap_spin.setEnabled)
+        row_overlap = QHBoxLayout()
+        row_overlap.addWidget(self.cb_overlaps)
+        row_overlap.addWidget(self.overlap_spin)
+        row_overlap.addStretch()
+        col1_vbox.addLayout(row_overlap)
+
+        self.cb_missing_nodes = QCheckBox("Check Missing Nodes / Intersections (tol):")
+        self.cb_missing_nodes.setChecked(True)
+        self.cb_missing_nodes.setToolTip("Detect T-junctions and line intersections where a boundary vertex/edge touches/crosses another polygon without a node")
+        self.missing_node_spin = QDoubleSpinBox()
+        self.missing_node_spin.setRange(0.000001, 1000000.0)
+        self.missing_node_spin.setDecimals(4)
+        self.missing_node_spin.setValue(0.1)
+        self.missing_node_spin.setFixedWidth(85)
+        self.missing_node_spin.setToolTip("Maximum distance tolerance (in layer units) to detect and snap missing nodes / T-junctions")
+        self.cb_missing_nodes.toggled.connect(self.missing_node_spin.setEnabled)
+        row_mn = QHBoxLayout()
+        row_mn.addWidget(self.cb_missing_nodes)
+        row_mn.addWidget(self.missing_node_spin)
+        row_mn.addStretch()
+        col1_vbox.addLayout(row_mn)
+        col1_vbox.addStretch()
         
         columns_layout.addWidget(col1_widget)
         
-        # Column 2
+        # Column 2 (5 Rules: Gaps, Enclosed Holes, Duplicates, Multipart, Slivers)
         col2_widget = QWidget()
-        col2_form = QFormLayout(col2_widget)
-        col2_form.setContentsMargins(0, 0, 0, 0)
+        col2_vbox = QVBoxLayout(col2_widget)
+        col2_vbox.setContentsMargins(5, 5, 5, 5)
+        col2_vbox.setSpacing(8)
         
-        self.cb_gaps = QCheckBox("Check Gaps Between Adjacent Polygons (Sliver Gaps)")
+        self.cb_gaps = QCheckBox("Check Sliver Gaps (dist ≤):")
         self.cb_gaps.setChecked(True)
-        col2_form.addRow(self.cb_gaps)
-        
+        self.cb_gaps.setToolTip("Detect narrow unmapped sliver gaps between adjacent polygons within the distance threshold")
         self.gap_spin = QDoubleSpinBox()
         self.gap_spin.setRange(0.000001, 1000000.0)
-        self.gap_spin.setDecimals(6)
+        self.gap_spin.setDecimals(4)
         self.gap_spin.setValue(1.0)
-        col2_form.addRow("  Gap Distance Limit:", self.gap_spin)
+        self.gap_spin.setFixedWidth(85)
+        self.gap_spin.setToolTip("Maximum gap distance limit (in layer units) between adjacent polygons")
+        self.cb_gaps.toggled.connect(self.gap_spin.setEnabled)
+        row_gap = QHBoxLayout()
+        row_gap.addWidget(self.cb_gaps)
+        row_gap.addWidget(self.gap_spin)
+        row_gap.addStretch()
+        col2_vbox.addLayout(row_gap)
         
-        self.cb_enclosed_gaps = QCheckBox("Check Enclosed Holes / Voids (Must Not Have Gaps)")
+        self.cb_enclosed_gaps = QCheckBox("Check Enclosed Holes / Voids (No Gaps)")
         self.cb_enclosed_gaps.setChecked(True)
-        col2_form.addRow(self.cb_enclosed_gaps)
+        self.cb_enclosed_gaps.setToolTip("Detect completely enclosed unmapped holes or voids surrounded by contiguous polygons (must not have internal gaps)")
+        row_enc = QHBoxLayout()
+        row_enc.addWidget(self.cb_enclosed_gaps)
+        row_enc.addStretch()
+        col2_vbox.addLayout(row_enc)
         
         self.cb_duplicates = QCheckBox("Check Duplicate Geometries")
         self.cb_duplicates.setChecked(True)
-        col2_form.addRow(self.cb_duplicates)
+        self.cb_duplicates.setToolTip("Detect identical duplicate polygon geometries sharing identical coordinates and boundaries")
+        row_dup = QHBoxLayout()
+        row_dup.addWidget(self.cb_duplicates)
+        row_dup.addStretch()
+        col2_vbox.addLayout(row_dup)
         
         self.cb_multipart = QCheckBox("Check Multipart Geometries")
         self.cb_multipart.setChecked(True)
-        col2_form.addRow(self.cb_multipart)
+        self.cb_multipart.setToolTip("Detect multi-polygon features containing disjoint parts instead of clean single-part polygons")
+        row_multi = QHBoxLayout()
+        row_multi.addWidget(self.cb_multipart)
+        row_multi.addStretch()
+        col2_vbox.addLayout(row_multi)
         
-        self.cb_min_area = QCheckBox("Check Micro-Polygons / Slivers")
+        self.cb_min_area = QCheckBox("Check Micro-Polygons / Slivers (area ≤):")
         self.cb_min_area.setChecked(True)
-        col2_form.addRow(self.cb_min_area)
-        
+        self.cb_min_area.setToolTip("Detect tiny micro-polygons or sliver polygons whose area is below the minimum area threshold")
         self.min_area_spin = QDoubleSpinBox()
         self.min_area_spin.setRange(0.000001, 1000000.0)
         self.min_area_spin.setDecimals(4)
         self.min_area_spin.setValue(0.01)
-        col2_form.addRow("  Sliver Area Tolerance:", self.min_area_spin)
+        self.min_area_spin.setFixedWidth(85)
+        self.min_area_spin.setToolTip("Minimum polygon area threshold in square layer units")
+        self.cb_min_area.toggled.connect(self.min_area_spin.setEnabled)
+        row_min_area = QHBoxLayout()
+        row_min_area.addWidget(self.cb_min_area)
+        row_min_area.addWidget(self.min_area_spin)
+        row_min_area.addStretch()
+        col2_vbox.addLayout(row_min_area)
+        col2_vbox.addStretch()
         
         columns_layout.addWidget(col2_widget)
         rules_layout.addLayout(columns_layout)
@@ -969,6 +1267,7 @@ class TopologyCheckerDialog(QDialog):
         main_layer_layout = QFormLayout()
         self.main_layer_cb = QgsMapLayerComboBox()
         self.main_layer_cb.setFilters(QgsMapLayerProxyModel.Filter.PolygonLayer)
+        self.main_layer_cb.setToolTip("Select the primary layer to validate against other layers")
         self.main_layer_cb.currentIndexChanged.connect(self.populate_other_layers_list)
         main_layer_layout.addRow("Select Main Layer:", self.main_layer_cb)
         main_layer_group.setLayout(main_layer_layout)
@@ -978,37 +1277,65 @@ class TopologyCheckerDialog(QDialog):
         other_layers_group = QGroupBox("Compare Against Layer(s)")
         other_layers_layout = QVBoxLayout()
         self.other_layers_list = QListWidget()
+        self.other_layers_list.setToolTip("Check all polygon layers you want to compare against the Main Layer")
         other_layers_layout.addWidget(self.other_layers_list)
         other_layers_group.setLayout(other_layers_layout)
         tab2_layout.addWidget(other_layers_group)
         
         # Cross Layer Rules
         cross_rules_group = QGroupBox("Cross-Layer Rules & Tolerances")
-        cross_rules_layout = QFormLayout()
+        cross_rules_layout = QVBoxLayout(cross_rules_group)
+        cross_rules_layout.setSpacing(8)
         
-        self.cb_cross_overlaps = QCheckBox("Check Cross-Layer Overlaps")
+        self.cb_cross_overlaps = QCheckBox("Check Cross-Layer Overlaps (area ≥):")
         self.cb_cross_overlaps.setChecked(True)
-        cross_rules_layout.addRow(self.cb_cross_overlaps)
-        
+        self.cb_cross_overlaps.setToolTip("Detect spatial overlaps between Main Layer features and compared layer features")
         self.cross_overlap_spin = QDoubleSpinBox()
         self.cross_overlap_spin.setRange(0.000001, 1000000.0)
-        self.cross_overlap_spin.setDecimals(6)
+        self.cross_overlap_spin.setDecimals(4)
         self.cross_overlap_spin.setValue(0.0001)
-        cross_rules_layout.addRow("  Overlap Area Tolerance:", self.cross_overlap_spin)
+        self.cross_overlap_spin.setFixedWidth(85)
+        self.cross_overlap_spin.setToolTip("Minimum cross-layer overlapping area threshold in square layer units")
+        self.cb_cross_overlaps.toggled.connect(self.cross_overlap_spin.setEnabled)
+        row_co = QHBoxLayout()
+        row_co.addWidget(self.cb_cross_overlaps)
+        row_co.addWidget(self.cross_overlap_spin)
+        row_co.addStretch()
+        cross_rules_layout.addLayout(row_co)
         
-        self.cb_cross_gaps = QCheckBox("Check Cross-Layer Gaps")
+        self.cb_cross_gaps = QCheckBox("Check Cross-Layer Gaps (dist ≤):")
         self.cb_cross_gaps.setChecked(True)
-        cross_rules_layout.addRow(self.cb_cross_gaps)
-        
+        self.cb_cross_gaps.setToolTip("Detect unmapped gaps / voids between Main Layer boundaries and compared layers")
         self.cross_gap_spin = QDoubleSpinBox()
         self.cross_gap_spin.setRange(0.000001, 1000000.0)
-        self.cross_gap_spin.setDecimals(6)
+        self.cross_gap_spin.setDecimals(4)
         self.cross_gap_spin.setValue(1.0)
-        cross_rules_layout.addRow("  Gap Distance Limit:", self.cross_gap_spin)
+        self.cross_gap_spin.setFixedWidth(85)
+        self.cross_gap_spin.setToolTip("Maximum gap distance limit (in layer units) between Main Layer and other layers")
+        self.cb_cross_gaps.toggled.connect(self.cross_gap_spin.setEnabled)
+        row_cg = QHBoxLayout()
+        row_cg.addWidget(self.cb_cross_gaps)
+        row_cg.addWidget(self.cross_gap_spin)
+        row_cg.addStretch()
+        cross_rules_layout.addLayout(row_cg)
+
+        self.cb_cross_missing_nodes = QCheckBox("Check Cross-Layer Missing Nodes / Intersections (tol):")
+        self.cb_cross_missing_nodes.setChecked(True)
+        self.cb_cross_missing_nodes.setToolTip("Detect T-junctions and boundary crossings between Main Layer and compared layers without matching nodes")
+        self.cross_missing_node_spin = QDoubleSpinBox()
+        self.cross_missing_node_spin.setRange(0.000001, 1000000.0)
+        self.cross_missing_node_spin.setDecimals(4)
+        self.cross_missing_node_spin.setValue(0.1)
+        self.cross_missing_node_spin.setFixedWidth(85)
+        self.cross_missing_node_spin.setToolTip("Maximum distance tolerance (in layer units) for cross-layer missing nodes")
+        self.cb_cross_missing_nodes.toggled.connect(self.cross_missing_node_spin.setEnabled)
+        row_cmn = QHBoxLayout()
+        row_cmn.addWidget(self.cb_cross_missing_nodes)
+        row_cmn.addWidget(self.cross_missing_node_spin)
+        row_cmn.addStretch()
+        cross_rules_layout.addLayout(row_cmn)
         
-        cross_rules_group.setLayout(cross_rules_layout)
         tab2_layout.addWidget(cross_rules_group)
-        
         self.tab_widget.addTab(tab2_widget, "Cross-Layer Checks")
         
         # Add tab widget to main layout
@@ -1021,56 +1348,49 @@ class TopologyCheckerDialog(QDialog):
         # Call initial populator
         self.populate_other_layers_list()
 
-        # Action Buttons Layout
+        # Row 1: Primary Action Buttons
         btn_layout = QHBoxLayout()
         
         self.btn_run = QPushButton("Run Topology Check")
-        self.btn_run.setStyleSheet("background-color: #007acc; color: white; font-weight: bold; padding: 6px;")
+        self.btn_run.setToolTip("Execute selected topology rule checks on the target layer")
+        self.btn_run.setStyleSheet("background-color: #007acc; color: white; font-weight: bold; padding: 6px 14px;")
         self.btn_run.clicked.connect(self.run_check)
         btn_layout.addWidget(self.btn_run)
         
         self.btn_recheck_selected = QPushButton("Re-check Selected")
-        self.btn_recheck_selected.setStyleSheet("background-color: #5cb85c; color: white; font-weight: bold; padding: 6px;")
+        self.btn_recheck_selected.setToolTip("Re-validate only the features corresponding to selected error rows in the table")
+        self.btn_recheck_selected.setStyleSheet("background-color: #5cb85c; color: white; font-weight: bold; padding: 6px 12px;")
         self.btn_recheck_selected.clicked.connect(self.recheck_selected_error)
         self.btn_recheck_selected.setEnabled(False)
         btn_layout.addWidget(self.btn_recheck_selected)
 
-        self.autofix_cb = QComboBox()
-        self.autofix_cb.setSizeAdjustPolicy(QComboBox.AdjustToContentsOnFirstShow)
-        self.autofix_cb.addItems(["Auto-Fix Selected", "Auto-Fix All"])
-        self.autofix_cb.setFixedWidth(160)
-        btn_layout.addWidget(self.autofix_cb)
-
-        self.btn_autofix = QPushButton("Auto-Fix")
-        self.btn_autofix.setStyleSheet("background-color: #f0ad4e; color: white; font-weight: bold; padding: 6px;")
-        self.btn_autofix.clicked.connect(self.apply_autofix)
-        self.btn_autofix.setEnabled(False)
-        self.btn_autofix.setFixedWidth(100)
-        btn_layout.addWidget(self.btn_autofix)
-        
-        # Unified show/hide highlight button
         self.btn_toggle_highlight = QPushButton("Highlight Errors")
-        self.btn_toggle_highlight.setStyleSheet("background-color: #d9534f; color: white; font-weight: bold; padding: 6px;")
+        self.btn_toggle_highlight.setToolTip("Toggle visual highlight markers and polygon outlines on the map canvas for all detected errors")
+        self.btn_toggle_highlight.setStyleSheet("background-color: #d9534f; color: white; font-weight: bold; padding: 6px 12px;")
         self.btn_toggle_highlight.clicked.connect(self.toggle_highlights)
         self.btn_toggle_highlight.setEnabled(False)
         self.highlights_active = False
         btn_layout.addWidget(self.btn_toggle_highlight)
-        
-        # Consolidated Export Option Dropdown + Button
-        btn_layout.addWidget(QLabel("Export Mode:"))
-        self.export_cb = QComboBox()
-        self.export_cb.addItems(["Export to CSV", "Export to HTML", "Create Error Layer"])
-        btn_layout.addWidget(self.export_cb)
-        
-        self.btn_export = QPushButton("Export")
-        self.btn_export.setStyleSheet("background-color: #f0ad4e; color: white; font-weight: bold; padding: 6px;")
-        self.btn_export.clicked.connect(self.execute_export)
-        self.btn_export.setEnabled(False)
-        btn_layout.addWidget(self.btn_export)
+
+        btn_layout.addStretch()
+
+        self.autofix_cb = QComboBox()
+        self.autofix_cb.setSizeAdjustPolicy(QComboBox.AdjustToContentsOnFirstShow)
+        self.autofix_cb.addItems(["Auto-Fix Selected", "Auto-Fix All"])
+        self.autofix_cb.setFixedWidth(150)
+        self.autofix_cb.setToolTip("Choose whether Auto-Fix applies to only selected rows or all detected errors in the layer")
+        btn_layout.addWidget(self.autofix_cb)
+
+        self.btn_autofix = QPushButton("Auto-Fix")
+        self.btn_autofix.setToolTip("Automatically fix repairable topology errors (spikes, overshoots, overlaps, missing nodes, multipart, duplicates)")
+        self.btn_autofix.setStyleSheet("background-color: #f0ad4e; color: white; font-weight: bold; padding: 6px 14px;")
+        self.btn_autofix.clicked.connect(self.apply_autofix)
+        self.btn_autofix.setEnabled(False)
+        btn_layout.addWidget(self.btn_autofix)
         
         layout.addLayout(btn_layout)
 
-        # Filter & Search Bar Layout
+        # Row 2: Filter, Search & Export Bar
         filter_layout = QHBoxLayout()
         filter_layout.addWidget(QLabel("Type Filter:"))
         self.filter_cb = QComboBox()
@@ -1081,21 +1401,38 @@ class TopologyCheckerDialog(QDialog):
             "Prolonged Edge / Overshoot",
             "Overlap",
             "Gap / Void",
+            "Missing Node / Line Intersection",
             "Duplicate Geometry",
             "Multipart Geometry",
             "Micro Polygon / Sliver"
         ])
+        self.filter_cb.setToolTip("Filter error table rows by specific topology error category")
         self.filter_cb.currentTextChanged.connect(self.populate_table)
         filter_layout.addWidget(self.filter_cb)
         
         filter_layout.addWidget(QLabel("Search:"))
         self.search_edit = QLineEdit()
         self.search_edit.setPlaceholderText("Search by FID, type, or description...")
+        self.search_edit.setToolTip("Search error records in real time by Feature ID, error type, or description")
         self.search_edit.textChanged.connect(self.populate_table)
         filter_layout.addWidget(self.search_edit)
         
+        filter_layout.addWidget(QLabel("Export:"))
+        self.export_cb = QComboBox()
+        self.export_cb.addItems(["Export to CSV", "Export to HTML", "Create Error Layer"])
+        self.export_cb.setToolTip("Choose export format: CSV spreadsheet, HTML report, or temporary GIS vector layer")
+        filter_layout.addWidget(self.export_cb)
+        
+        self.btn_export = QPushButton("Export")
+        self.btn_export.setToolTip("Export the current error list to the chosen format")
+        self.btn_export.setStyleSheet("background-color: #6c757d; color: white; font-weight: bold; padding: 5px 12px;")
+        self.btn_export.clicked.connect(self.execute_export)
+        self.btn_export.setEnabled(False)
+        filter_layout.addWidget(self.btn_export)
+
         self.cb_show_highlights = QCheckBox("Show Highlights")
         self.cb_show_highlights.setChecked(True)
+        self.cb_show_highlights.setToolTip("Automatically zoom, pan, and highlight error features on the map canvas when clicking table rows")
         self.cb_show_highlights.stateChanged.connect(self.on_show_highlights_changed)
         filter_layout.addWidget(self.cb_show_highlights)
         
@@ -1144,12 +1481,12 @@ class TopologyCheckerDialog(QDialog):
 
     def select_all_rules(self):
         for cb in [self.cb_validity, self.cb_spikes, self.cb_prolonged_edges, self.cb_overlaps,
-                   self.cb_gaps, self.cb_enclosed_gaps, self.cb_duplicates, self.cb_multipart, self.cb_min_area]:
+                   self.cb_gaps, self.cb_enclosed_gaps, self.cb_missing_nodes, self.cb_duplicates, self.cb_multipart, self.cb_min_area]:
             cb.setChecked(True)
 
     def deselect_all_rules(self):
         for cb in [self.cb_validity, self.cb_spikes, self.cb_prolonged_edges, self.cb_overlaps,
-                   self.cb_gaps, self.cb_enclosed_gaps, self.cb_duplicates, self.cb_multipart, self.cb_min_area]:
+                   self.cb_gaps, self.cb_enclosed_gaps, self.cb_missing_nodes, self.cb_duplicates, self.cb_multipart, self.cb_min_area]:
             cb.setChecked(False)
 
     def get_options(self):
@@ -1163,6 +1500,8 @@ class TopologyCheckerDialog(QDialog):
             'check_gaps': self.cb_gaps.isChecked(),
             'gap_distance_tolerance': self.gap_spin.value(),
             'check_enclosed_gaps': self.cb_enclosed_gaps.isChecked(),
+            'check_missing_nodes': self.cb_missing_nodes.isChecked(),
+            'missing_node_tolerance': self.missing_node_spin.value(),
             'check_duplicates': self.cb_duplicates.isChecked(),
             'check_multipart': self.cb_multipart.isChecked(),
             'check_min_area': self.cb_min_area.isChecked(),
@@ -1232,7 +1571,9 @@ class TopologyCheckerDialog(QDialog):
                 'check_cross_overlaps': self.cb_cross_overlaps.isChecked(),
                 'cross_overlap_tolerance': self.cross_overlap_spin.value(),
                 'check_cross_gaps': self.cb_cross_gaps.isChecked(),
-                'cross_gap_tolerance': self.cross_gap_spin.value()
+                'cross_gap_tolerance': self.cross_gap_spin.value(),
+                'check_cross_missing_nodes': self.cb_cross_missing_nodes.isChecked(),
+                'cross_missing_node_tolerance': self.cross_missing_node_spin.value()
             }
             
             self.progress_bar.setValue(0)
@@ -1304,7 +1645,9 @@ class TopologyCheckerDialog(QDialog):
                 'check_cross_overlaps': self.cb_cross_overlaps.isChecked(),
                 'cross_overlap_tolerance': self.cross_overlap_spin.value(),
                 'check_cross_gaps': self.cb_cross_gaps.isChecked(),
-                'cross_gap_tolerance': self.cross_gap_spin.value()
+                'cross_gap_tolerance': self.cross_gap_spin.value(),
+                'check_cross_missing_nodes': self.cb_cross_missing_nodes.isChecked(),
+                'cross_missing_node_tolerance': self.cross_missing_node_spin.value()
             }
             self.recheck_task = TopologyCheckTask(layer, options, fids, on_recheck_completed, mode='cross', other_layers_data=other_layers_data)
             
@@ -1366,7 +1709,9 @@ class TopologyCheckerDialog(QDialog):
             'Overlap',
             'Micro Polygon / Sliver',
             'Prolonged Edge / Overshoot',
-            'Cross-Layer Overlap'
+            'Missing Node / Line Intersection',
+            'Cross-Layer Overlap',
+            'Cross-Layer Missing Node / Line Intersection'
         }
 
         fixable_errors = [e for e in selected_errors if e.error_type in supported_types]
@@ -1410,146 +1755,14 @@ class TopologyCheckerDialog(QDialog):
                             failed_count += 1
                     else:
                         failed_count += 1
-                else:
-                    features_exist = True
-                    for fid in err.feature_ids:
-                        f = active_layer.getFeature(fid)
-                        if not f.isValid():
-                            features_exist = False
-                            break
-                    if not features_exist:
-                        fixed_count += 1
-                        continue
 
-                    active_layer.startEditing()
-                    edited_layers.add(active_layer)
-                    if err.error_type == 'Invalid Geometry':
-                        if TopologyFixer.fix_invalid_geometry(active_layer, err.feature_ids[0]):
-                            fixed_count += 1
-                            all_affected_fids.extend(err.feature_ids)
-                        else:
-                            failed_count += 1
-
-                    elif err.error_type == 'Duplicate Geometry':
-                        if TopologyFixer.fix_duplicate_geometry(active_layer, err.feature_ids[0]):
-                            fixed_count += 1
-                            all_affected_fids.extend(err.feature_ids)
-                        else:
-                            failed_count += 1
-
-                    elif err.error_type == 'Multipart Geometry':
-                        if TopologyFixer.fix_multipart_geometry(active_layer, err.feature_ids[0]):
-                            fixed_count += 1
-                            all_affected_fids.extend(err.feature_ids)
-                        else:
-                            failed_count += 1
-
-                    elif err.error_type == 'Spike / Acute Vertex':
-                        if TopologyFixer.fix_spike_geometry(active_layer, err.feature_ids[0], err.location_x, err.location_y):
-                            fixed_count += 1
-                            all_affected_fids.extend(err.feature_ids)
-                        else:
-                            failed_count += 1
-
-                    elif err.error_type == 'Overlap':
-                        if len(err.feature_ids) >= 2:
-                            if TopologyFixer.fix_overlap_geometry(active_layer, err.feature_ids[0], err.feature_ids[1]):
-                                fixed_count += 1
-                                all_affected_fids.extend(err.feature_ids)
-                            else:
-                                failed_count += 1
-                        else:
-                            failed_count += 1
-
-                    elif err.error_type == 'Micro Polygon / Sliver':
-                        if TopologyFixer.fix_sliver_geometry(active_layer, err.feature_ids[0]):
-                            fixed_count += 1
-                            all_affected_fids.extend(err.feature_ids)
-                        else:
-                            failed_count += 1
-
-                    elif err.error_type == 'Prolonged Edge / Overshoot':
-                        if TopologyFixer.fix_overshoot_geometry(active_layer, err.feature_ids[0]):
-                            fixed_count += 1
-                            all_affected_fids.extend(err.feature_ids)
-                        else:
-                            failed_count += 1
-
-            if fixed_count > 0:
-                msg = f"Auto-fixed {fixed_count} error(s) in edit buffer."
-                if failed_count > 0:
-                    msg += f" (Failed to fix {failed_count} error(s))."
-                msg += "\n\nNote: The fixes have been applied in edit mode. Please review them and save or discard layer changes manually in QGIS."
-                QMessageBox.information(self, "Success", msg)
-                self.recheck_after_autofix(active_layer, list(set(all_affected_fids)))
-            else:
-                for l in edited_layers:
-                    l.rollBack()
-                QMessageBox.warning(self, "Error", "Failed to fix the selected error(s) automatically.")
-        except Exception as e:
-            for l in edited_layers:
-                l.rollBack()
-            QMessageBox.critical(self, "Error", f"An error occurred during auto-fix: {str(e)}")
-        finally:
-            has_errs = len(self.errors) > 0
-            self.btn_autofix.setEnabled(has_errs)
-
-    def autofix_all_errors(self):
-        filtered = self.get_filtered_errors()
-        if not filtered:
-            QMessageBox.information(self, "Info", "No errors to auto-fix.")
-            return
-
-        active_layer = self.layer_cb.currentLayer() if self.tab_widget.currentIndex() == 0 else self.main_layer_cb.currentLayer()
-        if not active_layer:
-            return
-
-        supported_types = {
-            'Invalid Geometry',
-            'Duplicate Geometry',
-            'Multipart Geometry',
-            'Spike / Acute Vertex',
-            'Overlap',
-            'Micro Polygon / Sliver',
-            'Prolonged Edge / Overshoot',
-            'Cross-Layer Overlap'
-        }
-
-        fixable_errors = [e for e in filtered if e.error_type in supported_types]
-        if not fixable_errors:
-            QMessageBox.warning(self, "No Fixable Errors", "None of the errors can be automatically fixed.")
-            return
-
-        reply = QMessageBox.question(
-            self, "Confirm Bulk Auto-Fix All",
-            f"Are you sure you want to automatically fix all {len(fixable_errors)} fixable error(s)?\nThis will modify the vector layer.",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-        )
-        if reply != QMessageBox.StandardButton.Yes:
-            return
-
-        self.btn_autofix.setEnabled(False)
-
-        fixed_count = 0
-        failed_count = 0
-        all_affected_fids = []
-        edited_layers = set()
-
-        try:
-            for err in fixable_errors:
-                if err.error_type == 'Cross-Layer Overlap':
+                elif err.error_type == 'Cross-Layer Missing Node / Line Intersection':
                     main_fid = err.feature_ids[0]
-                    other_fid = err.feature_ids[1]
                     main_l = err.feature_layers[0] if len(err.feature_layers) > 0 else None
-                    other_l = err.feature_layers[1] if len(err.feature_layers) > 1 else None
-                    if main_l and other_l:
-                        if not main_l.getFeature(main_fid).isValid():
-                            fixed_count += 1
-                            continue
-
+                    if main_l and main_l.getFeature(main_fid).isValid():
                         main_l.startEditing()
                         edited_layers.add(main_l)
-                        if TopologyFixer.fix_cross_layer_overlap(main_l, main_fid, other_l, other_fid):
+                        if TopologyFixer.fix_missing_node(main_l, main_fid, err.location_x, err.location_y):
                             fixed_count += 1
                             all_affected_fids.append(main_fid)
                         else:
@@ -1621,6 +1834,184 @@ class TopologyCheckerDialog(QDialog):
                         else:
                             failed_count += 1
 
+                    elif err.error_type == 'Missing Node / Line Intersection':
+                        target_fid = err.feature_ids[0]
+                        if TopologyFixer.fix_missing_node(active_layer, target_fid, err.location_x, err.location_y):
+                            fixed_count += 1
+                            all_affected_fids.extend(err.feature_ids)
+                        else:
+                            failed_count += 1
+
+            if fixed_count > 0:
+                msg = f"Auto-fixed {fixed_count} error(s) in edit buffer."
+                if failed_count > 0:
+                    msg += f" (Failed to fix {failed_count} error(s))."
+                msg += "\n\nNote: The fixes have been applied in edit mode. Please review them and save or discard layer changes manually in QGIS."
+                QMessageBox.information(self, "Success", msg)
+                self.recheck_after_autofix(active_layer, list(set(all_affected_fids)))
+            else:
+                for l in edited_layers:
+                    l.rollBack()
+                QMessageBox.warning(self, "Error", "Failed to fix the selected error(s) automatically.")
+        except Exception as e:
+            for l in edited_layers:
+                l.rollBack()
+            QMessageBox.critical(self, "Error", f"An error occurred during auto-fix: {str(e)}")
+        finally:
+            has_errs = len(self.errors) > 0
+            self.btn_autofix.setEnabled(has_errs)
+
+    def autofix_all_errors(self):
+        filtered = self.get_filtered_errors()
+        if not filtered:
+            QMessageBox.information(self, "Info", "No errors to auto-fix.")
+            return
+
+        active_layer = self.layer_cb.currentLayer() if self.tab_widget.currentIndex() == 0 else self.main_layer_cb.currentLayer()
+        if not active_layer:
+            return
+
+        supported_types = {
+            'Invalid Geometry',
+            'Duplicate Geometry',
+            'Multipart Geometry',
+            'Spike / Acute Vertex',
+            'Overlap',
+            'Micro Polygon / Sliver',
+            'Prolonged Edge / Overshoot',
+            'Missing Node / Line Intersection',
+            'Cross-Layer Overlap',
+            'Cross-Layer Missing Node / Line Intersection'
+        }
+
+        fixable_errors = [e for e in filtered if e.error_type in supported_types]
+        if not fixable_errors:
+            QMessageBox.warning(self, "No Fixable Errors", "None of the errors can be automatically fixed.")
+            return
+
+        reply = QMessageBox.question(
+            self, "Confirm Bulk Auto-Fix All",
+            f"Are you sure you want to automatically fix all {len(fixable_errors)} fixable error(s)?\nThis will modify the vector layer.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        self.btn_autofix.setEnabled(False)
+
+        fixed_count = 0
+        failed_count = 0
+        all_affected_fids = []
+        edited_layers = set()
+
+        try:
+            for err in fixable_errors:
+                if err.error_type == 'Cross-Layer Overlap':
+                    main_fid = err.feature_ids[0]
+                    other_fid = err.feature_ids[1]
+                    main_l = err.feature_layers[0] if len(err.feature_layers) > 0 else None
+                    other_l = err.feature_layers[1] if len(err.feature_layers) > 1 else None
+                    if main_l and other_l:
+                        if not main_l.getFeature(main_fid).isValid():
+                            fixed_count += 1
+                            continue
+
+                        main_l.startEditing()
+                        edited_layers.add(main_l)
+                        if TopologyFixer.fix_cross_layer_overlap(main_l, main_fid, other_l, other_fid):
+                            fixed_count += 1
+                            all_affected_fids.append(main_fid)
+                        else:
+                            failed_count += 1
+                    else:
+                        failed_count += 1
+
+                elif err.error_type == 'Cross-Layer Missing Node / Line Intersection':
+                    main_fid = err.feature_ids[0]
+                    main_l = err.feature_layers[0] if len(err.feature_layers) > 0 else None
+                    if main_l and main_l.getFeature(main_fid).isValid():
+                        main_l.startEditing()
+                        edited_layers.add(main_l)
+                        if TopologyFixer.fix_missing_node(main_l, main_fid, err.location_x, err.location_y):
+                            fixed_count += 1
+                            all_affected_fids.append(main_fid)
+                        else:
+                            failed_count += 1
+                    else:
+                        failed_count += 1
+                else:
+                    features_exist = True
+                    for fid in err.feature_ids:
+                        f = active_layer.getFeature(fid)
+                        if not f.isValid():
+                            features_exist = False
+                            break
+                    if not features_exist:
+                        fixed_count += 1
+                        continue
+
+                    active_layer.startEditing()
+                    edited_layers.add(active_layer)
+                    if err.error_type == 'Invalid Geometry':
+                        if TopologyFixer.fix_invalid_geometry(active_layer, err.feature_ids[0]):
+                            fixed_count += 1
+                            all_affected_fids.extend(err.feature_ids)
+                        else:
+                            failed_count += 1
+
+                    elif err.error_type == 'Duplicate Geometry':
+                        if TopologyFixer.fix_duplicate_geometry(active_layer, err.feature_ids[0]):
+                            fixed_count += 1
+                            all_affected_fids.extend(err.feature_ids)
+                        else:
+                            failed_count += 1
+
+                    elif err.error_type == 'Multipart Geometry':
+                        if TopologyFixer.fix_multipart_geometry(active_layer, err.feature_ids[0]):
+                            fixed_count += 1
+                            all_affected_fids.extend(err.feature_ids)
+                        else:
+                            failed_count += 1
+
+                    elif err.error_type == 'Spike / Acute Vertex':
+                        if TopologyFixer.fix_spike_geometry(active_layer, err.feature_ids[0], err.location_x, err.location_y):
+                            fixed_count += 1
+                            all_affected_fids.extend(err.feature_ids)
+                        else:
+                            failed_count += 1
+
+                    elif err.error_type == 'Overlap':
+                        if len(err.feature_ids) >= 2:
+                            if TopologyFixer.fix_overlap_geometry(active_layer, err.feature_ids[0], err.feature_ids[1]):
+                                fixed_count += 1
+                                all_affected_fids.extend(err.feature_ids)
+                            else:
+                                failed_count += 1
+                        else:
+                            failed_count += 1
+
+                    elif err.error_type == 'Micro Polygon / Sliver':
+                        if TopologyFixer.fix_sliver_geometry(active_layer, err.feature_ids[0]):
+                            fixed_count += 1
+                            all_affected_fids.extend(err.feature_ids)
+                        else:
+                            failed_count += 1
+
+                    elif err.error_type == 'Prolonged Edge / Overshoot':
+                        if TopologyFixer.fix_overshoot_geometry(active_layer, err.feature_ids[0]):
+                            fixed_count += 1
+                            all_affected_fids.extend(err.feature_ids)
+                        else:
+                            failed_count += 1
+
+                    elif err.error_type == 'Missing Node / Line Intersection':
+                        target_fid = err.feature_ids[0]
+                        if TopologyFixer.fix_missing_node(active_layer, target_fid, err.location_x, err.location_y):
+                            fixed_count += 1
+                            all_affected_fids.extend(err.feature_ids)
+                        else:
+                            failed_count += 1
+
             if fixed_count > 0:
                 msg = f"Auto-fixed {fixed_count} error(s) in edit buffer."
                 if failed_count > 0:
@@ -1659,6 +2050,8 @@ class TopologyCheckerDialog(QDialog):
         if selected_type and selected_type != "All Error Types":
             if selected_type == "Gap / Void":
                 res = [e for e in res if e.error_type in ("Gap / Sliver Void", "Enclosed Gap / Void")]
+            elif selected_type == "Missing Node / Line Intersection":
+                res = [e for e in res if e.error_type in ("Missing Node / Line Intersection", "Cross-Layer Missing Node / Line Intersection")]
             else:
                 res = [e for e in res if e.error_type == selected_type]
 
