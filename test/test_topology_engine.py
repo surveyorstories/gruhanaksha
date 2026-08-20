@@ -1,6 +1,10 @@
+import os
+import sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+
 import unittest
 from qgis.core import QgsVectorLayer, QgsFeature, QgsGeometry, QgsPointXY, QgsApplication
-from gruhanaksha.topology_checker import TopologyEngine, TopologyError
+from gruhanaksha.topology_checker import TopologyEngine, TopologyError, TopologyFixer
 
 # Initialize QgsApplication for tests
 qgis_app = QgsApplication([], False)
@@ -194,6 +198,268 @@ class TestTopologyEngine(unittest.TestCase):
         multipart_errs = [e for e in errors if e.error_type == 'Multipart Geometry']
         self.assertEqual(len(multipart_errs), 1)
         self.assertEqual(multipart_errs[0].feature_ids, [2])
+
+    def test_selective_recheck_larger_id_bug(self):
+        layer = QgsVectorLayer("Polygon?crs=EPSG:4326", "test_layer_recheck_bug", "memory")
+        pr = layer.dataProvider()
+        
+        f1 = QgsFeature(1)
+        f1.setGeometry(QgsGeometry.fromPolygonXY([[QgsPointXY(0,0), QgsPointXY(0,10), QgsPointXY(10,10), QgsPointXY(10,0), QgsPointXY(0,0)]]))
+        
+        f2 = QgsFeature(2)
+        f2.setGeometry(QgsGeometry.fromPolygonXY([[QgsPointXY(5,5), QgsPointXY(5,15), QgsPointXY(15,15), QgsPointXY(15,5), QgsPointXY(5,5)]]))
+        
+        pr.addFeatures([f1, f2])
+        
+        engine = TopologyEngine()
+        options = {'check_overlaps': True, 'overlap_tolerance': 0.0001}
+        
+        # Re-check only Feature 2 (the larger ID)
+        recheck_errs = engine.run_checks_for_features(layer, [2], options)
+        overlap_errs = [e for e in recheck_errs if e.error_type == 'Overlap']
+        self.assertEqual(len(overlap_errs), 1)
+        self.assertEqual(set(overlap_errs[0].feature_ids), {1, 2})
+
+    def test_topology_fixer_invalid(self):
+        layer = QgsVectorLayer("Polygon?crs=EPSG:4326", "test_fix_layer", "memory")
+        pr = layer.dataProvider()
+        f1 = QgsFeature(1)
+        f1.setGeometry(QgsGeometry.fromPolygonXY([[QgsPointXY(20,0), QgsPointXY(30,10), QgsPointXY(20,10), QgsPointXY(30,0), QgsPointXY(20,0)]]))
+        pr.addFeatures([f1])
+        
+        layer.startEditing()
+        success = TopologyFixer.fix_invalid_geometry(layer, 1)
+        layer.commitChanges()
+        self.assertTrue(success)
+        self.assertTrue(layer.getFeature(1).geometry().isGeosValid())
+
+    def test_canonical_duplicate_check(self):
+        layer = QgsVectorLayer("Polygon?crs=EPSG:4326", "test_dup_canonical", "memory")
+        pr = layer.dataProvider()
+        
+        # F1 and F2 are spatially identical, but starting point is shifted and F2 winding is reversed
+        f1 = QgsFeature(1)
+        f1.setGeometry(QgsGeometry.fromPolygonXY([[QgsPointXY(0,0), QgsPointXY(0,5), QgsPointXY(5,5), QgsPointXY(5,0), QgsPointXY(0,0)]]))
+        f2 = QgsFeature(2)
+        f2.setGeometry(QgsGeometry.fromPolygonXY([[QgsPointXY(5,5), QgsPointXY(0,5), QgsPointXY(0,0), QgsPointXY(5,0), QgsPointXY(5,5)]]))
+        
+        pr.addFeatures([f1, f2])
+        engine = TopologyEngine()
+        errors = engine.run_checks(layer, {'check_duplicates': True})
+        dup_errs = [e for e in errors if e.error_type == 'Duplicate Geometry']
+        self.assertEqual(len(dup_errs), 1)
+
+    def test_enclosed_gap_check(self):
+        layer = QgsVectorLayer("Polygon?crs=EPSG:4326", "test_enclosed_gaps", "memory")
+        pr = layer.dataProvider()
+        
+        # Three touching triangles leaving an enclosed central triangular void
+        f1 = QgsFeature(1)
+        f1.setGeometry(QgsGeometry.fromPolygonXY([[QgsPointXY(0,0), QgsPointXY(5,0), QgsPointXY(3,2), QgsPointXY(2,2), QgsPointXY(0,0)]]))
+        f2 = QgsFeature(2)
+        f2.setGeometry(QgsGeometry.fromPolygonXY([[QgsPointXY(5,0), QgsPointXY(2.5,5), QgsPointXY(2.5,3), QgsPointXY(3,2), QgsPointXY(5,0)]]))
+        f3 = QgsFeature(3)
+        f3.setGeometry(QgsGeometry.fromPolygonXY([[QgsPointXY(0,0), QgsPointXY(2,2), QgsPointXY(2.5,3), QgsPointXY(2.5,5), QgsPointXY(0,0)]]))
+        
+        pr.addFeatures([f1, f2, f3])
+        engine = TopologyEngine()
+        errors = engine.run_checks(layer, {'check_enclosed_gaps': True})
+        gap_errs = [e for e in errors if e.error_type == 'Enclosed Gap / Void']
+        self.assertGreaterEqual(len(gap_errs), 1)
+
+    def test_fix_overlap(self):
+        layer = QgsVectorLayer("Polygon?crs=EPSG:4326", "test_fix_overlap", "memory")
+        pr = layer.dataProvider()
+        f1 = QgsFeature(1)
+        f1.setGeometry(QgsGeometry.fromPolygonXY([[QgsPointXY(0,0), QgsPointXY(0,10), QgsPointXY(10,10), QgsPointXY(10,0), QgsPointXY(0,0)]]))
+        f2 = QgsFeature(2) # Area 25, overlaps f1 (area 100)
+        f2.setGeometry(QgsGeometry.fromPolygonXY([[QgsPointXY(8,0), QgsPointXY(8,10), QgsPointXY(13,10), QgsPointXY(13,0), QgsPointXY(8,0)]]))
+        pr.addFeatures([f1, f2])
+        
+        layer.startEditing()
+        success = TopologyFixer.fix_overlap_geometry(layer, 1, 2)
+        layer.commitChanges()
+        self.assertTrue(success)
+        # Check that overlap is resolved
+        self.assertAlmostEqual(layer.getFeature(2).geometry().intersection(layer.getFeature(1).geometry()).area(), 0.0, places=5)
+
+    def test_fix_sliver(self):
+        layer = QgsVectorLayer("Polygon?crs=EPSG:4326", "test_fix_sliver", "memory")
+        pr = layer.dataProvider()
+        # Large neighbor
+        f1 = QgsFeature(1)
+        f1.setGeometry(QgsGeometry.fromPolygonXY([[QgsPointXY(0,0), QgsPointXY(0,10), QgsPointXY(10,10), QgsPointXY(10,0), QgsPointXY(0,0)]]))
+        # Sliver sharing border at X=10
+        f2 = QgsFeature(2)
+        f2.setGeometry(QgsGeometry.fromPolygonXY([[QgsPointXY(10,0), QgsPointXY(10,10), QgsPointXY(10.001,10), QgsPointXY(10.001,0), QgsPointXY(10,0)]]))
+        pr.addFeatures([f1, f2])
+        
+        layer.startEditing()
+        success = TopologyFixer.fix_sliver_geometry(layer, 2)
+        layer.commitChanges()
+        self.assertTrue(success)
+        # Sliver should be deleted and merged into neighbor
+        self.assertFalse(layer.getFeature(2).isValid())
+        self.assertGreater(layer.getFeature(1).geometry().area(), 100.0)
+
+    def test_fix_overshoot(self):
+        layer = QgsVectorLayer("Polygon?crs=EPSG:4326", "test_fix_overshoot", "memory")
+        pr = layer.dataProvider()
+        f1 = QgsFeature(1)
+        f1.setGeometry(QgsGeometry.fromWkt('POLYGON((0 0, 0 10, 5 10, 5 15, 5 10, 10 10, 10 0, 0 0))'))
+        pr.addFeatures([f1])
+        
+        layer.startEditing()
+        success = TopologyFixer.fix_overshoot_geometry(layer, 1)
+        layer.commitChanges()
+        self.assertTrue(success)
+        # Geometry should be valid and have no dangling line
+        geom = layer.getFeature(1).geometry()
+        self.assertTrue(geom.isGeosValid())
+        self.assertNotIn("LineString", geom.asWkt())
+
+    def test_localized_enclosed_gap_check(self):
+        layer = QgsVectorLayer("Polygon?crs=EPSG:4326", "test_local_gaps", "memory")
+        pr = layer.dataProvider()
+        
+        # Three touching triangles leaving an enclosed central triangular void
+        f1 = QgsFeature(1)
+        f1.setGeometry(QgsGeometry.fromPolygonXY([[QgsPointXY(0,0), QgsPointXY(5,0), QgsPointXY(3,2), QgsPointXY(2,2), QgsPointXY(0,0)]]))
+        f2 = QgsFeature(2)
+        f2.setGeometry(QgsGeometry.fromPolygonXY([[QgsPointXY(5,0), QgsPointXY(2.5,5), QgsPointXY(2.5,3), QgsPointXY(3,2), QgsPointXY(5,0)]]))
+        f3 = QgsFeature(3)
+        f3.setGeometry(QgsGeometry.fromPolygonXY([[QgsPointXY(0,0), QgsPointXY(2,2), QgsPointXY(2.5,3), QgsPointXY(2.5,5), QgsPointXY(0,0)]]))
+        # A far-away clean feature
+        f4 = QgsFeature(4)
+        f4.setGeometry(QgsGeometry.fromPolygonXY([[QgsPointXY(100,100), QgsPointXY(100,110), QgsPointXY(110,110), QgsPointXY(110,100), QgsPointXY(100,100)]]))
+        
+        pr.addFeatures([f1, f2, f3, f4])
+        engine = TopologyEngine()
+        # Selective check on f1, f2, f3. It should find the gap locally
+        errors1 = engine.run_checks(layer, {'check_enclosed_gaps': True}, target_fids=[1, 2, 3])
+        gap_errs1 = [e for e in errors1 if e.error_type == 'Enclosed Gap / Void']
+        self.assertEqual(len(gap_errs1), 1)
+
+        # Selective check on f4. It should NOT find the gap since f4 is far away and has no gaps
+        errors2 = engine.run_checks(layer, {'check_enclosed_gaps': True}, target_fids=[4])
+        gap_errs2 = [e for e in errors2 if e.error_type == 'Enclosed Gap / Void']
+        self.assertEqual(len(gap_errs2), 0)
+
+    def test_task_execution(self):
+        from gruhanaksha.topology_checker import TopologyCheckTask
+        layer = QgsVectorLayer("Polygon?crs=EPSG:4326", "test_task", "memory")
+        pr = layer.dataProvider()
+        f1 = QgsFeature(1)
+        f1.setGeometry(QgsGeometry.fromPolygonXY([[QgsPointXY(0,0), QgsPointXY(0,5), QgsPointXY(5,5), QgsPointXY(5,0), QgsPointXY(0,0)]]))
+        pr.addFeatures([f1])
+        
+        # We need a callback to receive result
+        result_data = []
+        def callback(errors, success):
+            result_data.append((errors, success))
+        
+        # Create task
+        task = TopologyCheckTask(layer, {'check_validity': True}, None, callback)
+        
+        # Run task synchronously for test validation
+        success = task.run()
+        task.finished(success)
+        
+        self.assertTrue(success)
+        self.assertEqual(len(result_data), 1)
+        self.assertEqual(result_data[0][1], True) # success is True
+
+    def test_cross_layer_overlaps(self):
+        main_layer = QgsVectorLayer("Polygon?crs=EPSG:4326", "main_layer", "memory")
+        other_layer = QgsVectorLayer("Polygon?crs=EPSG:4326", "other_layer", "memory")
+        
+        f_main = QgsFeature(1)
+        f_main.setGeometry(QgsGeometry.fromPolygonXY([[QgsPointXY(0,0), QgsPointXY(0,10), QgsPointXY(10,10), QgsPointXY(10,0), QgsPointXY(0,0)]]))
+        main_layer.dataProvider().addFeatures([f_main])
+        
+        # Overlaps main_layer feature
+        f_other = QgsFeature(10)
+        f_other.setGeometry(QgsGeometry.fromPolygonXY([[QgsPointXY(8,2), QgsPointXY(8,8), QgsPointXY(12,8), QgsPointXY(12,2), QgsPointXY(8,2)]]))
+        other_layer.dataProvider().addFeatures([f_other])
+        
+        feat_main_added = list(main_layer.getFeatures())[0]
+        feat_other_added = list(other_layer.getFeatures())[0]
+        fid_main = feat_main_added.id()
+        fid_other = feat_other_added.id()
+        
+        engine = TopologyEngine()
+        options = {'check_cross_overlaps': True, 'cross_overlap_tolerance': 0.0001, 'check_cross_gaps': False}
+        other_layers_features = {"other_layer_id": (other_layer, [feat_other_added])}
+        
+        errors = engine.run_cross_layer_checks(
+            [feat_main_added], main_layer, other_layers_features, options
+        )
+        
+        overlap_errs = [e for e in errors if e.error_type == 'Cross-Layer Overlap']
+        self.assertEqual(len(overlap_errs), 1)
+        self.assertEqual(overlap_errs[0].feature_ids, [fid_main, fid_other])
+        self.assertEqual(overlap_errs[0].feature_layers[0], main_layer)
+        self.assertEqual(overlap_errs[0].feature_layers[1], other_layer)
+
+    def test_cross_layer_gaps(self):
+        main_layer = QgsVectorLayer("Polygon?crs=EPSG:4326", "main_layer", "memory")
+        other_layer = QgsVectorLayer("Polygon?crs=EPSG:4326", "other_layer", "memory")
+        
+        f_main = QgsFeature(1)
+        f_main.setGeometry(QgsGeometry.fromPolygonXY([[QgsPointXY(0,0), QgsPointXY(0,10), QgsPointXY(10,10), QgsPointXY(10,0), QgsPointXY(0,0)]]))
+        main_layer.dataProvider().addFeatures([f_main])
+        
+        # Separated by a small gap of 0.0001 units
+        f_other = QgsFeature(10)
+        f_other.setGeometry(QgsGeometry.fromPolygonXY([[QgsPointXY(10.0001,0), QgsPointXY(10.0001,10), QgsPointXY(20,10), QgsPointXY(20,0), QgsPointXY(10.0001,0)]]))
+        other_layer.dataProvider().addFeatures([f_other])
+        
+        feat_main_added = list(main_layer.getFeatures())[0]
+        feat_other_added = list(other_layer.getFeatures())[0]
+        fid_main = feat_main_added.id()
+        fid_other = feat_other_added.id()
+        
+        engine = TopologyEngine()
+        options = {'check_cross_overlaps': False, 'check_cross_gaps': True, 'cross_gap_tolerance': 0.0002}
+        other_layers_features = {"other_layer_id": (other_layer, [feat_other_added])}
+        
+        errors = engine.run_cross_layer_checks(
+            [feat_main_added], main_layer, other_layers_features, options
+        )
+        
+        gap_errs = [e for e in errors if e.error_type == 'Cross-Layer Gap / Sliver Void']
+        self.assertEqual(len(gap_errs), 1)
+        self.assertEqual(gap_errs[0].feature_ids, [fid_main, fid_other])
+        self.assertEqual(gap_errs[0].feature_layers[0], main_layer)
+        self.assertEqual(gap_errs[0].feature_layers[1], other_layer)
+        self.assertAlmostEqual(gap_errs[0].location_x, 10.00005, places=5)
+        self.assertAlmostEqual(gap_errs[0].location_y, 10.0, places=5)
+
+    def test_cross_layer_autofix(self):
+        main_layer = QgsVectorLayer("Polygon?crs=EPSG:4326", "main_layer", "memory")
+        other_layer = QgsVectorLayer("Polygon?crs=EPSG:4326", "other_layer", "memory")
+        
+        f_main = QgsFeature(1)
+        f_main.setGeometry(QgsGeometry.fromPolygonXY([[QgsPointXY(0,0), QgsPointXY(0,10), QgsPointXY(10,10), QgsPointXY(10,0), QgsPointXY(0,0)]]))
+        main_layer.dataProvider().addFeatures([f_main])
+        
+        f_other = QgsFeature(10)
+        f_other.setGeometry(QgsGeometry.fromPolygonXY([[QgsPointXY(8,0), QgsPointXY(8,10), QgsPointXY(13,10), QgsPointXY(13,0), QgsPointXY(8,0)]]))
+        other_layer.dataProvider().addFeatures([f_other])
+        
+        feat_main_added = list(main_layer.getFeatures())[0]
+        feat_other_added = list(other_layer.getFeatures())[0]
+        fid_main = feat_main_added.id()
+        fid_other = feat_other_added.id()
+        
+        main_layer.startEditing()
+        success = TopologyFixer.fix_cross_layer_overlap(main_layer, fid_main, other_layer, fid_other)
+        main_layer.commitChanges()
+        
+        self.assertTrue(success)
+        # Verify overlap is removed from main_layer feature
+        updated_feat = main_layer.getFeature(fid_main)
+        self.assertAlmostEqual(updated_feat.geometry().intersection(feat_other_added.geometry()).area(), 0.0, places=5)
 
 if __name__ == '__main__':
     unittest.main()

@@ -9,48 +9,101 @@ import csv
 import math
 from qgis.core import (
     QgsVectorLayer, QgsFeature, QgsGeometry, QgsSpatialIndex,
-    QgsRectangle, QgsPointXY, QgsField, QgsProject, QgsMapLayerProxyModel
+    QgsRectangle, QgsPointXY, QgsField, QgsProject, QgsMapLayerProxyModel,
+    QgsTask, QgsApplication, QgsWkbTypes
 )
 from qgis.PyQt.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QGroupBox,
     QCheckBox, QDoubleSpinBox, QPushButton, QProgressBar, QComboBox, QLineEdit,
     QTableWidget, QTableWidgetItem, QHeaderView, QMessageBox, QLabel, QFileDialog,
-    QTabWidget, QWidget, QAbstractItemView
+    QTabWidget, QWidget, QAbstractItemView, QListWidget, QListWidgetItem
 )
 from qgis.PyQt.QtCore import Qt, QVariant
 from qgis.PyQt.QtGui import QColor
 from qgis.gui import QgsMapLayerComboBox, QgsRubberBand, QgsVertexMarker
 
+# PyQt5 / PyQt6 compatibility for Qt enums
+try:
+    CHECKED = Qt.CheckState.Checked
+    USER_ROLE = Qt.ItemDataRole.UserRole
+    ITEM_IS_USER_CHECKABLE = Qt.ItemFlag.ItemIsUserCheckable
+except AttributeError:
+    CHECKED = Qt.Checked
+    USER_ROLE = Qt.UserRole
+    ITEM_IS_USER_CHECKABLE = Qt.ItemIsUserCheckable
+
 
 class TopologyError:
     """Represents an identified topological anomaly or error."""
-    def __init__(self, error_type, feature_ids, description, location_x=0.0, location_y=0.0, geometry=None):
+    def __init__(self, error_type, feature_ids, description, location_x=0.0, location_y=0.0, geometry=None, feature_layers=None):
         self.error_type = error_type
         self.feature_ids = feature_ids
         self.description = description
         self.location_x = location_x
         self.location_y = location_y
         self.geometry = geometry
+        self.feature_layers = feature_layers if feature_layers is not None else []
 
 
 class TopologyEngine:
     """Core evaluation engine running geometry checks without external dependencies."""
 
-    def run_checks(self, layer: QgsVectorLayer, options: dict, progress_callback=None, target_fids=None):
+    def canonicalize_ring(self, ring):
+        if not ring:
+            return ()
+        pts = ring[:-1] if ring[0] == ring[-1] else ring
+        if not pts:
+            return ()
+        coords = [(round(p.x(), 8), round(p.y(), 8)) for p in pts]
+        n = len(coords)
+        rotations = []
+        for i in range(n):
+            rotations.append(tuple(coords[i:] + coords[:i]))
+        coords_rev = coords[::-1]
+        for i in range(n):
+            rotations.append(tuple(coords_rev[i:] + coords_rev[:i]))
+        return min(rotations)
+
+    def canonicalize_polygon(self, geom):
+        if geom.isEmpty():
+            return ()
+        poly_list = geom.asMultiPolygon() if geom.isMultipart() else [geom.asPolygon()]
+        canonical_parts = []
+        for poly in poly_list:
+            ext_ring = self.canonicalize_ring(poly[0])
+            int_rings = tuple(sorted(self.canonicalize_ring(r) for r in poly[1:]))
+            canonical_parts.append((ext_ring, int_rings))
+        return tuple(sorted(canonical_parts))
+
+    def _get_polygon_parts(self, geom):
+        if not geom or geom.isEmpty():
+            return []
+        comps = geom.coerceToType(QgsWkbTypes.Polygon)
+        return [c for c in comps if c.type() == QgsWkbTypes.PolygonGeometry and not c.isEmpty()]
+
+    def run_checks(self, layer_or_features, options: dict, progress_callback=None, target_fids=None):
         errors = []
-        if not layer or not layer.isValid():
+        if not layer_or_features:
             return errors
 
-        features = list(layer.getFeatures())
+        if isinstance(layer_or_features, list):
+            features = layer_or_features
+        else:
+            if not layer_or_features.isValid():
+                return errors
+            features = list(layer_or_features.getFeatures())
+
         total_count = len(features)
         if total_count == 0:
             return errors
 
-        # Cache features in memory to avoid costly layer.getFeature() calls
-        features_dict = {f.id(): f for f in features}
-        
-        # Build spatial index once and reuse it across checks
-        spatial_index = QgsSpatialIndex(layer.getFeatures())
+        # Cache features in memory and build spatial index once
+        features_dict = {}
+        spatial_index = QgsSpatialIndex()
+        for f in features:
+            features_dict[f.id()] = f
+            if f.geometry() and not f.geometry().isEmpty():
+                spatial_index.addFeature(f)
 
         target_set = set(target_fids) if target_fids is not None else None
 
@@ -145,6 +198,7 @@ class TopologyEngine:
                             lines.append(ring)
                     boundary_dict[f.id()] = QgsGeometry.fromMultiPolylineXY(lines) if lines else None
 
+            seen_overshoot_pairs = set()
             for idx, feat in enumerate(features):
                 if target_set is not None and feat.id() not in target_set:
                     continue
@@ -183,8 +237,14 @@ class TopologyEngine:
                 boundary_a = boundary_dict.get(feat.id())
 
                 for cand_id in candidates:
-                    if cand_id <= feat.id() and (target_set is None or cand_id not in target_set):
+                    if cand_id == feat.id():
                         continue
+                    if target_set is not None and feat.id() not in target_set and cand_id not in target_set:
+                        continue
+                    pair = (min(feat.id(), cand_id), max(feat.id(), cand_id))
+                    if pair in seen_overshoot_pairs:
+                        continue
+                    seen_overshoot_pairs.add(pair)
                     featB = features_dict.get(cand_id)
                     if not featB:
                         continue
@@ -222,9 +282,11 @@ class TopologyEngine:
 
                 candidates = spatial_index.intersects(geomA.boundingBox())
                 for candidate_id in candidates:
-                    if candidate_id <= feat.id() and (target_set is None or candidate_id not in target_set):
+                    if candidate_id == feat.id():
                         continue
-                    pair = (feat.id(), candidate_id)
+                    if target_set is not None and feat.id() not in target_set and candidate_id not in target_set:
+                        continue
+                    pair = (min(feat.id(), candidate_id), max(feat.id(), candidate_id))
                     if pair in seen_pairs:
                         continue
                     seen_pairs.add(pair)
@@ -262,9 +324,11 @@ class TopologyEngine:
                 candidates = spatial_index.intersects(bbox_expanded)
 
                 for candidate_id in candidates:
-                    if candidate_id <= feat.id() and (target_set is None or candidate_id not in target_set):
+                    if candidate_id == feat.id():
                         continue
-                    pair = (feat.id(), candidate_id)
+                    if target_set is not None and feat.id() not in target_set and candidate_id not in target_set:
+                        continue
+                    pair = (min(feat.id(), candidate_id), max(feat.id(), candidate_id))
                     if pair in seen_gap_pairs:
                         continue
                     seen_gap_pairs.add(pair)
@@ -289,12 +353,18 @@ class TopologyEngine:
                     if not geomA.intersects(geomB) and not geomA.touches(geomB):
                         dist = geomA.distance(geomB)
                         if 0.0 < dist <= gap_tol:
-                            ptA = geomA.centroid().asPoint()
-                            ptB = geomB.centroid().asPoint()
-                            mid_x = (ptA.x() + ptB.x()) / 2.0
-                            mid_y = (ptA.y() + ptB.y()) / 2.0
+                            gap_geom = geomA.shortestLine(geomB)
+                            if not gap_geom.isEmpty():
+                                cent = gap_geom.centroid().asPoint() if not gap_geom.centroid().isEmpty() else QgsPointXY(0,0)
+                                mid_x = cent.x()
+                                mid_y = cent.y()
+                            else:
+                                ptA = geomA.centroid().asPoint()
+                                ptB = geomB.centroid().asPoint()
+                                mid_x = (ptA.x() + ptB.x()) / 2.0
+                                mid_y = (ptA.y() + ptB.y()) / 2.0
                             desc = f"Unmapped Gap / Void between FID {feat.id()} and FID {candidate_id} (Distance: {dist:.6f} units)"
-                            errors.append(TopologyError('Gap / Sliver Void', [feat.id(), candidate_id], desc, mid_x, mid_y, QgsGeometry.fromPointXY(QgsPointXY(mid_x, mid_y))))
+                            errors.append(TopologyError('Gap / Sliver Void', [feat.id(), candidate_id], desc, mid_x, mid_y, gap_geom))
 
         # 6. Check Duplicate Geometries
         if options.get('check_duplicates', True):
@@ -303,16 +373,16 @@ class TopologyEngine:
                 geom = feat.geometry()
                 if not geom or geom.isEmpty():
                     continue
-                wkt = geom.asWkt()
-                if wkt in seen_geoms:
-                    other_id = seen_geoms[wkt]
+                canonical_key = self.canonicalize_polygon(geom)
+                if canonical_key in seen_geoms:
+                    other_id = seen_geoms[canonical_key]
                     # If target_set is active, we only flag if either features are in target_set
                     if target_set is not None and feat.id() not in target_set and other_id not in target_set:
                         continue
                     centroid = geom.centroid().asPoint()
                     errors.append(TopologyError('Duplicate Geometry', [feat.id(), other_id], f"Identical geometry to FID {other_id}", centroid.x(), centroid.y(), geom))
                 else:
-                    seen_geoms[wkt] = feat.id()
+                    seen_geoms[canonical_key] = feat.id()
 
         # 7. Check Multipart Geometries
         if options.get('check_multipart', True):
@@ -336,6 +406,199 @@ class TopologyEngine:
                     centroid = geom.centroid().asPoint()
                     errors.append(TopologyError('Micro Polygon / Sliver', [feat.id()], f"Area ({geom.area():.6f}) is below minimum threshold ({min_area})", centroid.x(), centroid.y(), geom))
 
+        # 9. Check Enclosed Gaps / Voids
+        if options.get('check_enclosed_gaps', True):
+            if target_set is not None:
+                # Localized gap check around target features
+                target_geoms = [features_dict[fid].geometry() for fid in target_set if fid in features_dict]
+                if target_geoms:
+                    # Combine target bounding boxes
+                    bbox = QgsRectangle()
+                    bbox.setMinimal()
+                    for g in target_geoms:
+                        bbox.combineExtentWith(g.boundingBox())
+                    # Grow bbox slightly to include neighbor features
+                    bbox.grow(50.0)
+                    
+                    # Find candidate features intersecting the expanded bounding box
+                    candidate_ids = spatial_index.intersects(bbox)
+                    local_geoms = []
+                    for cid in candidate_ids:
+                        f = features_dict.get(cid)
+                        if f and f.geometry() and not f.geometry().isEmpty():
+                            local_geoms.extend(self._get_polygon_parts(f.geometry().makeValid()))
+                    
+                    if local_geoms:
+                        union_geom = QgsGeometry.unaryUnion(local_geoms)
+                        if union_geom and not union_geom.isEmpty():
+                            polys = union_geom.asMultiPolygon() if union_geom.isMultipart() else [union_geom.asPolygon()]
+                            for poly in polys:
+                                for int_ring in poly[1:]:
+                                    hole_geom = QgsGeometry.fromPolygonXY([int_ring])
+                                    # Only report if the hole intersects the original target bounding box
+                                    target_bbox = QgsRectangle()
+                                    target_bbox.setMinimal()
+                                    for g in target_geoms:
+                                        target_bbox.combineExtentWith(g.boundingBox())
+                                    if hole_geom.boundingBox().intersects(target_bbox):
+                                        centroid = hole_geom.centroid().asPoint()
+                                        desc = f"Enclosed Gap / Void (Area: {hole_geom.area():.4f} sq units)"
+                                        
+                                        # Find surrounding feature IDs
+                                        surrounding_fids = []
+                                        expanded_hole = hole_geom.boundingBox()
+                                        expanded_hole.grow(0.1)
+                                        candidates = spatial_index.intersects(expanded_hole)
+                                        for cid in candidates:
+                                            f = features_dict.get(cid)
+                                            if f and f.geometry() and f.geometry().intersects(hole_geom):
+                                                surrounding_fids.append(cid)
+
+                                        errors.append(TopologyError(
+                                            'Enclosed Gap / Void',
+                                            surrounding_fids,
+                                            desc,
+                                            centroid.x(),
+                                            centroid.y(),
+                                            hole_geom
+                                        ))
+            else:
+                # Full layer check
+                valid_geoms = []
+                for f in features:
+                    if f.geometry() and not f.geometry().isEmpty():
+                        valid_geoms.extend(self._get_polygon_parts(f.geometry().makeValid()))
+                if valid_geoms:
+                    union_geom = QgsGeometry.unaryUnion(valid_geoms)
+                    if union_geom and not union_geom.isEmpty():
+                        polys = union_geom.asMultiPolygon() if union_geom.isMultipart() else [union_geom.asPolygon()]
+                        for poly in polys:
+                            for int_ring in poly[1:]:
+                                hole_geom = QgsGeometry.fromPolygonXY([int_ring])
+                                centroid = hole_geom.centroid().asPoint()
+                                desc = f"Enclosed Gap / Void (Area: {hole_geom.area():.4f} sq units)"
+                                
+                                # Find surrounding feature IDs
+                                surrounding_fids = []
+                                expanded_hole = hole_geom.boundingBox()
+                                expanded_hole.grow(0.1)
+                                candidates = spatial_index.intersects(expanded_hole)
+                                for cid in candidates:
+                                    f = features_dict.get(cid)
+                                    if f and f.geometry() and f.geometry().intersects(hole_geom):
+                                        surrounding_fids.append(cid)
+
+                                errors.append(TopologyError(
+                                    'Enclosed Gap / Void',
+                                    surrounding_fids,
+                                    desc,
+                                    centroid.x(),
+                                    centroid.y(),
+                                    hole_geom
+                                ))
+
+        return errors
+
+    def run_cross_layer_checks(self, main_features, main_layer, other_layers_features, options: dict, progress_callback=None, target_fids=None):
+        errors = []
+        target_set = set(target_fids) if target_fids is not None else None
+        total_count = len(main_features)
+        if total_count == 0:
+            return errors
+
+        # Pre-build spatial index for each other layer
+        spatial_indexes = {}
+        for layer_id, (layer, feats) in other_layers_features.items():
+            sp_idx = QgsSpatialIndex()
+            feats_map = {}
+            for f in feats:
+                feats_map[f.id()] = f
+                if f.geometry() and not f.geometry().isEmpty():
+                    sp_idx.addFeature(f)
+            spatial_indexes[layer_id] = (layer, sp_idx, feats_map)
+
+        for idx, feat_main in enumerate(main_features):
+            if target_set is not None and feat_main.id() not in target_set:
+                continue
+            if progress_callback:
+                progress_callback(int((idx / total_count) * 100))
+
+            geom_main = feat_main.geometry()
+            if not geom_main or geom_main.isEmpty():
+                continue
+
+            # 1. Cross-Layer Overlap Check
+            if options.get('check_cross_overlaps', True):
+                tol = options.get('cross_overlap_tolerance', 0.0001)
+                for layer_id, (layer_other, sp_idx, feats_map) in spatial_indexes.items():
+                    candidates = sp_idx.intersects(geom_main.boundingBox())
+                    for c_id in candidates:
+                        feat_other = feats_map.get(c_id)
+                        if not feat_other or not feat_other.geometry() or feat_other.geometry().isEmpty():
+                            continue
+                        
+                        geom_other = feat_other.geometry()
+                        if geom_main.boundingBox().intersects(geom_other.boundingBox()):
+                            if geom_main.intersects(geom_other):
+                                inter = geom_main.intersection(geom_other)
+                                if not inter.isEmpty() and inter.area() > tol:
+                                    centroid = inter.centroid().asPoint() if not inter.centroid().isEmpty() else geom_main.centroid().asPoint()
+                                    desc = f"Overlaps with FID {c_id} in layer '{layer_other.name()}' (Area: {inter.area():.4f} sq units)"
+                                    feature_layers = [main_layer, layer_other]
+                                    errors.append(TopologyError(
+                                        'Cross-Layer Overlap', 
+                                        [feat_main.id(), c_id], 
+                                        desc, 
+                                        centroid.x(), 
+                                        centroid.y(), 
+                                        inter,
+                                        feature_layers=feature_layers
+                                    ))
+
+            # 2. Cross-Layer Gap Check
+            if options.get('check_cross_gaps', True):
+                gap_tol = options.get('cross_gap_tolerance', 0.000001)
+                for layer_id, (layer_other, sp_idx, feats_map) in spatial_indexes.items():
+                    bbox_expanded = geom_main.boundingBox()
+                    bbox_expanded.grow(max(gap_tol * 2.0, 1.0))
+                    candidates = sp_idx.intersects(bbox_expanded)
+                    for c_id in candidates:
+                        feat_other = feats_map.get(c_id)
+                        if not feat_other or not feat_other.geometry() or feat_other.geometry().isEmpty():
+                            continue
+                        
+                        geom_other = feat_other.geometry()
+                        rectA = geom_main.boundingBox()
+                        rectB = geom_other.boundingBox()
+                        dx = max(0.0, rectA.xMinimum() - rectB.xMaximum(), rectB.xMinimum() - rectA.xMaximum())
+                        dy = max(0.0, rectA.yMinimum() - rectB.yMaximum(), rectB.yMinimum() - rectA.yMaximum())
+                        if math.hypot(dx, dy) > gap_tol:
+                            continue
+
+                        if not geom_main.intersects(geom_other) and not geom_main.touches(geom_other):
+                            dist = geom_main.distance(geom_other)
+                            if 0.0 < dist <= gap_tol:
+                                gap_geom = geom_main.shortestLine(geom_other)
+                                if not gap_geom.isEmpty():
+                                    cent = gap_geom.centroid().asPoint() if not gap_geom.centroid().isEmpty() else QgsPointXY(0,0)
+                                    mid_x = cent.x()
+                                    mid_y = cent.y()
+                                else:
+                                    ptA = geom_main.centroid().asPoint()
+                                    ptB = geom_other.centroid().asPoint()
+                                    mid_x = (ptA.x() + ptB.x()) / 2.0
+                                    mid_y = (ptA.y() + ptB.y()) / 2.0
+                                desc = f"Unmapped Gap between main FID {feat_main.id()} and FID {c_id} in layer '{layer_other.name()}' (Distance: {dist:.6f} units)"
+                                feature_layers = [main_layer, layer_other]
+                                errors.append(TopologyError(
+                                    'Cross-Layer Gap / Sliver Void', 
+                                    [feat_main.id(), c_id], 
+                                    desc, 
+                                    mid_x, 
+                                    mid_y, 
+                                    gap_geom,
+                                    feature_layers=feature_layers
+                                ))
         return errors
 
     def run_checks_for_features(self, layer: QgsVectorLayer, feature_ids: list, options: dict):
@@ -345,6 +608,208 @@ class TopologyEngine:
 
         # Run checks only targeting the selected feature IDs to maximize processing speed!
         return self.run_checks(layer, options, target_fids=feature_ids)
+
+
+class TopologyFixer:
+    """Handles editing operations on layers to resolve topological errors."""
+
+    @staticmethod
+    def fix_invalid_geometry(layer, fid):
+        feat = layer.getFeature(fid)
+        if not feat.isValid():
+            return False
+        new_geom = feat.geometry().makeValid()
+        if new_geom and not new_geom.isEmpty():
+            layer.changeGeometry(fid, new_geom)
+            return True
+        return False
+
+    @staticmethod
+    def fix_duplicate_geometry(layer, fid):
+        return layer.deleteFeature(fid)
+
+    @staticmethod
+    def fix_multipart_geometry(layer, fid):
+        feat = layer.getFeature(fid)
+        if not feat.isValid() or not feat.geometry().isMultipart():
+            return False
+        geom = feat.geometry()
+        polygon_list = geom.asMultiPolygon()
+        new_features = []
+        for poly in polygon_list:
+            new_feat = QgsFeature(layer.fields())
+            geom_part = QgsGeometry.fromPolygonXY(poly)
+            geom_part, _ = geom_part.coerceToType(layer.wkbType())
+            new_feat.setGeometry(geom_part)
+            new_feat.setAttributes(feat.attributes())
+            new_features.append(new_feat)
+
+        if new_features:
+            layer.addFeatures(new_features)
+            layer.deleteFeature(fid)
+            return True
+        return False
+
+    @staticmethod
+    def fix_spike_geometry(layer, fid, location_x, location_y):
+        feat = layer.getFeature(fid)
+        if not feat.isValid():
+            return False
+        geom = feat.geometry()
+        vertex_idx = -1
+        min_dist = 0.0001
+        for idx in range(geom.constGet().vertexCount()):
+            pt = geom.vertexAt(idx)
+            dist = QgsPointXY(pt).distance(QgsPointXY(location_x, location_y))
+            if dist < min_dist:
+                min_dist = dist
+                vertex_idx = idx
+
+        if vertex_idx != -1:
+            if geom.deleteVertex(vertex_idx):
+                layer.changeGeometry(fid, geom)
+                return True
+        return False
+
+    @staticmethod
+    def fix_overlap_geometry(layer, fid1, fid2):
+        feat1 = layer.getFeature(fid1)
+        feat2 = layer.getFeature(fid2)
+        if not feat1.isValid() or not feat2.isValid():
+            return False
+
+        smaller_feat = feat1 if feat1.geometry().area() < feat2.geometry().area() else feat2
+        larger_feat = feat2 if smaller_feat.id() == feat1.id() else feat1
+
+        new_geom = smaller_feat.geometry().difference(larger_feat.geometry())
+        if new_geom and not new_geom.isEmpty():
+            layer.changeGeometry(smaller_feat.id(), new_geom)
+            return True
+        return False
+
+    @staticmethod
+    def fix_sliver_geometry(layer, fid):
+        sliver_feat = layer.getFeature(fid)
+        if not sliver_feat.isValid():
+            return False
+        sliver_geom = sliver_feat.geometry()
+        if not sliver_geom or sliver_geom.isEmpty():
+            return False
+
+        spatial_index = QgsSpatialIndex(layer.getFeatures())
+        candidate_ids = spatial_index.intersects(sliver_geom.boundingBox())
+
+        longest_boundary_len = 0.0
+        best_neighbor_id = None
+        for cand_id in candidate_ids:
+            if cand_id == fid:
+                continue
+            neighbor_feat = layer.getFeature(cand_id)
+            if not neighbor_feat.isValid():
+                continue
+            neighbor_geom = neighbor_feat.geometry()
+            if not neighbor_geom or neighbor_geom.isEmpty():
+                continue
+
+            inter = sliver_geom.intersection(neighbor_geom)
+            if not inter.isEmpty():
+                boundary_len = inter.length()
+                if boundary_len > longest_boundary_len:
+                    longest_boundary_len = boundary_len
+                    best_neighbor_id = cand_id
+
+        if best_neighbor_id is not None:
+            neighbor_feat = layer.getFeature(best_neighbor_id)
+            new_geom = neighbor_feat.geometry().combine(sliver_geom)
+            if new_geom and not new_geom.isEmpty():
+                layer.changeGeometry(best_neighbor_id, new_geom)
+                layer.deleteFeature(fid)
+                return True
+        return False
+
+    @staticmethod
+    def fix_overshoot_geometry(layer, fid):
+        feat = layer.getFeature(fid)
+        if not feat.isValid():
+            return False
+        geom = feat.geometry()
+        if not geom or geom.isEmpty():
+            return False
+        valid_geom = geom.makeValid()
+        if valid_geom and not valid_geom.isEmpty():
+            components = valid_geom.coerceToType(layer.wkbType())
+            coerced_geom = None
+            for comp in components:
+                if comp.type() == QgsWkbTypes.PolygonGeometry:
+                    coerced_geom = comp
+                    break
+            if coerced_geom and not coerced_geom.isEmpty():
+                layer.changeGeometry(fid, coerced_geom)
+                return True
+        return False
+
+    @staticmethod
+    def fix_cross_layer_overlap(main_layer, main_fid, other_layer, other_fid):
+        main_feat = main_layer.getFeature(main_fid)
+        other_feat = other_layer.getFeature(other_fid)
+        if not main_feat.isValid() or not other_feat.isValid():
+            return False
+
+        new_geom = main_feat.geometry().difference(other_feat.geometry())
+        if new_geom and not new_geom.isEmpty():
+            main_layer.changeGeometry(main_fid, new_geom)
+            return True
+        return False
+
+
+class TopologyCheckTask(QgsTask):
+    """Task to run topology checks asynchronously in a background thread."""
+    def __init__(self, layer, options, target_fids, callback, mode='single', other_layers_data=None):
+        super().__init__("Running Topology Check", QgsTask.Flags())
+        self.mode = mode
+        self.layer = layer
+        self.features = [QgsFeature(f) for f in layer.getFeatures()]
+        self.options = options
+        self.target_fids = target_fids
+        self.callback = callback
+        self.errors = []
+        self.engine = TopologyEngine()
+        
+        # Store other layers data as a dictionary of (layer_ref, list_of_copied_features)
+        self.other_layers_data = {}
+        if other_layers_data:
+            for l_id, l_ref in other_layers_data.items():
+                self.other_layers_data[l_id] = (l_ref, [QgsFeature(f) for f in l_ref.getFeatures()])
+
+    def run(self):
+        try:
+            # Background thread execution
+            def progress_cb(progress):
+                self.setProgress(progress)
+                if self.isCanceled():
+                    return False
+                return True
+            
+            if self.mode == 'single':
+                self.errors = self.engine.run_checks(
+                    self.features, self.options, 
+                    progress_callback=progress_cb, 
+                    target_fids=self.target_fids
+                )
+            else:
+                self.errors = self.engine.run_cross_layer_checks(
+                    self.features, self.layer, self.other_layers_data, self.options,
+                    progress_callback=progress_cb, 
+                    target_fids=self.target_fids
+                )
+            return True
+        except Exception as e:
+            print(f"Error in TopologyCheckTask: {str(e)}")
+            return False
+
+    def finished(self, result):
+        # Main thread callback
+        self.callback(self.errors, result)
 
 
 class TopologyCheckerDialog(QDialog):
@@ -359,11 +824,21 @@ class TopologyCheckerDialog(QDialog):
         self.errors = []
         self.rubber_band = None
         self.vertex_marker = None
+        self.preview_rubber_bands = []
         self.setup_ui()
 
     def setup_ui(self):
         layout = QVBoxLayout(self)
 
+        # Tab Widget
+        self.tab_widget = QTabWidget()
+        
+        # ==========================================
+        # TAB 1: Single Layer Check
+        # ==========================================
+        tab1_widget = QWidget()
+        tab1_layout = QVBoxLayout(tab1_widget)
+        
         # Layer Selection Box
         layer_group = QGroupBox("Layer Selection")
         layer_layout = QFormLayout()
@@ -371,7 +846,7 @@ class TopologyCheckerDialog(QDialog):
         self.layer_cb.setFilters(QgsMapLayerProxyModel.Filter.PolygonLayer)
         layer_layout.addRow("Target Polygon Layer:", self.layer_cb)
         layer_group.setLayout(layer_layout)
-        layout.addWidget(layer_group)
+        tab1_layout.addWidget(layer_group)
 
         # Rules and Settings (Grid Layout for compactness on first page)
         rules_group = QGroupBox("Topology Rules & Tolerances")
@@ -432,15 +907,19 @@ class TopologyCheckerDialog(QDialog):
         col2_form = QFormLayout(col2_widget)
         col2_form.setContentsMargins(0, 0, 0, 0)
         
-        self.cb_gaps = QCheckBox("Check Gaps / Voids (Zero Gap)")
+        self.cb_gaps = QCheckBox("Check Gaps Between Adjacent Polygons (Sliver Gaps)")
         self.cb_gaps.setChecked(True)
         col2_form.addRow(self.cb_gaps)
         
         self.gap_spin = QDoubleSpinBox()
         self.gap_spin.setRange(0.000001, 1000000.0)
         self.gap_spin.setDecimals(6)
-        self.gap_spin.setValue(0.000001)
+        self.gap_spin.setValue(1.0)
         col2_form.addRow("  Gap Distance Limit:", self.gap_spin)
+        
+        self.cb_enclosed_gaps = QCheckBox("Check Enclosed Holes / Voids (Must Not Have Gaps)")
+        self.cb_enclosed_gaps.setChecked(True)
+        col2_form.addRow(self.cb_enclosed_gaps)
         
         self.cb_duplicates = QCheckBox("Check Duplicate Geometries")
         self.cb_duplicates.setChecked(True)
@@ -463,7 +942,72 @@ class TopologyCheckerDialog(QDialog):
         columns_layout.addWidget(col2_widget)
         rules_layout.addLayout(columns_layout)
         rules_group.setLayout(rules_layout)
-        layout.addWidget(rules_group)
+        tab1_layout.addWidget(rules_group)
+        
+        self.tab_widget.addTab(tab1_widget, "Single Layer Checks")
+
+        # ==========================================
+        # TAB 2: Cross-Layer Check
+        # ==========================================
+        tab2_widget = QWidget()
+        tab2_layout = QVBoxLayout(tab2_widget)
+        
+        # Main Layer Combobox
+        main_layer_group = QGroupBox("Main Layer")
+        main_layer_layout = QFormLayout()
+        self.main_layer_cb = QgsMapLayerComboBox()
+        self.main_layer_cb.setFilters(QgsMapLayerProxyModel.Filter.PolygonLayer)
+        self.main_layer_cb.currentIndexChanged.connect(self.populate_other_layers_list)
+        main_layer_layout.addRow("Select Main Layer:", self.main_layer_cb)
+        main_layer_group.setLayout(main_layer_layout)
+        tab2_layout.addWidget(main_layer_group)
+        
+        # Other Layers List Widget
+        other_layers_group = QGroupBox("Compare Against Layer(s)")
+        other_layers_layout = QVBoxLayout()
+        self.other_layers_list = QListWidget()
+        other_layers_layout.addWidget(self.other_layers_list)
+        other_layers_group.setLayout(other_layers_layout)
+        tab2_layout.addWidget(other_layers_group)
+        
+        # Cross Layer Rules
+        cross_rules_group = QGroupBox("Cross-Layer Rules & Tolerances")
+        cross_rules_layout = QFormLayout()
+        
+        self.cb_cross_overlaps = QCheckBox("Check Cross-Layer Overlaps")
+        self.cb_cross_overlaps.setChecked(True)
+        cross_rules_layout.addRow(self.cb_cross_overlaps)
+        
+        self.cross_overlap_spin = QDoubleSpinBox()
+        self.cross_overlap_spin.setRange(0.000001, 1000000.0)
+        self.cross_overlap_spin.setDecimals(6)
+        self.cross_overlap_spin.setValue(0.0001)
+        cross_rules_layout.addRow("  Overlap Area Tolerance:", self.cross_overlap_spin)
+        
+        self.cb_cross_gaps = QCheckBox("Check Cross-Layer Gaps")
+        self.cb_cross_gaps.setChecked(True)
+        cross_rules_layout.addRow(self.cb_cross_gaps)
+        
+        self.cross_gap_spin = QDoubleSpinBox()
+        self.cross_gap_spin.setRange(0.000001, 1000000.0)
+        self.cross_gap_spin.setDecimals(6)
+        self.cross_gap_spin.setValue(1.0)
+        cross_rules_layout.addRow("  Gap Distance Limit:", self.cross_gap_spin)
+        
+        cross_rules_group.setLayout(cross_rules_layout)
+        tab2_layout.addWidget(cross_rules_group)
+        
+        self.tab_widget.addTab(tab2_widget, "Cross-Layer Checks")
+        
+        # Add tab widget to main layout
+        layout.addWidget(self.tab_widget)
+        
+        # Connect layers added/removed to list updates
+        QgsProject.instance().layersAdded.connect(self.populate_other_layers_list)
+        QgsProject.instance().layersRemoved.connect(self.populate_other_layers_list)
+        
+        # Call initial populator
+        self.populate_other_layers_list()
 
         # Action Buttons Layout
         btn_layout = QHBoxLayout()
@@ -517,7 +1061,7 @@ class TopologyCheckerDialog(QDialog):
             "Spike / Acute Vertex",
             "Prolonged Edge / Overshoot",
             "Overlap",
-            "Gap / Sliver Void",
+            "Gap / Void",
             "Duplicate Geometry",
             "Multipart Geometry",
             "Micro Polygon / Sliver"
@@ -530,6 +1074,11 @@ class TopologyCheckerDialog(QDialog):
         self.search_edit.setPlaceholderText("Search by FID, type, or description...")
         self.search_edit.textChanged.connect(self.populate_table)
         filter_layout.addWidget(self.search_edit)
+        
+        self.cb_show_highlights = QCheckBox("Show Highlights")
+        self.cb_show_highlights.setChecked(True)
+        self.cb_show_highlights.stateChanged.connect(self.on_show_highlights_changed)
+        filter_layout.addWidget(self.cb_show_highlights)
         
         layout.addLayout(filter_layout)
         
@@ -558,14 +1107,29 @@ class TopologyCheckerDialog(QDialog):
         self.all_markers = []
         self.all_rubber_bands = []
 
+    def populate_other_layers_list(self):
+        self.other_layers_list.clear()
+        main_layer = self.main_layer_cb.currentLayer()
+        all_layers = QgsProject.instance().mapLayers().values()
+        
+        for layer in all_layers:
+            if isinstance(layer, QgsVectorLayer) and layer.geometryType() == QgsWkbTypes.PolygonGeometry:
+                if main_layer and layer.id() == main_layer.id():
+                    continue
+                item = QListWidgetItem(layer.name())
+                item.setData(USER_ROLE, layer.id())
+                item.setFlags(item.flags() | ITEM_IS_USER_CHECKABLE)
+                item.setCheckState(CHECKED) # default checked
+                self.other_layers_list.addItem(item)
+
     def select_all_rules(self):
         for cb in [self.cb_validity, self.cb_spikes, self.cb_prolonged_edges, self.cb_overlaps,
-                   self.cb_gaps, self.cb_duplicates, self.cb_multipart, self.cb_min_area]:
+                   self.cb_gaps, self.cb_enclosed_gaps, self.cb_duplicates, self.cb_multipart, self.cb_min_area]:
             cb.setChecked(True)
 
     def deselect_all_rules(self):
         for cb in [self.cb_validity, self.cb_spikes, self.cb_prolonged_edges, self.cb_overlaps,
-                   self.cb_gaps, self.cb_duplicates, self.cb_multipart, self.cb_min_area]:
+                   self.cb_gaps, self.cb_enclosed_gaps, self.cb_duplicates, self.cb_multipart, self.cb_min_area]:
             cb.setChecked(False)
 
     def get_options(self):
@@ -578,32 +1142,85 @@ class TopologyCheckerDialog(QDialog):
             'overlap_tolerance': self.overlap_spin.value(),
             'check_gaps': self.cb_gaps.isChecked(),
             'gap_distance_tolerance': self.gap_spin.value(),
+            'check_enclosed_gaps': self.cb_enclosed_gaps.isChecked(),
             'check_duplicates': self.cb_duplicates.isChecked(),
             'check_multipart': self.cb_multipart.isChecked(),
             'check_min_area': self.cb_min_area.isChecked(),
             'min_area_tolerance': self.min_area_spin.value()
         }
 
-    def run_check(self):
-        layer = self.layer_cb.currentLayer()
-        if not layer:
-            QMessageBox.warning(self, "Warning", "Please select a valid vector layer.")
-            return
-
-        options = self.get_options()
-
-        self.progress_bar.setValue(0)
-        self.errors = self.engine.run_checks(layer, options, lambda val: self.progress_bar.setValue(val))
+    def on_check_completed(self, errors, success):
         self.progress_bar.setValue(100)
+        self.btn_run.setEnabled(True)
+        
+        if success:
+            self.errors = errors
+            self.populate_table()
+            
+            has_errs = len(self.errors) > 0
+            self.btn_recheck_selected.setEnabled(has_errs)
+            self.btn_autofix.setEnabled(has_errs)
+            self.btn_toggle_highlight.setEnabled(has_errs)
+            self.btn_export.setEnabled(has_errs)
+            
+            if self.tab_widget.currentIndex() == 0:
+                layer = self.layer_cb.currentLayer()
+                self.lbl_summary.setText(f"Inspection Complete: Found {len(self.errors)} topology error(s) in layer '{layer.name()}'.")
+            else:
+                layer = self.main_layer_cb.currentLayer()
+                self.lbl_summary.setText(f"Cross-Layer Inspection Complete: Found {len(self.errors)} error(s) for main layer '{layer.name()}'.")
+        else:
+            QMessageBox.critical(self, "Error", "Topology checking failed or was cancelled.")
+            self.lbl_summary.setText("Inspection failed.")
 
-        self.populate_table()
+    def run_check(self):
+        if self.tab_widget.currentIndex() == 0:
+            layer = self.layer_cb.currentLayer()
+            if not layer:
+                QMessageBox.warning(self, "Warning", "Please select a valid vector layer.")
+                return
 
-        has_errs = len(self.errors) > 0
-        self.btn_recheck_selected.setEnabled(has_errs)
-        self.btn_autofix.setEnabled(has_errs)
-        self.btn_toggle_highlight.setEnabled(has_errs)
-        self.btn_export.setEnabled(has_errs)
-        self.lbl_summary.setText(f"Inspection Complete: Found {len(self.errors)} topology error(s) in layer '{layer.name()}'.")
+            options = self.get_options()
+
+            self.progress_bar.setValue(0)
+            self.btn_run.setEnabled(False)
+            self.lbl_summary.setText("Running check in background...")
+            
+            self.check_task = TopologyCheckTask(layer, options, None, self.on_check_completed, mode='single')
+            QgsApplication.taskManager().addTask(self.check_task)
+        else:
+            main_layer = self.main_layer_cb.currentLayer()
+            if not main_layer:
+                QMessageBox.warning(self, "Warning", "Please select a valid main vector layer.")
+                return
+            
+            # Find selected other layers
+            other_layers_data = {}
+            for i in range(self.other_layers_list.count()):
+                item = self.other_layers_list.item(i)
+                if item.checkState() == CHECKED:
+                    l_id = item.data(USER_ROLE)
+                    layer_ref = QgsProject.instance().mapLayer(l_id)
+                    if layer_ref:
+                        other_layers_data[l_id] = layer_ref
+            
+            if not other_layers_data:
+                QMessageBox.warning(self, "Warning", "Please select at least one comparison layer.")
+                return
+                
+            options = {
+                'check_cross_overlaps': self.cb_cross_overlaps.isChecked(),
+                'cross_overlap_tolerance': self.cross_overlap_spin.value(),
+                'check_cross_gaps': self.cb_cross_gaps.isChecked(),
+                'cross_gap_tolerance': self.cross_gap_spin.value()
+            }
+            
+            self.progress_bar.setValue(0)
+            self.btn_run.setEnabled(False)
+            self.lbl_summary.setText("Running cross-layer check in background...")
+            
+            self.check_task = TopologyCheckTask(main_layer, options, None, self.on_check_completed, mode='cross', other_layers_data=other_layers_data)
+            QgsApplication.taskManager().addTask(self.check_task)
 
     def toggle_highlights(self):
         if self.highlights_active:
@@ -626,6 +1243,50 @@ class TopologyCheckerDialog(QDialog):
         elif action == "Create Error Layer":
             self.user_create_error_layer()
 
+    def run_recheck_async(self, layer, fids):
+        self.btn_recheck_selected.setEnabled(False)
+        self.btn_autofix.setEnabled(False)
+        self.lbl_summary.setText(f"Re-checking feature(s) {', '.join(map(str, fids))}...")
+        
+        def on_recheck_completed(errors, success):
+            self.btn_recheck_selected.setEnabled(len(self.errors) > 0)
+            self.btn_autofix.setEnabled(len(self.errors) > 0)
+            if success:
+                target_set = set(fids)
+                self.errors = [e for e in self.errors if not any(fid in target_set for fid in e.feature_ids)]
+                self.errors.extend(errors)
+                self.populate_table()
+                if not errors:
+                    self.lbl_summary.setText(f"Re-check Complete: Feature ID(s) {', '.join(map(str, fids))} fixed!")
+                    QMessageBox.information(self, "Feature Fixed", f"Feature ID(s) {', '.join(map(str, fids))} passed successfully!")
+                else:
+                    self.lbl_summary.setText(f"Re-check Complete: {len(self.errors)} error(s) remaining.")
+            else:
+                self.lbl_summary.setText("Re-check failed.")
+        
+        if self.tab_widget.currentIndex() == 0:
+            options = self.get_options()
+            self.recheck_task = TopologyCheckTask(layer, options, fids, on_recheck_completed, mode='single')
+        else:
+            # Recheck in cross-layer mode
+            other_layers_data = {}
+            for i in range(self.other_layers_list.count()):
+                item = self.other_layers_list.item(i)
+                if item.checkState() == CHECKED:
+                    l_id = item.data(USER_ROLE)
+                    layer_ref = QgsProject.instance().mapLayer(l_id)
+                    if layer_ref:
+                        other_layers_data[l_id] = layer_ref
+            options = {
+                'check_cross_overlaps': self.cb_cross_overlaps.isChecked(),
+                'cross_overlap_tolerance': self.cross_overlap_spin.value(),
+                'check_cross_gaps': self.cb_cross_gaps.isChecked(),
+                'cross_gap_tolerance': self.cross_gap_spin.value()
+            }
+            self.recheck_task = TopologyCheckTask(layer, options, fids, on_recheck_completed, mode='cross', other_layers_data=other_layers_data)
+            
+        QgsApplication.taskManager().addTask(self.recheck_task)
+
     def recheck_selected_error(self):
         selected_rows = self.table.selectionModel().selectedRows()
         if not selected_rows:
@@ -638,34 +1299,12 @@ class TopologyCheckerDialog(QDialog):
 
         selected_err = filtered[row]
         fids = selected_err.feature_ids
-        layer = self.layer_cb.currentLayer()
+        layer = self.layer_cb.currentLayer() if self.tab_widget.currentIndex() == 0 else self.main_layer_cb.currentLayer()
 
         if not layer or not fids:
             return
 
-        options = self.get_options()
-        new_errs = self.engine.run_checks_for_features(layer, fids, options)
-
-        # Remove previous errors involving these feature IDs
-        target_set = set(fids)
-        self.errors = [e for e in self.errors if not any(fid in target_set for fid in e.feature_ids)]
-
-        # Append any new errors found
-        self.errors.extend(new_errs)
-
-        self.populate_table()
-
-        has_errs = len(self.errors) > 0
-        self.btn_recheck_selected.setEnabled(has_errs)
-        self.btn_autofix.setEnabled(has_errs)
-        self.btn_toggle_highlight.setEnabled(has_errs)
-        self.btn_export.setEnabled(has_errs)
-
-        if not new_errs:
-            self.lbl_summary.setText(f"Re-check Complete: Feature ID(s) {', '.join(map(str, fids))} fixed! Errors resolved.")
-            QMessageBox.information(self, "Feature Fixed", f"Feature ID(s) {', '.join(map(str, fids))} passed all topology checks successfully!")
-        else:
-            self.lbl_summary.setText(f"Re-check Complete: Feature ID(s) {', '.join(map(str, fids))} still has {len(new_errs)} error(s).")
+        self.run_recheck_async(layer, fids)
 
     def autofix_selected_error(self):
         selected_rows = self.table.selectionModel().selectedRows()
@@ -680,15 +1319,19 @@ class TopologyCheckerDialog(QDialog):
             if 0 <= row < len(filtered):
                 selected_errors.append(filtered[row])
 
-        layer = self.layer_cb.currentLayer()
-        if not layer:
+        active_layer = self.layer_cb.currentLayer() if self.tab_widget.currentIndex() == 0 else self.main_layer_cb.currentLayer()
+        if not active_layer:
             return
 
         supported_types = {
             'Invalid Geometry',
             'Duplicate Geometry',
             'Multipart Geometry',
-            'Spike / Acute Vertex'
+            'Spike / Acute Vertex',
+            'Overlap',
+            'Micro Polygon / Sliver',
+            'Prolonged Edge / Overshoot',
+            'Cross-Layer Overlap'
         }
 
         fixable_errors = [e for e in selected_errors if e.error_type in supported_types]
@@ -704,119 +1347,106 @@ class TopologyCheckerDialog(QDialog):
         if reply != QMessageBox.StandardButton.Yes:
             return
 
-        layer.startEditing()
         fixed_count = 0
         failed_count = 0
         all_affected_fids = []
+        edited_layers = set()
 
         try:
             for err in fixable_errors:
-                if err.error_type == 'Invalid Geometry':
-                    fid = err.feature_ids[0]
-                    feat = layer.getFeature(fid)
-                    if feat.isValid():
-                        new_geom = feat.geometry().makeValid()
-                        if new_geom and not new_geom.isEmpty():
-                            layer.changeGeometry(fid, new_geom)
+                if err.error_type == 'Cross-Layer Overlap':
+                    main_fid = err.feature_ids[0]
+                    other_fid = err.feature_ids[1]
+                    main_l = err.feature_layers[0] if len(err.feature_layers) > 0 else None
+                    other_l = err.feature_layers[1] if len(err.feature_layers) > 1 else None
+                    if main_l and other_l:
+                        main_l.startEditing()
+                        edited_layers.add(main_l)
+                        if TopologyFixer.fix_cross_layer_overlap(main_l, main_fid, other_l, other_fid):
                             fixed_count += 1
-                            all_affected_fids.extend(err.feature_ids)
+                            all_affected_fids.append(main_fid)
                         else:
                             failed_count += 1
                     else:
                         failed_count += 1
-
-                elif err.error_type == 'Duplicate Geometry':
-                    fid_to_delete = err.feature_ids[0]
-                    feat = layer.getFeature(fid_to_delete)
-                    if feat.isValid():
-                        layer.deleteFeature(fid_to_delete)
-                        fixed_count += 1
-                        all_affected_fids.extend(err.feature_ids)
-                    else:
-                        fixed_count += 1
-
-                elif err.error_type == 'Multipart Geometry':
-                    fid = err.feature_ids[0]
-                    feat = layer.getFeature(fid)
-                    if feat.isValid() and feat.geometry().isMultipart():
-                        geom = feat.geometry()
-                        polygon_list = geom.asMultiPolygon()
-                        new_features = []
-                        for poly in polygon_list:
-                            new_feat = QgsFeature(layer.fields())
-                            geom_part = QgsGeometry.fromPolygonXY(poly)
-                            geom_part, _ = geom_part.coerceToType(layer.wkbType())
-                            new_feat.setGeometry(geom_part)
-                            new_feat.setAttributes(feat.attributes())
-                            new_features.append(new_feat)
-                        
-                        if new_features:
-                            layer.addFeatures(new_features)
-                            layer.deleteFeature(fid)
+                else:
+                    # Single-layer checks: apply on active_layer
+                    active_layer.startEditing()
+                    edited_layers.add(active_layer)
+                    if err.error_type == 'Invalid Geometry':
+                        if TopologyFixer.fix_invalid_geometry(active_layer, err.feature_ids[0]):
                             fixed_count += 1
                             all_affected_fids.extend(err.feature_ids)
                         else:
                             failed_count += 1
-                    else:
-                        failed_count += 1
 
-                elif err.error_type == 'Spike / Acute Vertex':
-                    fid = err.feature_ids[0]
-                    feat = layer.getFeature(fid)
-                    if feat.isValid():
-                        geom = feat.geometry()
-                        vertex_idx = -1
-                        min_dist = 0.0001
-                        for idx in range(geom.constGet().vertexCount()):
-                            pt = geom.vertexAt(idx)
-                            dist = QgsPointXY(pt).distance(QgsPointXY(err.location_x, err.location_y))
-                            if dist < min_dist:
-                                min_dist = dist
-                                vertex_idx = idx
+                    elif err.error_type == 'Duplicate Geometry':
+                        if TopologyFixer.fix_duplicate_geometry(active_layer, err.feature_ids[0]):
+                            fixed_count += 1
+                            all_affected_fids.extend(err.feature_ids)
+                        else:
+                            failed_count += 1
 
-                        if vertex_idx != -1:
-                            if geom.deleteVertex(vertex_idx):
-                                layer.changeGeometry(fid, geom)
+                    elif err.error_type == 'Multipart Geometry':
+                        if TopologyFixer.fix_multipart_geometry(active_layer, err.feature_ids[0]):
+                            fixed_count += 1
+                            all_affected_fids.extend(err.feature_ids)
+                        else:
+                            failed_count += 1
+
+                    elif err.error_type == 'Spike / Acute Vertex':
+                        if TopologyFixer.fix_spike_geometry(active_layer, err.feature_ids[0], err.location_x, err.location_y):
+                            fixed_count += 1
+                            all_affected_fids.extend(err.feature_ids)
+                        else:
+                            failed_count += 1
+
+                    elif err.error_type == 'Overlap':
+                        if len(err.feature_ids) >= 2:
+                            if TopologyFixer.fix_overlap_geometry(active_layer, err.feature_ids[0], err.feature_ids[1]):
                                 fixed_count += 1
                                 all_affected_fids.extend(err.feature_ids)
                             else:
                                 failed_count += 1
                         else:
                             failed_count += 1
-                    else:
-                        failed_count += 1
+
+                    elif err.error_type == 'Micro Polygon / Sliver':
+                        if TopologyFixer.fix_sliver_geometry(active_layer, err.feature_ids[0]):
+                            fixed_count += 1
+                            all_affected_fids.extend(err.feature_ids)
+                        else:
+                            failed_count += 1
+
+                    elif err.error_type == 'Prolonged Edge / Overshoot':
+                        if TopologyFixer.fix_overshoot_geometry(active_layer, err.feature_ids[0]):
+                            fixed_count += 1
+                            all_affected_fids.extend(err.feature_ids)
+                        else:
+                            failed_count += 1
 
             if fixed_count > 0:
-                layer.commitChanges()
-                msg = f"Successfully fixed {fixed_count} error(s) automatically."
+                # Do NOT call layer.commitChanges() so the user can review/rollback.
+                msg = f"Auto-fixed {fixed_count} error(s) in edit buffer."
                 if failed_count > 0:
                     msg += f" (Failed to fix {failed_count} error(s))."
+                msg += "\n\nNote: The fixes have been applied in edit mode. Please review them and save or discard layer changes manually in QGIS."
                 QMessageBox.information(self, "Success", msg)
-                self.recheck_after_autofix(layer, list(set(all_affected_fids)))
+                self.recheck_after_autofix(active_layer, list(set(all_affected_fids)))
             else:
-                layer.rollBack()
+                for l in edited_layers:
+                    l.rollBack()
                 QMessageBox.warning(self, "Error", "Failed to fix the selected error(s) automatically.")
         except Exception as e:
-            layer.rollBack()
+            for l in edited_layers:
+                l.rollBack()
             QMessageBox.critical(self, "Error", f"An error occurred during auto-fix: {str(e)}")
 
     def recheck_after_autofix(self, layer, fids):
-        options = self.get_options()
-        new_errs = self.engine.run_checks_for_features(layer, fids, options)
-
-        target_set = set(fids)
-        self.errors = [e for e in self.errors if not any(fid in target_set for fid in e.feature_ids)]
-        self.errors.extend(new_errs)
-        self.populate_table()
-
-        has_errs = len(self.errors) > 0
-        self.btn_recheck_selected.setEnabled(has_errs)
-        self.btn_autofix.setEnabled(has_errs)
-        self.btn_toggle_highlight.setEnabled(has_errs)
-        self.btn_export.setEnabled(has_errs)
+        self.run_recheck_async(layer, fids)
 
     def user_create_error_layer(self):
-        layer = self.layer_cb.currentLayer()
+        layer = self.layer_cb.currentLayer() if self.tab_widget.currentIndex() == 0 else self.main_layer_cb.currentLayer()
         if not layer or not self.errors:
             QMessageBox.information(self, "Info", "No errors to export to a temporary layer.")
             return
@@ -829,7 +1459,10 @@ class TopologyCheckerDialog(QDialog):
 
         res = self.errors
         if selected_type and selected_type != "All Error Types":
-            res = [e for e in res if e.error_type == selected_type]
+            if selected_type == "Gap / Void":
+                res = [e for e in res if e.error_type in ("Gap / Sliver Void", "Enclosed Gap / Void")]
+            else:
+                res = [e for e in res if e.error_type == selected_type]
 
         if query:
             res = [
@@ -894,6 +1527,14 @@ class TopologyCheckerDialog(QDialog):
                 pass
         self.parent_rubber_bands = []
 
+        for prb in getattr(self, 'preview_rubber_bands', []):
+            try:
+                prb.reset()
+                canvas.scene().removeItem(prb)
+            except Exception:  # nosec B110
+                pass
+        self.preview_rubber_bands = []
+
         self.highlights_active = False
         if hasattr(self, 'btn_toggle_highlight') and self.btn_toggle_highlight:
             self.btn_toggle_highlight.setText("Highlight Errors")
@@ -912,6 +1553,8 @@ class TopologyCheckerDialog(QDialog):
     def highlight_all_errors(self):
         if not self.iface:
             return
+        if hasattr(self, 'cb_show_highlights') and not self.cb_show_highlights.isChecked():
+            self.cb_show_highlights.setChecked(True)
         self.clear_all_canvas_markers()
         canvas = self.iface.mapCanvas()
 
@@ -925,9 +1568,11 @@ class TopologyCheckerDialog(QDialog):
         for err in filtered:
             # Create rubberband outline for geometry
             if err.geometry:
-                rb = QgsRubberBand(canvas, True)
+                is_poly = (err.geometry.type() == QgsWkbTypes.PolygonGeometry)
+                rb = QgsRubberBand(canvas, is_poly)
                 rb.setColor(QColor(255, 0, 0, 120))
-                rb.setWidth(2)
+                rb.setStrokeColor(QColor(255, 0, 0, 220))
+                rb.setWidth(3)
                 rb.setToGeometry(err.geometry, None)
                 self.all_rubber_bands.append(rb)
 
@@ -953,6 +1598,9 @@ class TopologyCheckerDialog(QDialog):
             canvas.refresh()
 
     def on_table_select(self):
+        if not hasattr(self, 'cb_show_highlights') or not self.cb_show_highlights.isChecked():
+            self.clear_all_canvas_markers()
+            return
         selected_rows = self.table.selectionModel().selectedRows()
         if not selected_rows:
             self.clear_all_canvas_markers()
@@ -966,6 +1614,8 @@ class TopologyCheckerDialog(QDialog):
             if hasattr(self, 'btn_toggle_highlight') and self.btn_toggle_highlight:
                 self.btn_toggle_highlight.setText("Clear Highlights")
                 self.btn_toggle_highlight.setStyleSheet("background-color: #6c757d; color: white; font-weight: bold; padding: 6px;")
+            if err.error_type in ('Overlap', 'Cross-Layer Overlap') and hasattr(self, 'lbl_summary'):
+                self.lbl_summary.setText(f"Selected: {err.error_type}. Proposed fix preview shown in dashed green on map.")
 
     def on_table_double_click(self, row, column):
         filtered = self.get_filtered_errors()
@@ -979,23 +1629,34 @@ class TopologyCheckerDialog(QDialog):
         self.clear_all_canvas_markers()
         canvas = self.iface.mapCanvas()
 
-        layer = self.layer_cb.currentLayer()
-        if layer and err.feature_ids:
+        if err.feature_ids:
             self.parent_rubber_bands = []
-            for fid in err.feature_ids:
-                feat = layer.getFeature(fid)
-                if feat.isValid() and feat.geometry() and not feat.geometry().isEmpty():
-                    parent_rb = QgsRubberBand(canvas, True)
-                    # Semi-transparent orange fill with red border to show the parent feature context clearly
-                    parent_rb.setColor(QColor(255, 165, 0, 50))
-                    parent_rb.setSecondaryStrokeColor(QColor(255, 140, 0, 180))
-                    parent_rb.setWidth(2)
-                    parent_rb.setToGeometry(feat.geometry(), None)
-                    self.parent_rubber_bands.append(parent_rb)
+            for idx, fid in enumerate(err.feature_ids):
+                target_layer = None
+                if hasattr(err, 'feature_layers') and idx < len(err.feature_layers):
+                    target_layer = err.feature_layers[idx]
+                if not target_layer:
+                    target_layer = self.layer_cb.currentLayer() if self.tab_widget.currentIndex() == 0 else self.main_layer_cb.currentLayer()
+                
+                if target_layer:
+                    feat = target_layer.getFeature(fid)
+                    if feat.isValid() and feat.geometry() and not feat.geometry().isEmpty():
+                        parent_rb = QgsRubberBand(canvas, True)
+                        # Semi-transparent orange fill with red border to show the parent feature context clearly
+                        parent_rb.setColor(QColor(255, 165, 0, 50))
+                        parent_rb.setSecondaryStrokeColor(QColor(255, 140, 0, 180))
+                        parent_rb.setWidth(2)
+                        parent_rb.setToGeometry(feat.geometry(), None)
+                        self.parent_rubber_bands.append(parent_rb)
 
-        self.rubber_band = QgsRubberBand(canvas, True)
+        is_poly = False
+        if err.geometry:
+            is_poly = (err.geometry.type() == QgsWkbTypes.PolygonGeometry)
+
+        self.rubber_band = QgsRubberBand(canvas, is_poly)
         self.rubber_band.setColor(QColor(255, 0, 0, 150))
-        self.rubber_band.setWidth(3)
+        self.rubber_band.setStrokeColor(QColor(255, 0, 0, 255))
+        self.rubber_band.setWidth(4)
 
         if err.geometry:
             self.rubber_band.setToGeometry(err.geometry, None)
@@ -1006,6 +1667,45 @@ class TopologyCheckerDialog(QDialog):
         self.vertex_marker.setPenWidth(3)
         self.vertex_marker.setIconSize(16)
         self.vertex_marker.setIconType(QgsVertexMarker.IconType.ICON_X)
+
+        # Check if the error is automatically fixable and generate proposed geometry preview
+        if err.error_type == 'Cross-Layer Overlap':
+            main_fid = err.feature_ids[0]
+            other_fid = err.feature_ids[1]
+            main_l = err.feature_layers[0] if len(err.feature_layers) > 0 else None
+            other_l = err.feature_layers[1] if len(err.feature_layers) > 1 else None
+            if main_l and other_l:
+                f_main = main_l.getFeature(main_fid)
+                f_other = other_l.getFeature(other_fid)
+                if f_main.isValid() and f_other.isValid():
+                    new_geom = f_main.geometry().difference(f_other.geometry())
+                    if new_geom and not new_geom.isEmpty():
+                        preview_rb = QgsRubberBand(canvas, True)
+                        preview_rb.setColor(QColor(46, 204, 113, 80)) # Semi-transparent green
+                        preview_rb.setSecondaryStrokeColor(QColor(39, 174, 96, 220)) # Darker green border
+                        preview_rb.setWidth(3)
+                        preview_rb.setLineStyle(Qt.DashLine)
+                        preview_rb.setToGeometry(new_geom, None)
+                        self.preview_rubber_bands.append(preview_rb)
+                        
+        elif err.error_type == 'Overlap':
+            layer = self.layer_cb.currentLayer()
+            if layer and len(err.feature_ids) >= 2:
+                feat1 = layer.getFeature(err.feature_ids[0])
+                feat2 = layer.getFeature(err.feature_ids[1])
+                if feat1.isValid() and feat2.isValid():
+                    smaller_feat = feat1 if feat1.geometry().area() < feat2.geometry().area() else feat2
+                    larger_feat = feat2 if smaller_feat.id() == feat1.id() else feat1
+                    new_geom = smaller_feat.geometry().difference(larger_feat.geometry())
+                    if new_geom and not new_geom.isEmpty():
+                        preview_rb = QgsRubberBand(canvas, True)
+                        preview_rb.setColor(QColor(46, 204, 113, 80))
+                        preview_rb.setSecondaryStrokeColor(QColor(39, 174, 96, 220))
+                        preview_rb.setWidth(3)
+                        preview_rb.setLineStyle(Qt.DashLine)
+                        preview_rb.setToGeometry(new_geom, None)
+                        self.preview_rubber_bands.append(preview_rb)
+
         canvas.refresh()
 
     def zoom_to_error(self, err):
@@ -1028,6 +1728,12 @@ class TopologyCheckerDialog(QDialog):
         canvas.setCenter(QgsPointXY(err.location_x, err.location_y))
         canvas.refresh()
         self.highlight_error(err)
+
+    def on_show_highlights_changed(self):
+        if not self.cb_show_highlights.isChecked():
+            self.clear_all_canvas_markers()
+        else:
+            self.on_table_select()
 
     def create_error_memory_layer(self, source_layer):
         if not self.errors:
@@ -1062,7 +1768,8 @@ class TopologyCheckerDialog(QDialog):
         path, _ = QFileDialog.getSaveFileName(self, "Export Topology Error HTML", "", "HTML Files (*.html)")
         if not path:
             return
-        layer_name = self.layer_cb.currentLayer().name() if self.layer_cb.currentLayer() else 'N/A'
+        active_l = self.layer_cb.currentLayer() if self.tab_widget.currentIndex() == 0 else self.main_layer_cb.currentLayer()
+        layer_name = active_l.name() if active_l else 'N/A'
         html_content = f"""<!DOCTYPE html>
 <html>
 <head>
