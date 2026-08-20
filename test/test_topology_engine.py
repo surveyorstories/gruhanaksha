@@ -461,5 +461,110 @@ class TestTopologyEngine(unittest.TestCase):
         updated_feat = main_layer.getFeature(fid_main)
         self.assertAlmostEqual(updated_feat.geometry().intersection(feat_other_added.geometry()).area(), 0.0, places=5)
 
+    def test_fix_overshoot_multipolygon(self):
+        # Test on MultiPolygon layer to ensure coerceToType and overshoot logic works
+        layer = QgsVectorLayer("MultiPolygon?crs=EPSG:4326", "test_fix_overshoot_multi", "memory")
+        pr = layer.dataProvider()
+        f1 = QgsFeature(1)
+        f1.setGeometry(QgsGeometry.fromWkt('MULTIPOLYGON(((0 0, 0 10, 5 10, 5 15, 5 10, 10 10, 10 0, 0 0)))'))
+        pr.addFeatures([f1])
+        
+        layer.startEditing()
+        success = TopologyFixer.fix_overshoot_geometry(layer, 1)
+        layer.commitChanges()
+        self.assertTrue(success)
+        geom = layer.getFeature(1).geometry()
+        self.assertTrue(geom.isGeosValid())
+
+    def test_missing_nodes_detection_and_fix(self):
+        layer = QgsVectorLayer("Polygon?crs=EPSG:4326", "test_missing_nodes", "memory")
+        pr = layer.dataProvider()
+
+        # F1: (0,0) to (10,10) - top edge is straight line from (0,10) to (10,10)
+        f1 = QgsFeature(1)
+        f1.setGeometry(QgsGeometry.fromPolygonXY([[QgsPointXY(0,0), QgsPointXY(0,10), QgsPointXY(10,10), QgsPointXY(10,0), QgsPointXY(0,0)]]))
+
+        # F2: (0,10) to (5,20) - has a vertex at (5,10)
+        f2 = QgsFeature(2)
+        f2.setGeometry(QgsGeometry.fromPolygonXY([[QgsPointXY(0,10), QgsPointXY(5,10), QgsPointXY(5,20), QgsPointXY(0,20), QgsPointXY(0,10)]]))
+
+        # F3: (5,10) to (10,20) - has a vertex at (5,10)
+        f3 = QgsFeature(3)
+        f3.setGeometry(QgsGeometry.fromPolygonXY([[QgsPointXY(5,10), QgsPointXY(10,10), QgsPointXY(10,20), QgsPointXY(5,20), QgsPointXY(5,10)]]))
+
+        pr.addFeatures([f1, f2, f3])
+
+        engine = TopologyEngine()
+        options = {'check_missing_nodes': True, 'missing_node_tolerance': 0.001}
+        errors = engine.run_checks(layer, options)
+
+        missing_errs = [e for e in errors if e.error_type == 'Missing Node / Line Intersection']
+        self.assertEqual(len(missing_errs), 1)
+        self.assertEqual(missing_errs[0].feature_ids[0], 1)
+        self.assertAlmostEqual(missing_errs[0].location_x, 5.0, places=3)
+        self.assertAlmostEqual(missing_errs[0].location_y, 10.0, places=3)
+
+        # Fix missing node in F1
+        layer.startEditing()
+        success = TopologyFixer.fix_missing_node(layer, 1, 5.0, 10.0)
+        layer.commitChanges()
+        self.assertTrue(success)
+
+        # Re-check layer - errors should now be 0
+        recheck_errs = engine.run_checks(layer, options)
+        recheck_missing = [e for e in recheck_errs if e.error_type == 'Missing Node / Line Intersection']
+        self.assertEqual(len(recheck_missing), 0)
+
+    def test_line_intersection_without_node(self):
+        layer = QgsVectorLayer("Polygon?crs=EPSG:4326", "test_line_inter", "memory")
+        pr = layer.dataProvider()
+
+        # F1: horizontal bar (0,4) to (10,6)
+        f1 = QgsFeature(1)
+        f1.setGeometry(QgsGeometry.fromPolygonXY([[QgsPointXY(0,4), QgsPointXY(0,6), QgsPointXY(10,6), QgsPointXY(10,4), QgsPointXY(0,4)]]))
+
+        # F2: vertical bar (4,0) to (6,10) - crossing F1
+        f2 = QgsFeature(2)
+        f2.setGeometry(QgsGeometry.fromPolygonXY([[QgsPointXY(4,0), QgsPointXY(4,10), QgsPointXY(6,10), QgsPointXY(6,0), QgsPointXY(4,0)]]))
+
+        pr.addFeatures([f1, f2])
+
+        engine = TopologyEngine()
+        options = {'check_missing_nodes': True, 'missing_node_tolerance': 0.001}
+        errors = engine.run_checks(layer, options)
+
+        missing_errs = [e for e in errors if e.error_type == 'Missing Node / Line Intersection']
+        self.assertGreaterEqual(len(missing_errs), 1)
+
+    def test_cross_layer_missing_nodes(self):
+        main_layer = QgsVectorLayer("Polygon?crs=EPSG:4326", "main_layer_mn", "memory")
+        other_layer = QgsVectorLayer("Polygon?crs=EPSG:4326", "other_layer_mn", "memory")
+
+        f_main = QgsFeature(1)
+        f_main.setGeometry(QgsGeometry.fromPolygonXY([[QgsPointXY(0,0), QgsPointXY(0,10), QgsPointXY(10,10), QgsPointXY(10,0), QgsPointXY(0,0)]]))
+        main_layer.dataProvider().addFeatures([f_main])
+
+        f_other = QgsFeature(10)
+        f_other.setGeometry(QgsGeometry.fromPolygonXY([[QgsPointXY(0,10), QgsPointXY(5,10), QgsPointXY(5,20), QgsPointXY(0,20), QgsPointXY(0,10)]]))
+        other_layer.dataProvider().addFeatures([f_other])
+
+        feat_main_added = list(main_layer.getFeatures())[0]
+        feat_other_added = list(other_layer.getFeatures())[0]
+
+        engine = TopologyEngine()
+        options = {'check_cross_missing_nodes': True, 'cross_missing_node_tolerance': 0.001}
+        other_layers_features = {"other_layer_id": (other_layer, [feat_other_added])}
+
+        errors = engine.run_cross_layer_checks(
+            [feat_main_added], main_layer, other_layers_features, options
+        )
+
+        missing_errs = [e for e in errors if e.error_type == 'Cross-Layer Missing Node / Line Intersection']
+        self.assertEqual(len(missing_errs), 1)
+        self.assertEqual(missing_errs[0].feature_ids, [feat_main_added.id(), feat_other_added.id()])
+        self.assertAlmostEqual(missing_errs[0].location_x, 5.0, places=3)
+        self.assertAlmostEqual(missing_errs[0].location_y, 10.0, places=3)
+
 if __name__ == '__main__':
     unittest.main()
+

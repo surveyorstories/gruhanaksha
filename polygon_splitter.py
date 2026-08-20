@@ -1467,7 +1467,7 @@ class SplitMapTool(QgsMapToolEdit):
         color.setAlphaF(0.78)
 
         self.rubberBand = QgsRubberBand(self.canvas, QgsWkbTypes.GeometryType.LineGeometry)
-        self.rubberBand.setWidth(1)
+        self.rubberBand.setWidth(2)
         self.rubberBand.setColor(color)
         self.rubberBand.show()
 
@@ -1477,7 +1477,7 @@ class SplitMapTool(QgsMapToolEdit):
 
         self.tempRubberBand = QgsRubberBand(
             self.canvas, QgsWkbTypes.GeometryType.LineGeometry)
-        self.tempRubberBand.setWidth(1)
+        self.tempRubberBand.setWidth(2)
         self.tempRubberBand.setColor(color)
         self.tempRubberBand.setLineStyle(QtCompat.DotLine)
         self.tempRubberBand.show()

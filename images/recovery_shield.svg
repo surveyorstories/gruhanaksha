@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+  <defs>
+    <linearGradient id="shieldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0969DA" />
+      <stop offset="100%" stop-color="#054DA7" />
+    </linearGradient>
+  </defs>
+  <!-- Shield base -->
+  <path d="M12 2L4 5v6.5C4 16.8 7.4 21.6 12 23c4.6-1.4 8-6.2 8-11.5V5l-8-3z" fill="url(#shieldGrad)" stroke="#033D8B" stroke-width="0.8" />
+  <!-- Inner shield highlight -->
+  <path d="M12 3.5L5.5 6v5.5c0 4.5 2.8 8.6 6.5 9.8 3.7-1.2 6.5-5.3 6.5-9.8V6L12 3.5z" fill="none" stroke="#54A0FF" stroke-width="0.6" opacity="0.6"/>
+  <!-- Restore / Counter-clockwise loop with arrow inside -->
+  <path d="M12 7a4.5 4.5 0 1 0 4.2 3" fill="none" stroke="#FFFFFF" stroke-width="1.6" stroke-linecap="round"/>
+  <path d="M16.5 7v3.2h-3.2" fill="none" stroke="#FFFFFF" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- Center dot / pulse -->
+  <circle cx="12" cy="12" r="1.5" fill="#54A0FF"/>
+</svg>

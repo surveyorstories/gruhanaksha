@@ -29,12 +29,11 @@ from .polygon_adjuster import activate_unified_tool
 from .pointinput import PointInputDialog
 from .aligner import init_align_tool
 from .kmz import KMZExporterDialog
-from .kmz import KMZExporterDialog
 from .polygon_splitter import show_polygon_splitter
-from .marker_tool import MarkerMapTool
 from .marker_tool import MarkerMapTool
 from .trim_and_extend import activate_trim_extend_tool
 from .topology_checker import TopologyCheckerDialog
+from .traverse_plotter import TraversePlotterDialog
 from . import lpm_canvas
 
 # make top level widget
@@ -81,6 +80,15 @@ class ToolWidget(QWidget):
 
         # Initialize kmz_dialog as None
         self.kmz_dialog = None
+
+        # Initialize traverse_dialog as None
+        self.traverse_dialog = None
+
+        # Initialize topo_dialog as None
+        self.topo_dialog = None
+
+        # Initialize recovery_dialog as None
+        self.recovery_dialog = None
 
         main_layout = QVBoxLayout(self)
 
@@ -155,6 +163,12 @@ class ToolWidget(QWidget):
         self.topo_checker_button.setStyleSheet(
             "background-color: #020507 ; color: white")
 
+        self.traverse_plotter_button = QPushButton(
+            QIcon(os.path.join(cmd_folder, 'images/plotter.svg')), 'Traverse Plotter')
+        self.traverse_plotter_button.setToolTip("Open Traverse Plotter Tool")
+        self.traverse_plotter_button.setStyleSheet(
+            "background-color: #020507 ; color: white")
+
         # Connect button actions
         self.plotter_button.clicked.connect(self.combined_button_clicked)
         self.adjuster_button.clicked.connect(self.adjuster_button_clicked)
@@ -172,6 +186,8 @@ class ToolWidget(QWidget):
             self.auto_numbering_button_clicked)
         self.topo_checker_button.clicked.connect(
             self.topo_checker_button_clicked)
+        self.traverse_plotter_button.clicked.connect(
+            self.traverse_plotter_button_clicked)
 
         # GridLayout for buttons
         grid_layout = QGridLayout()
@@ -192,6 +208,7 @@ class ToolWidget(QWidget):
         grid_layout.addWidget(self.trim_extend_button, 2, 2)
         grid_layout.addWidget(self.auto_numbering_button, 3, 0)
         grid_layout.addWidget(self.topo_checker_button, 3, 1)
+        grid_layout.addWidget(self.traverse_plotter_button, 3, 2)
 
         # Add grid to the main group layout
         group_layout.addLayout(grid_layout)
@@ -222,6 +239,7 @@ class ToolWidget(QWidget):
             widget.activateWindow()
         except Exception as e:
             QMessageBox.critical(self, "Error", f"An error occurred: {e}")
+
 
     def adjuster_button_clicked(self):
         activate_unified_tool()
@@ -289,10 +307,31 @@ class ToolWidget(QWidget):
 
     def topo_checker_button_clicked(self):
         try:
-            if not hasattr(self, 'topo_dialog') or self.topo_dialog is None:
+            if self.topo_dialog is None:
                 self.topo_dialog = TopologyCheckerDialog(iface=iface)
             self.topo_dialog.show()
             self.topo_dialog.raise_()
             self.topo_dialog.activateWindow()
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"An error occurred: {e}")
+
+    def traverse_plotter_button_clicked(self):
+        try:
+            if self.traverse_dialog is None or not self.traverse_dialog.isVisible():
+                self.traverse_dialog = TraversePlotterDialog(self)
+            self.traverse_dialog.show()
+            self.traverse_dialog.raise_()
+            self.traverse_dialog.activateWindow()
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"An error occurred: {e}")
+
+    def recovery_button_clicked(self):
+        try:
+            from .crash_recovery_dialog import CrashRecoveryDialog
+            if self.recovery_dialog is None or not self.recovery_dialog.isVisible():
+                self.recovery_dialog = CrashRecoveryDialog(self)
+            self.recovery_dialog.show()
+            self.recovery_dialog.raise_()
+            self.recovery_dialog.activateWindow()
         except Exception as e:
             QMessageBox.critical(self, "Error", f"An error occurred: {e}")

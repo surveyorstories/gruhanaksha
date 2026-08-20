@@ -151,7 +151,7 @@ class TraversePlotterDialog(QDialog):
 
         self.table = QTableWidget(0, 4)
         self.table.setHorizontalHeaderLabels(["From", "To", "Angle (DMS/DD)", "Distance"])
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.table.cellChanged.connect(self.on_cell_changed)
         table_layout.addWidget(self.table)
 
@@ -219,7 +219,7 @@ class TraversePlotterDialog(QDialog):
         self.map_tool = QgsMapToolEmitPoint(canvas)
         self.map_tool.canvasClicked.connect(self.on_canvas_clicked)
         canvas.setMapTool(self.map_tool)
-        iface.messageBar().pushMessage("Info", "Click on the map canvas to set start coordinate", level=Qgis.Info, duration=3)
+        iface.messageBar().pushMessage("Info", "Click on the map canvas to set start coordinate", level=Qgis.MessageLevel.Info, duration=3)
 
     def on_canvas_clicked(self, point, button):
         self.txt_start_x.setText(f"{point.x():.3f}")

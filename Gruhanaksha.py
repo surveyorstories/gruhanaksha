@@ -88,6 +88,10 @@ class GruhanakshaPlugin(object):
         self.action_backup = None
         self.action_presentation = None
         self.action_topology_checker = None
+        self.action_crash_recovery = None
+        self.crash_recovery_dialog = None
+        self.recovery_daemon = None
+        self.recovery_status_btn = None
         self.backup_timer_label = None
 
     def initProcessing(self):
@@ -97,6 +101,16 @@ class GruhanakshaPlugin(object):
 
     def initGui(self):
         self.initProcessing()
+
+        # Start silent background recovery daemon
+        try:
+            from .crash_recovery_daemon import CrashRecoveryDaemon
+            self.recovery_daemon = CrashRecoveryDaemon.instance()
+            self.recovery_daemon.start()
+            self.recovery_daemon.uncleanSessionDetected.connect(
+                self.on_unclean_session_detected)
+        except Exception as e:
+            print(f"[Gruhanaksha] Recovery daemon init error: {e}")
 
         # Create the toolbar
         self.toolbar = self.iface.addToolBar('Gruhanaksha Toolbar')
@@ -159,12 +173,20 @@ class GruhanakshaPlugin(object):
         self.iface.addPluginToMenu("&Gruhanaksha", self.action_atlasexport)
 
         icon_backup = os.path.join(
-            os.path.join(cmd_folder, 'images/export.svg'))
+            os.path.join(cmd_folder, 'images/autosave.svg'))
         self.action_backup = QAction(QIcon(icon_backup), 'Backup',
                                      self.iface.mainWindow())
         self.action_backup.triggered.connect(self.show_backup_widget)
 
         self.iface.addPluginToMenu("&Gruhanaksha", self.action_backup)
+
+        # Data Recovery action (in menu)
+        icon_shield = os.path.join(cmd_folder, 'images/recovery_shield.svg')
+        self.action_crash_recovery = QAction(QIcon(icon_shield), 'Data Recovery',
+                                             self.iface.mainWindow())
+        self.action_crash_recovery.setToolTip("Open Layer Data Recovery Manager")
+        self.action_crash_recovery.triggered.connect(self.show_crash_recovery)
+        self.iface.addPluginToMenu("&Gruhanaksha", self.action_crash_recovery)
 
         # Presentation action
         icon_presentation = os.path.join(os.path.join(cmd_folder, 'images/export.svg'))
@@ -177,13 +199,51 @@ class GruhanakshaPlugin(object):
         self.action_topology_checker.triggered.connect(self.show_topology_checker)
         self.iface.addPluginToMenu("&Gruhanaksha", self.action_topology_checker)
 
-        # Adding icons to the toolbar
+        # Adding icons to the toolbar (Recovery icon removed from toolbar)
         self.toolbar.addAction(self.action_tools)
         self.toolbar.addAction(self.dropdown_button)
         self.toolbar.addAction(self.action_advanced_line)
         self.toolbar.addAction(self.action_atlasexport)
+        # self.toolbar.addAction(self.action_crash_recovery)
         # self.toolbar.addAction(self.action_presentation)
         # self.toolbar.addAction(self.action_backup)
+
+        # Add Data Recovery live active status widget to bottom-right status bar
+        try:
+            from qgis.PyQt.QtWidgets import QToolButton
+            from qgis.PyQt.QtCore import Qt
+            self.recovery_status_btn = QToolButton()
+            self.recovery_status_btn.setIcon(QIcon(icon_shield))
+            self.recovery_status_btn.setText(" Recovery: Active")
+            self.recovery_status_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+            self.recovery_status_btn.setAutoRaise(False)
+            self.recovery_status_btn.setStyleSheet("""
+                QToolButton {
+                    border: 1px solid rgba(128, 128, 128, 0.45);
+                    border-radius: 3px;
+                    padding: 1px 6px;
+                    background: transparent;
+                }
+                QToolButton:hover {
+                    border: 1px solid rgba(128, 128, 128, 0.8);
+                    background-color: rgba(128, 128, 128, 0.15);
+                }
+            """)
+            self.recovery_status_btn.setToolTip("Gruhanaksha Data Recovery is active in background.\n• Left Click: Open Manager\n• Right Click: Quick Options (Pause / Snapshot)")
+            self.recovery_status_btn.clicked.connect(self.show_crash_recovery)
+            self.recovery_status_btn.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+            self.recovery_status_btn.customContextMenuRequested.connect(self._show_recovery_context_menu)
+
+            if self.recovery_daemon:
+                self.recovery_daemon.snapshotCreated.connect(self._on_recovery_snapshot_created)
+                self.recovery_daemon.statusChanged.connect(self._on_recovery_status_changed)
+
+            if hasattr(self.iface, 'statusBarIface') and self.iface.statusBarIface():
+                self.iface.statusBarIface().addPermanentWidget(self.recovery_status_btn)
+            elif hasattr(self.iface, 'mainWindow') and self.iface.mainWindow() and self.iface.mainWindow().statusBar():
+                self.iface.mainWindow().statusBar().addPermanentWidget(self.recovery_status_btn)
+        except Exception as e:
+            print(f"[Gruhanaksha] Status bar recovery widget init error: {e}")
 
         self.backup_timer_label = QLabel("")
         self.backup_timer_label.setVisible(False)
@@ -264,7 +324,8 @@ class GruhanakshaPlugin(object):
         # Unregister all main window actions
         for action_name in ['action', 'action_master', 'action_advanced_line',
                             'action_tools', 'dropdown_button', 'action_atlasexport',
-                            'action_backup', 'action_presentation', 'action_topology_checker']:
+                            'action_backup', 'action_crash_recovery', 'action_presentation',
+                            'action_topology_checker']:
             if hasattr(self, action_name):
                 try:
                     self.iface.unregisterMainWindowAction(
@@ -280,6 +341,32 @@ class GruhanakshaPlugin(object):
                 pass
             del self.toolbar
 
+        # Clean up recovery status bar widget
+        if hasattr(self, 'recovery_status_btn') and self.recovery_status_btn:
+            try:
+                if hasattr(self.iface, 'statusBarIface') and self.iface.statusBarIface():
+                    self.iface.statusBarIface().removeWidget(self.recovery_status_btn)
+                elif hasattr(self.iface, 'mainWindow') and self.iface.mainWindow() and self.iface.mainWindow().statusBar():
+                    self.iface.mainWindow().statusBar().removeWidget(self.recovery_status_btn)
+            except Exception:  # nosec B110
+                pass
+            self.recovery_status_btn = None
+
+        # Clean up recovery daemon
+        if hasattr(self, 'recovery_daemon') and self.recovery_daemon:
+            try:
+                self.recovery_daemon.stop()
+            except Exception:  # nosec B110
+                pass
+            self.recovery_daemon = None
+
+        if hasattr(self, 'crash_recovery_dialog') and self.crash_recovery_dialog:
+            try:
+                self.crash_recovery_dialog.close()
+            except Exception:  # nosec B110
+                pass
+            self.crash_recovery_dialog = None
+
         # Clean up backup plugin
         if hasattr(self, 'backup_plugin') and self.backup_plugin:
             try:
@@ -293,6 +380,60 @@ class GruhanakshaPlugin(object):
         self.tools = None
         self.canvas = None
         self.provider = None
+
+    def _show_recovery_context_menu(self, pos):
+        """Right-click menu on status bar button."""
+        if not self.recovery_daemon:
+            return
+        from qgis.PyQt.QtWidgets import QMenu
+        menu = QMenu(self.iface.mainWindow())
+
+        act_open = menu.addAction("🛡️ Open Data Recovery Manager...")
+        act_open.triggered.connect(self.show_crash_recovery)
+
+        menu.addSeparator()
+        if self.recovery_daemon.auto_enabled:
+            act_toggle = menu.addAction("⏸️ Pause Background Recovery")
+            act_toggle.triggered.connect(lambda: self.recovery_daemon.set_enabled(False))
+        else:
+            act_toggle = menu.addAction("▶️ Resume Background Recovery")
+            act_toggle.triggered.connect(lambda: self.recovery_daemon.set_enabled(True))
+
+        act_snap = menu.addAction("📸 Save Snapshot of Active Layer Now")
+        act_snap.triggered.connect(self._take_instant_snapshot)
+
+        menu.exec(self.recovery_status_btn.mapToGlobal(pos))
+
+    def _take_instant_snapshot(self):
+        """Take instant snapshot of currently active vector layer."""
+        if self.recovery_daemon and hasattr(self.iface, 'activeLayer'):
+            from qgis.core import QgsVectorLayer
+            layer = self.iface.activeLayer()
+            if layer and isinstance(layer, QgsVectorLayer) and layer.isValid():
+                self.recovery_daemon.create_snapshot_silent(layer, trigger_type="MANUAL", summary="Manual Quick Snapshot")
+
+    def _on_recovery_status_changed(self, enabled: bool):
+        """Update status bar widget styling when enabled/disabled."""
+        if hasattr(self, 'recovery_status_btn') and self.recovery_status_btn:
+            if enabled:
+                self.recovery_status_btn.setText(" Recovery: Active")
+            else:
+                self.recovery_status_btn.setText(" Recovery: Paused")
+
+    def _on_recovery_snapshot_created(self, snapshot_id, layer_id, trigger_type):
+        """Briefly pulse status bar widget on snapshot save."""
+        if hasattr(self, 'recovery_status_btn') and self.recovery_status_btn:
+            if not self.recovery_daemon or not self.recovery_daemon.auto_enabled:
+                return
+            from qgis.PyQt.QtCore import QTimer
+            self.recovery_status_btn.setText(f" Recovery: #{snapshot_id} ✓")
+            QTimer.singleShot(3000, self._reset_recovery_status_btn)
+
+    def _reset_recovery_status_btn(self):
+        """Reset status bar button to default active look."""
+        if hasattr(self, 'recovery_status_btn') and self.recovery_status_btn:
+            enabled = self.recovery_daemon.auto_enabled if self.recovery_daemon else True
+            self._on_recovery_status_changed(enabled)
 
     def run_svamitva_algorithm(self):
         """Trigger custom logic or Processing algorithm"""
@@ -333,6 +474,41 @@ class GruhanakshaPlugin(object):
             self.backup_plugin.show()
         else:
             asksaveProject()
+
+    def show_crash_recovery(self):
+        """Show Layer Data Recovery Dialog."""
+        try:
+            from .crash_recovery_dialog import CrashRecoveryDialog
+            if not self.crash_recovery_dialog or not self.crash_recovery_dialog.isVisible():
+                self.crash_recovery_dialog = CrashRecoveryDialog(
+                    self.iface.mainWindow())
+            self.crash_recovery_dialog.show()
+            self.crash_recovery_dialog.raise_()
+            self.crash_recovery_dialog.activateWindow()
+        except Exception as e:
+            from qgis.PyQt.QtWidgets import QMessageBox
+            QMessageBox.critical(self.iface.mainWindow(
+            ), "Data Recovery", f"Error opening dialog: {e}")
+
+    def on_unclean_session_detected(self, project_id, crashed_sessions):
+        """Non-intrusive notification when previous session crashed."""
+        if hasattr(self, 'iface') and self.iface and self.iface.messageBar():
+            try:
+                from qgis.PyQt.QtWidgets import QPushButton
+                from qgis.core import Qgis
+                msg_bar = self.iface.messageBar()
+                widget = msg_bar.createMessage(
+                    "Gruhanaksha Data Recovery",
+                    f"Detected {len(crashed_sessions)} unclosed/crashed session(s) with restore points."
+                )
+                btn = QPushButton("Open Data Recovery", widget)
+                btn.setStyleSheet(
+                    "background-color: #0969DA; color: white; font-weight: bold; padding: 3px 8px; border-radius: 3px;")
+                btn.clicked.connect(self.show_crash_recovery)
+                widget.layout().addWidget(btn)
+                msg_bar.pushWidget(widget, Qgis.MessageLevel.Warning, 12)
+            except Exception:  # nosec B110
+                pass
 
     def show_presentation(self):
         if QgsProject.instance().fileName():

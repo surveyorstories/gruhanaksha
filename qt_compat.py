@@ -75,10 +75,76 @@ class QtCompat:
     def unchecked(cls):
         return cls._get_attr(Qt, 'Unchecked', 'CheckState.Unchecked')
 
+    # --- Orientation (Methods) ---
+    @classmethod
+    def horizontal(cls):
+        return cls._get_attr(Qt, 'Horizontal', 'Orientation.Horizontal')
+
+    @classmethod
+    def vertical(cls):
+        return cls._get_attr(Qt, 'Vertical', 'Orientation.Vertical')
+
+    # --- Item Data Role (Methods) ---
+    @classmethod
+    def user_role(cls):
+        return cls._get_attr(Qt, 'UserRole', 'ItemDataRole.UserRole')
+
+    # --- Alignment (Methods) ---
+    @classmethod
+    def align_center(cls):
+        return cls._get_attr(Qt, 'AlignCenter', 'AlignmentFlag.AlignCenter')
+
+    @classmethod
+    def align_left(cls):
+        return cls._get_attr(Qt, 'AlignLeft', 'AlignmentFlag.AlignLeft')
+
+    @classmethod
+    def align_right(cls):
+        return cls._get_attr(Qt, 'AlignRight', 'AlignmentFlag.AlignRight')
+
     # --- ItemFlag (Methods) ---
     @classmethod
     def item_is_user_checkable(cls):
         return cls._get_attr(Qt, 'ItemIsUserCheckable', 'ItemFlag.ItemIsUserCheckable')
+
+    @classmethod
+    def item_is_selectable(cls):
+        return cls._get_attr(Qt, 'ItemIsSelectable', 'ItemFlag.ItemIsSelectable')
+
+    @classmethod
+    def item_is_enabled(cls):
+        return cls._get_attr(Qt, 'ItemIsEnabled', 'ItemFlag.ItemIsEnabled')
+
+    # --- Header & View Modes (Methods) ---
+    @classmethod
+    def resize_to_contents(cls):
+        from qgis.PyQt.QtWidgets import QHeaderView
+        return cls._get_attr(QHeaderView, 'ResizeToContents', 'ResizeMode.ResizeToContents')
+
+    @classmethod
+    def stretch(cls):
+        from qgis.PyQt.QtWidgets import QHeaderView
+        return cls._get_attr(QHeaderView, 'Stretch', 'ResizeMode.Stretch')
+
+    @classmethod
+    def select_rows(cls):
+        return cls._get_attr(QAbstractItemView, 'SelectRows', 'SelectionBehavior.SelectRows')
+
+    @classmethod
+    def single_selection(cls):
+        return cls._get_attr(QAbstractItemView, 'SingleSelection', 'SelectionMode.SingleSelection')
+
+    @classmethod
+    def btn_yes(cls):
+        return cls._get_attr(QMessageBox, 'Yes', 'StandardButton.Yes')
+
+    @classmethod
+    def btn_no(cls):
+        return cls._get_attr(QMessageBox, 'No', 'StandardButton.No')
+
+    @classmethod
+    def echo_normal(cls):
+        return cls._get_attr(QLineEdit, 'Normal', 'EchoMode.Normal')
 
     # --- CursorShape (Methods) ---
     @classmethod
