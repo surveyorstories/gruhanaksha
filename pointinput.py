@@ -8,7 +8,6 @@ from qgis.PyQt.QtWidgets import (
     QSplitter, QTextEdit, QTabWidget, QFrame, QGridLayout, QScrollArea, QApplication,
     QLayout
 )
-from qgis.utils import iface
 import re
 import os
 import csv

@@ -1845,12 +1845,12 @@ class TopologyCheckerDialog(QDialog):
                 QMessageBox.information(self, "Success", msg)
                 self.recheck_after_autofix(active_layer, list(set(all_affected_fids)))
             else:
-                for l in edited_layers:
-                    l.rollBack()
+                for lyr in edited_layers:
+                    lyr.rollBack()
                 QMessageBox.warning(self, "Error", "Failed to fix the selected error(s) automatically.")
         except Exception as e:
-            for l in edited_layers:
-                l.rollBack()
+            for lyr in edited_layers:
+                lyr.rollBack()
             QMessageBox.critical(self, "Error", f"An error occurred during auto-fix: {str(e)}")
         finally:
             has_errs = len(self.errors) > 0
@@ -2015,12 +2015,12 @@ class TopologyCheckerDialog(QDialog):
                 QMessageBox.information(self, "Success", msg)
                 self.recheck_after_autofix(active_layer, list(set(all_affected_fids)))
             else:
-                for l in edited_layers:
-                    l.rollBack()
+                for lyr in edited_layers:
+                    lyr.rollBack()
                 QMessageBox.warning(self, "Error", "Failed to fix the error(s) automatically.")
         except Exception as e:
-            for l in edited_layers:
-                l.rollBack()
+            for lyr in edited_layers:
+                lyr.rollBack()
             QMessageBox.critical(self, "Error", f"An error occurred during auto-fix: {str(e)}")
         finally:
             has_errs = len(self.errors) > 0

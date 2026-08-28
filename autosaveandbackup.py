@@ -3,7 +3,6 @@ import shutil
 import datetime
 import hashlib
 import json
-import subprocess
 import sys
 import time
 from qgis.utils import iface
@@ -611,7 +610,7 @@ class ComprehensiveProjectBackupWidget(QWidget):
                     QtCompat.info_icon(),
                     3000
                 )
-            except:  # nosec B110
+            except Exception:  # nosec B110
                 pass
 
         self.show_message("Auto backup started - Timer visible in toolbar")
@@ -663,7 +662,7 @@ class ComprehensiveProjectBackupWidget(QWidget):
                 try:
                     self.tray_icon.showMessage(
                         "QGIS Backup Alert", message, QtCompat.info_icon(), 5000)
-                except:  # nosec B110
+                except Exception:  # nosec B110
                     pass
 
             self.warning_shown = True
@@ -989,7 +988,7 @@ class ComprehensiveProjectBackupWidget(QWidget):
                 icon = QtCompat.info_icon() if not backup_errors else QtCompat.warning_icon()
                 self.tray_icon.showMessage(
                     "QGIS Backup Complete", summary_message, icon, 3000)
-            except:  # nosec B110
+            except Exception:  # nosec B110
                 pass
 
         self.cleanup_old_backups()

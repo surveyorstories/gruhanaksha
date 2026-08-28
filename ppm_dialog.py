@@ -114,12 +114,12 @@ class PPMDialog(QDialog):
                       "Habitation ORI Map", "Traverse Map"]
         for name in other_tabs:
             tab = QWidget()
-            l = QVBoxLayout()
-            l.addWidget(QLabel("Coming Soon", alignment=QtCompat.AlignCenter))
+            tab_layout = QVBoxLayout()
+            tab_layout.addWidget(QLabel("Coming Soon", alignment=QtCompat.AlignCenter))
             btn = QPushButton(f"Run {name}")
             btn.setEnabled(False)
-            l.addWidget(btn)
-            tab.setLayout(l)
+            tab_layout.addWidget(btn)
+            tab.setLayout(tab_layout)
             self.tab_widget.addTab(tab, name)
 
         # Close Button
@@ -278,7 +278,7 @@ class PPMDialog(QDialog):
                         try:
                             if os.path.abspath(os.path.dirname(path)) == os.path.abspath(project_folder):
                                 ids_to_remove.add(lyr.id())
-                        except:  # nosec B110
+                        except Exception:  # nosec B110
                             pass
 
         # Exclude inputs

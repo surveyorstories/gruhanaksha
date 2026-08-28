@@ -8,6 +8,7 @@ import json
 import uuid
 import datetime
 import hashlib
+import threading
 from typing import List, Dict, Any, Optional, Tuple
 
 
@@ -23,16 +24,33 @@ class CrashRecoveryDB:
             self.db_path = db_path
             os.makedirs(os.path.dirname(os.path.abspath(db_path)), exist_ok=True)
 
+        self._local = threading.local()
+
         self._init_db()
 
     def _get_connection(self) -> sqlite3.Connection:
-        """Create a connection configured with WAL journal mode and busy timeout."""
+        """Get a persistent per-thread connection configured with WAL and busy timeout."""
+        conn = getattr(self._local, "conn", None)
+        if conn is not None:
+            return conn
+
         conn = sqlite3.connect(self.db_path, timeout=30.0)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode = WAL;")
         conn.execute("PRAGMA synchronous = NORMAL;")
         conn.execute("PRAGMA busy_timeout = 30000;")
+        self._local.conn = conn
         return conn
+
+    def close_thread_connection(self):
+        """Close the calling thread's persistent connection (used at worker shutdown)."""
+        conn = getattr(self._local, "conn", None)
+        if conn is not None:
+            try:
+                conn.close()
+            except sqlite3.Error:
+                pass
+            self._local.conn = None
 
     def _init_db(self):
         """Create tables and indices if not present."""
@@ -310,21 +328,8 @@ class CrashRecoveryDB:
             'unchanged': unchanged
         }
 
-    def save_snapshot(self, session_id: str, layer_id: str, project_id: str,
-                      layer_name: str, geom_type: str, crs_authid: str,
-                      fields_schema: List[Dict[str, str]],
-                      features_data: List[Tuple[int, bytes, Dict[str, Any]]],
-                      trigger_type: str = "EDIT",
-                      summary: str = "",
-                      max_keep: int = 50) -> Optional[int]:
-        """
-        Save a full atomic snapshot of a layer in SQLite.
-        features_data: List of (fid, wkb_bytes, attributes_dict)
-        Computes delta counts compared to previous snapshot.
-        """
-        now = datetime.datetime.now().isoformat()
-
-        # Calculate robust content hash
+    def compute_features_hash(self, features_data) -> str:
+        """Compute robust content hash over full feature set."""
         hasher = hashlib.sha256()
         hasher.update(str(len(features_data)).encode('utf-8'))
         for fid, wkb, attrs in features_data:
@@ -332,12 +337,23 @@ class CrashRecoveryDB:
             if wkb:
                 hasher.update(wkb)
             hasher.update(json.dumps(attrs, sort_keys=True).encode('utf-8'))
-        layer_hash = hasher.hexdigest()
+        return hasher.hexdigest()
+
+    def _save_core(self, session_id: str, layer_id: str, project_id: str,
+                   layer_name: str, geom_type: str, crs_authid: str,
+                   fields_schema: List[Dict[str, str]],
+                   features_data: List[Tuple[int, Optional[bytes], Dict[str, Any]]],
+                   trigger_type: str, summary: str, max_keep: int,
+                   skip_hash_check: bool = False) -> Optional[int]:
+        """Write one atomic snapshot of the given full feature set."""
+        now = datetime.datetime.now().isoformat()
+        layer_hash = self.compute_features_hash(features_data)
 
         # Check if identical to last snapshot
-        last_hash = self.get_latest_layer_hash(layer_id)
-        if last_hash == layer_hash and trigger_type != "MANUAL":
-            return None  # No changes, skip duplicate
+        if not skip_hash_check:
+            last_hash = self.get_latest_layer_hash(layer_id)
+            if last_hash == layer_hash and trigger_type != "MANUAL":
+                return None  # No changes, skip duplicate
 
         # Register layer metadata first
         self.register_layer(layer_id, project_id, layer_name, geom_type, crs_authid, fields_schema)
@@ -386,6 +402,56 @@ class CrashRecoveryDB:
         # Prune old snapshots exceeding limit
         self.prune_snapshots(layer_id, max_keep=max_keep)
         return snapshot_id
+
+    def save_snapshot(self, session_id: str, layer_id: str, project_id: str,
+                      layer_name: str, geom_type: str, crs_authid: str,
+                      fields_schema: List[Dict[str, str]],
+                      features_data: List[Tuple[int, bytes, Dict[str, Any]]],
+                      trigger_type: str = "EDIT",
+                      summary: str = "",
+                      max_keep: int = 50) -> Optional[int]:
+        """
+        Save a full atomic snapshot of a layer in SQLite.
+        features_data: List of (fid, wkb_bytes, attributes_dict)
+        Computes delta counts compared to previous snapshot.
+        """
+        return self._save_core(
+            session_id, layer_id, project_id, layer_name, geom_type, crs_authid,
+            fields_schema, features_data, trigger_type, summary, max_keep
+        )
+
+    def apply_patch_save(self, session_id: str, layer_id: str, project_id: str,
+                         layer_name: str, geom_type: str, crs_authid: str,
+                         fields_schema: List[Dict[str, str]],
+                         upserts: List[Tuple[int, Optional[bytes], Dict[str, Any]]],
+                         deleted_fids: List[int],
+                         trigger_type: str = "EDIT",
+                         summary: str = "",
+                         max_keep: int = 50) -> Optional[int]:
+        """
+        Apply an incremental edit-buffer patch onto the latest snapshot and store result.
+        upserts: (fid, wkb, attrs) for added/modified features; deleted_fids: fids to remove.
+        Runs entirely on worker thread; no QGIS objects involved.
+        """
+        prev_snapshot = self.get_latest_snapshot_id(layer_id)
+        if not prev_snapshot:
+            return None  # No baseline yet; caller must schedule a full scan
+
+        base = {fid: (wkb, attrs) for fid, wkb, attrs in self.get_snapshot_features(prev_snapshot)}
+
+        for fid in deleted_fids:
+            base.pop(fid, None)
+        for fid, wkb, attrs in upserts:
+            base[fid] = (wkb, attrs)
+
+        merged = [(fid, wkb, attrs) for fid, (wkb, attrs) in sorted(base.items())]
+        if not merged and not upserts and not deleted_fids:
+            return None
+
+        return self._save_core(
+            session_id, layer_id, project_id, layer_name, geom_type, crs_authid,
+            fields_schema, merged, trigger_type, summary, max_keep
+        )
 
     def get_latest_snapshot_id(self, layer_id: str) -> Optional[int]:
         """Get latest snapshot ID for a layer."""
@@ -514,6 +580,18 @@ class CrashRecoveryDB:
             conn.execute("DELETE FROM restore_points WHERE id = ?", (snapshot_id,))
             conn.commit()
 
+    def clear_layer_history(self, layer_id: str):
+        """Delete all snapshots and registration for one layer."""
+        with self._get_connection() as conn:
+            conn.execute("""
+                DELETE FROM features_snapshot WHERE snapshot_id IN (
+                    SELECT id FROM restore_points WHERE layer_id = ?
+                )
+            """, (layer_id,))
+            conn.execute("DELETE FROM restore_points WHERE layer_id = ?", (layer_id,))
+            conn.execute("DELETE FROM layers WHERE layer_id = ?", (layer_id,))
+            conn.commit()
+
     def get_database_size_bytes(self) -> int:
         """Get total size of SQLite DB file including WAL and SHM files."""
         total = 0
@@ -581,8 +659,11 @@ class CrashRecoveryDB:
     def vacuum(self):
         """Reclaim space in SQLite database."""
         try:
-            with self._get_connection() as conn:
-                conn.execute("VACUUM;")
+            conn = self._get_connection()
+            # VACUUM cannot run inside a transaction
+            conn.commit()
+            conn.execute("VACUUM;")
+            conn.commit()
         except sqlite3.Error:
             pass
 

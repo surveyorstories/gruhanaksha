@@ -402,7 +402,7 @@ class VertexTool(QgsMapTool):
         try:
             iface.currentLayerChanged.disconnect(self._on_layer_changed)
             self.canvas.mapCanvasRefreshed.disconnect(self._on_canvas_refresh)
-        except:  # nosec B110
+        except Exception:  # nosec B110
             pass
         self._reset(silent=True)
         super().deactivate()
@@ -584,7 +584,7 @@ class VertexTool(QgsMapTool):
                 else:
                     vertices.extend(QgsPointXY(p)
                                     for p in self.geometry.asPolyline())
-        except:  # nosec B110
+        except Exception:  # nosec B110
             pass
         return vertices
 
@@ -780,7 +780,7 @@ class VertexTool(QgsMapTool):
                 for vertex in preview_vertices:
                     self.preview_rubber_band.addPoint(vertex)
             self._update_length_labels(preview_vertices)
-        except:  # nosec B110
+        except Exception:  # nosec B110
             pass
 
     def _move_vertex(self, vertex_idx, new_position):

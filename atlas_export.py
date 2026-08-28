@@ -1229,8 +1229,8 @@ class EnhancedAtlasExportDialog(QDialog):
             self.layout_combo.blockSignals(False)
             return
 
-        for l in layouts:
-            self.layout_combo.addItem(l.name())
+        for layout_item in layouts:
+            self.layout_combo.addItem(layout_item.name())
 
         self.layout_combo.blockSignals(False)
         self.export_btn.setEnabled(True)

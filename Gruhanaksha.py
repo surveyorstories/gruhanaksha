@@ -106,9 +106,9 @@ class GruhanakshaPlugin(object):
         try:
             from .crash_recovery_daemon import CrashRecoveryDaemon
             self.recovery_daemon = CrashRecoveryDaemon.instance()
-            self.recovery_daemon.start()
             self.recovery_daemon.uncleanSessionDetected.connect(
                 self.on_unclean_session_detected)
+            self.recovery_daemon.start()
         except Exception as e:
             print(f"[Gruhanaksha] Recovery daemon init error: {e}")
 

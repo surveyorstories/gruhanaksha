@@ -208,7 +208,7 @@ class AutoNumberDialog(QDialog):
                 if max_val is None:
                     max_val = 0
                 max_val = int(max_val)
-            except:
+            except Exception:
                 max_val = 0
 
         self.start_num_spin.setValue(max_val + 1)
@@ -233,7 +233,7 @@ class AutoNumberDialog(QDialog):
 
                 val_count = len(existing_values)
                 unique_values = set(existing_values)
-            except:
+            except Exception:
                 val_count = 0
                 unique_values = set()
 
@@ -1343,7 +1343,7 @@ class LpmCanvas(QMainWindow):
         # Connect to layer changes when window opens
         try:
             self.iface.currentLayerChanged.disconnect(self.activelyrchanged)
-        except:  # nosec B110
+        except Exception:  # nosec B110
             pass
         self.iface.currentLayerChanged.connect(self.activelyrchanged)
 
@@ -1715,7 +1715,7 @@ class LpmCanvas(QMainWindow):
                     visual_center = visual_center_geom.asPoint()
                 else:
                     visual_center = geom.pointOnSurface().asPoint()
-            except:
+            except Exception:
                 visual_center = geom.pointOnSurface().asPoint()
             
             feature_infos.append({
@@ -1944,7 +1944,7 @@ class LpmCanvas(QMainWindow):
                     visual_center = visual_center_geom.asPoint()
                 else:
                     visual_center = geom.pointOnSurface().asPoint()
-            except:
+            except Exception:
                 # Fallback to pointOnSurface or centroid
                 visual_center = geom.pointOnSurface().asPoint()
 
@@ -2232,7 +2232,7 @@ class LpmCanvas(QMainWindow):
             tolerance = bbox.width() * 0.10
             try:
                 center = geom.poleOfInaccessibility(tolerance).asPoint()
-            except:
+            except Exception:
                 center = geom.pointOnSurface().asPoint()
                 
             self.preview_rubber_band.addPoint(center)
@@ -2378,11 +2378,11 @@ class LpmCanvas(QMainWindow):
             attrs = feat.attributes()
             if idx < len(attrs):
                 val = attrs[idx]
-                if val != None and val != NULL:  # Check for NULL/None
+                if val is not None and val != NULL:  # Check for NULL/None
                     try:
                         if int(val) > 0:
                             existing_values_count += 1
-                    except:  # nosec B110
+                    except Exception:  # nosec B110
                         pass
 
         skip_existing = False
@@ -2401,9 +2401,9 @@ class LpmCanvas(QMainWindow):
                     val = feat.attributes()[idx]
                     is_valid = False
                     try:
-                        if val != None and val != NULL and int(val) > 0:
+                        if val is not None and val != NULL and int(val) > 0:
                             is_valid = True
-                    except:  # nosec B110
+                    except Exception:  # nosec B110
                         pass
 
                     if not is_valid:
@@ -2442,13 +2442,13 @@ class LpmCanvas(QMainWindow):
                     continue  # Skip features we are about to change
 
                 val = f.attributes()[idx]  # index of label field
-                if val != None and val != NULL:
+                if val is not None and val != NULL:
                     try:
                         v_int = int(val)
                         if v_int not in existing_values:
                             existing_values[v_int] = []
                         existing_values[v_int].append(f.id())
-                    except:  # nosec B110
+                    except Exception:  # nosec B110
                         pass
 
             # 2. Assign and Validate

@@ -154,7 +154,7 @@ class TrimExtendTool(QgsMapTool):
             QgsProject.instance().layerWillBeRemoved.disconnect(self._on_layers_changed)
             self.iface.currentLayerChanged.disconnect(
                 self._on_current_layer_changed)
-        except:  # nosec B110
+        except Exception:  # nosec B110
             pass
 
     def keyPressEvent(self, event):
@@ -964,7 +964,7 @@ class TrimExtendTool(QgsMapTool):
                                     if not removed.isEmpty():
                                         self.trim_rubber.addGeometry(
                                             removed, None)
-                                except:  # nosec B110
+                                except Exception:  # nosec B110
                                     pass
                             elif op in ("vertex_move", "side_move"):
                                 self.trim_rubber.addGeometry(g, None)
@@ -973,7 +973,7 @@ class TrimExtendTool(QgsMapTool):
                                     if not extension.isEmpty():
                                         self.preview_rubber.addGeometry(
                                             extension, None)
-                                except:
+                                except Exception:
                                     self.preview_rubber.addGeometry(
                                         new_g, None)
                     elif g.type() == QgsWkbTypes.GeometryType.LineGeometry and not self.is_polygon_layer:
@@ -1004,7 +1004,7 @@ class TrimExtendTool(QgsMapTool):
                         removed = g.difference(new_g)
                         if not removed.isEmpty():
                             self.trim_rubber.setToGeometry(removed, None)
-                    except:  # nosec B110
+                    except Exception:  # nosec B110
                         pass
                 elif op in ("vertex_move", "side_move"):
                     self.trim_rubber.setToGeometry(g, None)
@@ -1012,7 +1012,7 @@ class TrimExtendTool(QgsMapTool):
                         extension = new_g.difference(g)
                         if not extension.isEmpty():
                             self.preview_rubber.setToGeometry(extension, None)
-                    except:
+                    except Exception:
                         self.preview_rubber.setToGeometry(new_g, None)
             return
 

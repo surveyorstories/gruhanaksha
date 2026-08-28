@@ -10,6 +10,7 @@ from qgis.core import (QgsProject, QgsGeometry, QgsPointXY, QgsWkbTypes,
                        Qgis, QgsFeature, QgsPointLocator, QgsMapLayer)
 from qgis.gui import QgsMapTool, QgsRubberBand, QgsVertexMarker, QgsSnapIndicator
 from qgis.utils import iface
+from .qt_compat import QtCompat
 
 
 class CursorInfo(QWidget):
@@ -19,30 +20,17 @@ class CursorInfo(QWidget):
         self.text_lines = []
         self.is_active = True
 
-        if hasattr(Qt, 'WindowType'):
-            self.setWindowFlags(
-                Qt.WindowType.Tool
-                | Qt.WindowType.FramelessWindowHint
-                | Qt.WindowType.WindowStaysOnTopHint
-                | Qt.WindowType.WindowDoesNotAcceptFocus
-                | Qt.WindowType.WindowTransparentForInput
-            )
-            self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-            self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
-            self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
-            self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-        else:
-            self.setWindowFlags(
-                QtCompat.Tool
-                | QtCompat.FramelessWindowHint
-                | QtCompat.stay_on_top()
-                | QtCompat.WindowDoesNotAcceptFocus
-                | QtCompat.WindowTransparentForInput
-            )
-            self.setAttribute(QtCompat.WA_TranslucentBackground)
-            self.setAttribute(QtCompat.WA_DeleteOnClose)
-            self.setAttribute(QtCompat.WA_ShowWithoutActivating)
-            self.setAttribute(QtCompat.WA_TransparentForMouseEvents)
+        self.setWindowFlags(
+            QtCompat.Tool
+            | QtCompat.FramelessWindowHint
+            | QtCompat.WindowStaysOnTopHint
+            | QtCompat.WindowDoesNotAcceptFocus
+            | QtCompat.WindowTransparentForInput
+        )
+        self.setAttribute(QtCompat.WA_TranslucentBackground)
+        self.setAttribute(QtCompat.WA_DeleteOnClose)
+        self.setAttribute(QtCompat.WA_ShowWithoutActivating)
+        self.setAttribute(QtCompat.WA_TransparentForMouseEvents)
 
         self.setStyleSheet(
             "QWidget{background:rgba(240,248,255,230);border:2px solid #2E86AB;border-radius:6px;padding:6px;font:bold 10pt Consolas;color:#FC0FC0}")
@@ -408,7 +396,6 @@ class ProfessionalLineTool(QgsMapTool):
         self.current_unit_index = 0
 
         self.dialog = ParameterDialog(self.units, self.current_unit_key)
-        from .qt_compat import QtCompat
         self.dialog.setParent(iface.mainWindow(), QtCompat.Window)
         self.dialog.parametersEntered.connect(self.set_parameters)
 

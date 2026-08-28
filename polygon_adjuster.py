@@ -1,11 +1,9 @@
-from qgis.PyQt.QtGui import QColor, QPen, QFont
-from qgis.PyQt.QtWidgets import QGraphicsTextItem
+from qgis.PyQt.QtGui import QColor, QPen, QFont, QCursor
 from qgis.PyQt.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QRadioButton,
     QLabel, QDoubleSpinBox, QMessageBox, QGraphicsTextItem, QComboBox, QGraphicsSimpleTextItem,
 )
 from qgis.utils import iface
-from qgis.PyQt.QtGui import QColor, QCursor
 from qgis.PyQt.QtCore import Qt
 from .qt_compat import QtCompat, QPointF
 from qgis.core import (

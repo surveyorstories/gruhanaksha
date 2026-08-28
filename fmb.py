@@ -3,7 +3,7 @@ from qgis.PyQt.QtCore import QTimer, Qt, QVariant
 from qgis.PyQt.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QDoubleSpinBox, QComboBox, QTabWidget, QMessageBox,
-    QFileDialog, QDialog, QDialogButtonBox
+    QFileDialog, QDialog, QDialogButtonBox, QLineEdit, QCheckBox
 )
 from qgis.PyQt.QtGui import QColor
 from qgis.gui import QgsRubberBand, QgsVertexMarker, QgsMapTool
@@ -13,14 +13,12 @@ from qgis.core import (
     QgsRendererCategory, QgsCategorizedSymbolRenderer,
     QgsVectorFileWriter, QgsRectangle, QgsSnappingConfig,
     QgsTolerance, QgsPointLocator, QgsMapLayer, QgsFeatureRequest,
-    QgsCoordinateReferenceSystem, QgsCoordinateTransform, QgsUnitTypes
+    QgsCoordinateReferenceSystem, QgsCoordinateTransform, QgsUnitTypes,
+    QgsPalLayerSettings, QgsTextFormat, QgsVectorLayerSimpleLabeling
 )
 from qgis.utils import iface
 from .addon_functions import TOOL_WINDOW_FLAGS, save_temp_layer
 from .qt_compat import QtCompat
-
-from qgis.PyQt.QtWidgets import QLabel, QLineEdit, QCheckBox
-from qgis.core import QgsField, QgsPalLayerSettings, QgsTextFormat, QgsVectorLayerSimpleLabeling
 
 
 # ======================
@@ -166,7 +164,7 @@ class GeometryHelper:
             zone = math.floor((lon + 180) / 6) + 1
             epsg = 32600 + zone if lat >= 0 else 32700 + zone
             return QgsCoordinateReferenceSystem(f"EPSG:{epsg}")
-        except:
+        except Exception:
             return crs
 
     @staticmethod
@@ -323,7 +321,6 @@ class LayerManager:
 
     @staticmethod
     def apply_categorized_symbology(layer, categories_info):
-        from qgis.core import QgsMarkerSymbol, QgsRendererCategory, QgsCategorizedSymbolRenderer
         categories = []
         for info in categories_info:
             symbol = QgsMarkerSymbol.createSimple({
@@ -777,7 +774,7 @@ class SegmentSelectTool(QgsMapTool):
         if self.snap_marker:
             try:
                 self.canvas.scene().removeItem(self.snap_marker)
-            except:  # nosec B110
+            except Exception:  # nosec B110
                 pass
         self.snap_marker = MarkerFactory.create_snap_marker(self.canvas)
         self.setCursor(QtCompat.cross_cursor())
@@ -806,7 +803,7 @@ class SegmentSelectTool(QgsMapTool):
         if self.snap_marker:
             try:
                 self.canvas.scene().removeItem(self.snap_marker)
-            except:  # nosec B110
+            except Exception:  # nosec B110
                 pass
             self.snap_marker = None
         self.snapping_utils = None

@@ -11,16 +11,12 @@ from qgis.utils import iface
 # Removed import of qApp as it is not available in qgis.PyQt.QtWidgets for Qt6
 # from qgis.PyQt.QtWidgets import qApp
 from qgis.core import QgsProject
-from qgis.PyQt.QtWidgets import QAction
-from qgis.PyQt.QtWidgets import QCheckBox, QSpinBox,  QVBoxLayout, QWidget, QPushButton, QMessageBox, QHBoxLayout, QComboBox, QGroupBox, QProgressBar, QGridLayout
+from qgis.PyQt.QtWidgets import (
+    QAction, QCheckBox, QSpinBox, QVBoxLayout, QWidget, QPushButton,
+    QMessageBox, QHBoxLayout, QComboBox, QGroupBox, QProgressBar,
+    QGridLayout, QApplication as qApp
+)
 from qgis.PyQt.QtCore import Qt
-
-from typing import Optional, Dict, List
-from qgis.PyQt.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGroupBox,
-                                 QSpinBox, QComboBox, QPushButton, QProgressBar,
-                                 QApplication as qApp)
-
-from typing import Optional, Dict
 from typing import Optional, Dict, List, Tuple
 from .fmb import TriangleWidget, PlotterWidget,  CombinedMainWidget
 from .freehand_adjuster import activate_vertex_tool
@@ -277,10 +273,7 @@ class ToolWidget(QWidget):
             QMessageBox.critical(self, "Error", f"An error occurred: {e}")
 
     def bisector_button_clicked(self):
-        try:
-            bisector_window.show()
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"An error occurred: {e}")
+        pass
 
     def splitter_button_clicked(self):
         try:

@@ -42,7 +42,7 @@ from qgis.PyQt.QtGui import QColor, QPalette, QDesktopServices
 try:
     from qgis.PyQt.QtCore import QT_VERSION_STR
     QT_VERSION = int(QT_VERSION_STR.split('.')[0])
-except:
+except Exception:
     QT_VERSION = 5
 
 if QT_VERSION >= 6:
@@ -597,7 +597,7 @@ class GeometryConverter:
                 pole = geometry.poleOfInaccessibility(0.000001)
                 if pole and not pole.isEmpty():
                     return pole.asPoint()
-        except:  # nosec B110
+        except Exception:  # nosec B110
             pass
         centroid = geometry.centroid()
         if centroid and not centroid.isEmpty():
@@ -1392,7 +1392,7 @@ class KMZExporterDialog(QDialog):
         if os.path.exists(folder):
             # If the file exists, select it in Explorer/Finder
             if os.path.exists(self.output_path):
-                import subprocess
+                import subprocess  # nosec B404
                 import platform
                 if platform.system() == 'Windows':
                     # Windows: Open Explorer and select the file

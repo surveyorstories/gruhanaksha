@@ -18,7 +18,6 @@ from .qt_compat import (
     QLabel, QComboBox, QLineEdit, QHBoxLayout
 )
 from math import sqrt, sin, cos, pi, pow
-import inspect
 import threading
 import qgis.utils
 from .addon_functions import undo, redo
@@ -64,11 +63,11 @@ class MessageBar(QgsMessageBar):
         self.move(0, self.parent().geometry().size().height() - self.height())
         self.raise_()
 
-    def eventFilter(self, object, event):
+    def eventFilter(self, obj, event):
         if event.type() == QEvent.Type.Resize:
             self.showEvent(None)
 
-        return super(MessageBar, self).eventFilter(object, event)
+        return super(MessageBar, self).eventFilter(obj, event)
 
 
 class FeatureSelectMapTool(QgsMapToolEmitPoint):
@@ -644,7 +643,7 @@ class MyWnd(QMainWindow):
         # print("onclick")
         self.disableAll()
         if not self.action.isChecked():
-            if self.mapTool != None and hasattr(self.mapTool, 'capturedPoints') and len(self.mapTool.capturedPoints) >= 2:
+            if self.mapTool is not None and hasattr(self.mapTool, 'capturedPoints') and len(self.mapTool.capturedPoints) >= 2:
                 reply = QtCompat.message_box_question(self.canvas, "Cancel splitting line?", "Your splitting line has " + str(
                     len(self.mapTool.capturedPoints)) + " points. Do you want to remove it?", QtCompat.Yes, QtCompat.No)
                 if reply == QMessageBox.StandardButton.No:
@@ -652,7 +651,7 @@ class MyWnd(QMainWindow):
                     self.mapTool.restoreAction()
                     return
 
-            if self.mapTool != None:
+            if self.mapTool is not None:
                 if hasattr(self.mapTool, 'deactivate'):
                     self.mapTool.deactivate()
                 self.mapTool.stopCapturing()
@@ -663,7 +662,7 @@ class MyWnd(QMainWindow):
             self.enableTool()  # Re-enable based on current selection
             return
         layer = self.iface.activeLayer()
-        if layer == None or not isinstance(layer, QgsVectorLayer) or (layer.wkbType() != QgsWkbTypes.Type.Polygon and layer.wkbType() != QgsWkbTypes.Type.MultiPolygon and layer.wkbType() != QgsWkbTypes.Type.Polygon25D and layer.wkbType() != QgsWkbTypes.Type.MultiPolygon25D):
+        if layer is None or not isinstance(layer, QgsVectorLayer) or (layer.wkbType() != QgsWkbTypes.Type.Polygon and layer.wkbType() != QgsWkbTypes.Type.MultiPolygon and layer.wkbType() != QgsWkbTypes.Type.Polygon25D and layer.wkbType() != QgsWkbTypes.Type.MultiPolygon25D):
             # self.canvas.messageBar().pushMessage("No Polygon Vectorial Layer Selected",
             #                                      "Select a Polygon Vectorial Layer first", level=QgsMessageBar.WARNING)
 
@@ -675,7 +674,7 @@ class MyWnd(QMainWindow):
             self.action.setChecked(False)
             return
         selectedFeatures = layer.selectedFeatures()
-        if selectedFeatures == None or len(selectedFeatures) == 0:
+        if selectedFeatures is None or len(selectedFeatures) == 0:
 
             messagebar = MessageBar(self.canvas)
             messagebar.pushMessage(
@@ -706,7 +705,7 @@ class MyWnd(QMainWindow):
 
     def onClickMoveVertices(self):
         if not self.actionMoveVertices.isChecked():
-            if self.mapTool != None:
+            if self.mapTool is not None:
                 self.mapTool.stopMovingVertices()
             return
 
@@ -714,7 +713,7 @@ class MyWnd(QMainWindow):
 
     def onClickAddVertices(self):
         if not self.actionAddVertices.isChecked():
-            if self.mapTool != None:
+            if self.mapTool is not None:
                 self.mapTool.stopAddingVertices()
             return
 
@@ -723,7 +722,7 @@ class MyWnd(QMainWindow):
 
     def onClickRemoveVertices(self):
         if not self.actionRemoveVertices.isChecked():
-            if self.mapTool != None:
+            if self.mapTool is not None:
                 self.mapTool.stopRemovingVertices()
             return
 
@@ -732,7 +731,7 @@ class MyWnd(QMainWindow):
 
     def onClickMoveSegment(self):
         if not self.actionMoveSegment.isChecked():
-            if self.mapTool != None:
+            if self.mapTool is not None:
                 self.mapTool.stopMovingSegment()
             return
 
@@ -747,7 +746,7 @@ class MyWnd(QMainWindow):
 
     def onClickMoveLine(self):
         if not self.actionMoveLine.isChecked():
-            if self.mapTool != None:
+            if self.mapTool is not None:
                 self.mapTool.stopMovingLine()
             return
 
@@ -902,22 +901,22 @@ class MyWnd(QMainWindow):
             self.actionAddMarker.setChecked(False)
 
     def currentLayerChanged(self):
-        if self.mapTool != None:
+        if self.mapTool is not None:
             self.mapTool.stopCapturing()
 
         layer = self.iface.activeLayer()
-        if layer != None:
+        if layer is not None:
             try:
                 layer.editingStarted.disconnect(self.layerEditingChanged)
-            except:  # nosec B110
+            except Exception:  # nosec B110
                 pass
             try:
                 layer.editingStopped.disconnect(self.layerEditingChanged)
-            except:  # nosec B110
+            except Exception:  # nosec B110
                 pass
             try:
                 layer.selectionChanged .disconnect(self.layerEditingChanged)
-            except:  # nosec B110
+            except Exception:  # nosec B110
                 pass
 
             if isinstance(layer, QgsVectorLayer):
@@ -928,12 +927,12 @@ class MyWnd(QMainWindow):
         self.enableTool()
 
     def layerEditingChanged(self):
-        if self.mapTool != None:
+        if self.mapTool is not None:
             self.mapTool.stopCapturing()
         self.enableTool()
 
     def layerSelectionChanged(self):
-        if self.mapTool != None:
+        if self.mapTool is not None:
             self.mapTool.stopCapturing()
         self.enableTool()
 
@@ -943,7 +942,7 @@ class MyWnd(QMainWindow):
         self.updatePolygonVertices()
         layer = self.iface.activeLayer()
 
-        if layer != None and isinstance(layer, QgsVectorLayer):
+        if layer is not None and isinstance(layer, QgsVectorLayer):
             self.actionAddMarker.setEnabled(True)
             selectedFeatures = layer.selectedFeatures()
             isPolygon = (layer.wkbType() == QgsWkbTypes.Type.Polygon or layer.wkbType() == QgsWkbTypes.Type.MultiPolygon or layer.wkbType(
@@ -986,12 +985,12 @@ class SplitMapTool(QgsMapToolEdit):
     def initialize(self):
         try:
             self.canvas.renderStarting.disconnect(self.mapCanvasChanged)
-        except:  # nosec B110
+        except Exception:  # nosec B110
             pass
         self.canvas.renderStarting.connect(self.mapCanvasChanged)
         try:
             self.layer.editingStopped.disconnect(self.stopCapturing)
-        except:  # nosec B110
+        except Exception:  # nosec B110
             pass
         self.layer.editingStopped.connect(self.stopCapturing)
 
@@ -1138,7 +1137,7 @@ class SplitMapTool(QgsMapToolEdit):
             self.redrawAreas()
             self.movingLineInitialPoint = currentPoint
 
-        if self.movingLine and self.movingLineInitialPoint != None:
+        if self.movingLine and self.movingLineInitialPoint is not None:
             currentPoint = self.toLayerCoordinates(self.layer, event.pos())
             if snapMatch.type():
                 snappedPoint = snapMatch.point()
@@ -1223,7 +1222,7 @@ class SplitMapTool(QgsMapToolEdit):
                 movingPoints = list(self.capturedPoints)
 
                 skip_segments = set()
-                if mousePos != None:
+                if mousePos is not None:
                     movingPoints.append(
                         self.toLayerCoordinates(self.layer, mousePos))
 
@@ -1252,7 +1251,7 @@ class SplitMapTool(QgsMapToolEdit):
                 self.addLabel(geometry)
                 self.addSegmentLabels(
                     geometry, original_segments, skip_segments)
-                if newGeometries != None and len(newGeometries) > 0:
+                if newGeometries is not None and len(newGeometries) > 0:
                     for geometry in newGeometries:
                         self.addLabel(geometry)
                         self.addSegmentLabels(
@@ -1429,7 +1428,7 @@ class SplitMapTool(QgsMapToolEdit):
         self.startCapturing()
 
     def doSplit(self):
-        if self.capturedPoints != None:
+        if self.capturedPoints is not None:
             # Check if layer is in edit mode
             if not self.layer.isEditable():
                 self.layer.startEditing()
@@ -1497,7 +1496,7 @@ class SplitMapTool(QgsMapToolEdit):
             self.rubberBand.addPoint(vertexCoord)
 
     def redrawTempRubberBand(self):
-        if self.tempRubberBand != None:
+        if self.tempRubberBand is not None:
             self.tempRubberBand.reset(QgsWkbTypes.GeometryType.LineGeometry)
             self.tempRubberBand.addPoint(self.toMapCoordinates(
                 self.layer, self.capturedPoints[len(self.capturedPoints) - 1]))

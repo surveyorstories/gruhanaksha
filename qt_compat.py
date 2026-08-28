@@ -233,11 +233,6 @@ class QtCompat:
         return cls.Sunken
 
     @classmethod
-    def user_role(cls):
-        """Return UserRole enum."""
-        return cls._get_attr(Qt, 'UserRole', 'ItemDataRole.UserRole')
-
-    @classmethod
     def info_icon(cls):
         """Return Information icon for QSystemTrayIcon."""
         return cls._get_attr(QSystemTrayIcon, 'Information', 'MessageIcon.Information')
