@@ -133,7 +133,7 @@ class ExcelImportDialog(QDialog):
         # 3. Data Preview Table
         layout.addWidget(QLabel("Preview (first 10 rows):"))
         self.table_preview = QTableWidget()
-        self.table_preview.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.table_preview.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table_preview.setAlternatingRowColors(True)
         layout.addWidget(self.table_preview)
 
@@ -312,8 +312,8 @@ class LayoutDesignerToolsManager:
                 w = max(int(doc.idealWidth()), 200)
                 h = max(int(doc.size().height()), 60)
                 scale = 3.0  # Crisp 3x render for print layout
-                img = QImage(int(w * scale), int(h * scale), QImage.Format_ARGB32)
-                img.fill(Qt.white)
+                img = QImage(int(w * scale), int(h * scale), QImage.Format.Format_ARGB32)
+                img.fill(Qt.GlobalColor.white)
                 p = QPainter(img)
                 p.scale(scale, scale)
                 doc.drawContents(p)
@@ -353,8 +353,8 @@ class LayoutDesignerToolsManager:
             h_mm = 180.0
             w_mm = (w_px / h_px) * h_mm if h_px > 0 else 110.0
 
-        pic.attemptMove(QgsLayoutPoint(20, 20, QgsUnitTypes.LayoutMillimeters))
-        pic.attemptResize(QgsLayoutSize(w_mm, h_mm, QgsUnitTypes.LayoutMillimeters))
+        pic.attemptMove(QgsLayoutPoint(20, 20, QgsUnitTypes.LayoutUnit.LayoutMillimeters))
+        pic.attemptResize(QgsLayoutSize(w_mm, h_mm, QgsUnitTypes.LayoutUnit.LayoutMillimeters))
         layout.addLayoutItem(pic)
         layout.setSelectedItem(pic)
         layout.refresh()
@@ -380,7 +380,7 @@ class LayoutDesignerToolsManager:
             return
 
         dialog = ExcelImportDialog(designer.window(), path, sheets)
-        if dialog.exec_() != QDialog.Accepted:
+        if dialog.exec() != QDialog.DialogCode.Accepted:
             return
 
         rows = dialog.get_selected_data()
@@ -450,8 +450,8 @@ class LayoutDesignerToolsManager:
         total_h = sum(row_heights)
 
         frame = QgsLayoutFrame(layout, table)
-        frame.attemptMove(QgsLayoutPoint(20, 20, QgsUnitTypes.LayoutMillimeters))
-        frame.attemptResize(QgsLayoutSize(total_w, total_h, QgsUnitTypes.LayoutMillimeters))
+        frame.attemptMove(QgsLayoutPoint(20, 20, QgsUnitTypes.LayoutUnit.LayoutMillimeters))
+        frame.attemptResize(QgsLayoutSize(total_w, total_h, QgsUnitTypes.LayoutUnit.LayoutMillimeters))
         table.addFrame(frame)
         layout.setSelectedItem(frame)
         layout.refresh()
