@@ -93,6 +93,7 @@ class GruhanakshaPlugin(object):
         self.recovery_daemon = None
         self.recovery_status_btn = None
         self.backup_timer_label = None
+        self.layout_tools_mgr = None
 
     def initProcessing(self):
         """Init Processing provider for QGIS >= 3.8."""
@@ -111,6 +112,14 @@ class GruhanakshaPlugin(object):
             self.recovery_daemon.start()
         except Exception as e:
             print(f"[Gruhanaksha] Recovery daemon init error: {e}")
+
+        # Start layout designer tools for images & excel tables
+        try:
+            from .layout_tools import LayoutDesignerToolsManager
+            self.layout_tools_mgr = LayoutDesignerToolsManager(self.iface)
+            self.layout_tools_mgr.enable()
+        except Exception as e:
+            print(f"[Gruhanaksha] Layout tools init error: {e}")
 
         # Create the toolbar
         self.toolbar = self.iface.addToolBar('Gruhanaksha Toolbar')
@@ -366,6 +375,14 @@ class GruhanakshaPlugin(object):
             except Exception:  # nosec B110
                 pass
             self.crash_recovery_dialog = None
+
+        # Clean up layout designer tools
+        if hasattr(self, 'layout_tools_mgr') and self.layout_tools_mgr:
+            try:
+                self.layout_tools_mgr.disable()
+            except Exception:  # nosec B110
+                pass
+            self.layout_tools_mgr = None
 
         # Clean up backup plugin
         if hasattr(self, 'backup_plugin') and self.backup_plugin:

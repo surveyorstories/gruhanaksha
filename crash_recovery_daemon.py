@@ -25,9 +25,10 @@ from .crash_recovery_db import CrashRecoveryDB
 from .crash_recovery_worker import SnapshotWorker
 
 # Chunked extraction: features pulled per scan per timer tick / per event pump
-SCAN_CHUNK = 4000
-SCAN_TICK_MS = 100
-MAX_FEATURES_PER_TICK = 8000
+SCAN_CHUNK = 500  # ponytail: lowered from 4000 to keep UI responsive at 60fps
+SCAN_TICK_MS = 60
+MAX_FEATURES_PER_TICK = 1000  # ponytail: lowered from 8000 to prevent GUI thread lock
+MAX_FULL_SCAN_FEATURES = 25000  # ponytail: skip full in-memory WKB duplication for giant static layers
 
 # Triggers that must complete synchronously before returning
 SYNC_TRIGGERS = ("MANUAL", "PRE_ROLLBACK")
@@ -95,22 +96,23 @@ class CrashRecoveryDaemon(QObject):
 
         # Settings
         self.auto_enabled: bool = True
-        self.debounce_delay_ms: int = 2500  # 2.5 seconds debounce on edits
+        self.debounce_delay_ms: int = 4000  # ponytail: 4.0s debounce prevents lag during active digitizing
         self.interval_minutes: int = 5       # 5 minutes periodic snapshot
         self.max_snapshots_per_layer: int = 50
         self.max_db_size_mb: float = 100.0  # Max database size cap
         self.retention_days: int = 14       # Max retention in days
-        self.min_cooldown_seconds: float = 1.5  # Rate limit: minimum cooldown between writes
+        self.min_cooldown_seconds: float = 3.0  # Rate limit: minimum cooldown between writes
 
         # State tracking
         self.last_snapshot_times: Dict[str, float] = {}
         self._dirty_layers: Set[str] = set()          # edited since last checkpoint
         self._snapshotted_this_session: Set[str] = set()
+        self._latest_snapshot_ids: Dict[str, int] = {}  # Cache latest snapshot ID per layer_id
         self._scan_queue: 'OrderedDict[str, _ScanState]' = OrderedDict()
 
         # Timers
         self.heartbeat_timer = QTimer(self)
-        self.heartbeat_timer.setInterval(15000)  # 15s heartbeat
+        self.heartbeat_timer.setInterval(30000)  # ponytail: 30s heartbeat cuts timer frequency in half
         self.heartbeat_timer.timeout.connect(self._on_heartbeat)
 
         self.interval_timer = QTimer(self)
@@ -133,6 +135,7 @@ class CrashRecoveryDaemon(QObject):
 
     def _on_worker_snapshot(self, snapshot_id: int, layer_id: str, trigger_type: str):
         """Runs on main thread; re-emit for dialog/plugin listeners."""
+        self._latest_snapshot_ids[layer_id] = snapshot_id
         self.snapshotCreated.emit(snapshot_id, layer_id, trigger_type)
 
     def _on_snapshot_processed(self, layer_id: str):
@@ -143,7 +146,7 @@ class CrashRecoveryDaemon(QObject):
         """Start silent background monitoring."""
         self._on_project_read()
         self.heartbeat_timer.start()
-        self.scan_timer.start()
+        # ponytail: scan_timer is started ONLY when queue has items, never runs continuously
         self._update_interval_timer()
 
     def stop(self):
@@ -200,6 +203,7 @@ class CrashRecoveryDaemon(QObject):
             self.uncleanSessionDetected.emit(self.current_project_id, unclean_sessions)
 
         # Start new session
+        self._latest_snapshot_ids.clear()
         self.current_session_id = self.db.start_session(self.current_project_id)
         self._snapshotted_this_session.clear()
 
@@ -207,7 +211,7 @@ class CrashRecoveryDaemon(QObject):
         self._sync_project_layers()
 
     def _on_project_saved(self):
-        """Project saved: queue checkpoint scans of modified layers (non-blocking)."""
+        """Project saved: QGIS project and layers already saved to disk."""
         if not self.auto_enabled or not self.current_session_id:
             return
         proj = QgsProject.instance()
@@ -215,10 +219,12 @@ class CrashRecoveryDaemon(QObject):
         if proj_path:
             self.current_project_id = self.db.register_project(proj_path, proj.baseName())
 
-        for layer_id in list(self.monitored_layer_ids):
+        # ponytail: only checkpoint dirty layers that are still actively being edited
+        for layer_id in list(self._dirty_layers):
             layer = proj.mapLayer(layer_id)
-            if isinstance(layer, QgsVectorLayer) and layer.isValid():
+            if isinstance(layer, QgsVectorLayer) and layer.isValid() and layer.isEditable():
                 self._schedule_scan(layer, trigger_type="SAVE", summary="Project Saved")
+        self._dirty_layers.clear()
 
     def _on_project_cleared(self):
         """Project closed or new project initialized."""
@@ -226,6 +232,7 @@ class CrashRecoveryDaemon(QObject):
             self.db.close_session_cleanly(self.current_session_id)
             self.current_session_id = None
         self._scan_queue.clear()
+        self.scan_timer.stop()
         self._disconnect_all_layer_signals()
 
     # --- Layer Monitoring ---
@@ -237,10 +244,13 @@ class CrashRecoveryDaemon(QObject):
         for layer in proj.mapLayers().values():
             if isinstance(layer, QgsVectorLayer) and layer.isValid():
                 self._attach_layer_signals(layer)
-                # Backfill baseline for layers without any snapshot yet
-                # (covers layersAdded firing before the session existed).
-                if self.auto_enabled and layer.id() not in self._scan_queue:
-                    if not self.db.get_latest_snapshot_id(layer.id()):
+                # ponytail: do NOT scan non-editable background layers on project load.
+                # Only scan if layer is actively in edit mode.
+                if self.auto_enabled and layer.isEditable() and layer.id() not in self._scan_queue:
+                    latest_id = self.db.get_latest_snapshot_id(layer.id())
+                    if latest_id:
+                        self._latest_snapshot_ids[layer.id()] = latest_id
+                    else:
                         self._schedule_scan(layer, trigger_type="INIT",
                                             summary="Layer Initialized")
 
@@ -249,8 +259,8 @@ class CrashRecoveryDaemon(QObject):
         for layer in layers:
             if isinstance(layer, QgsVectorLayer) and layer.isValid():
                 self._attach_layer_signals(layer)
-                # Queue initial baseline snapshot (chunked, non-blocking)
-                if self.auto_enabled and self.current_session_id:
+                # ponytail: only scan if layer is currently being edited
+                if self.auto_enabled and self.current_session_id and layer.isEditable():
                     self._schedule_scan(layer, trigger_type="INIT",
                                         summary="Layer Initialized")
 
@@ -260,10 +270,24 @@ class CrashRecoveryDaemon(QObject):
         self.connected_signal_layers.discard(layer_id)
         self._dirty_layers.discard(layer_id)
         self._snapshotted_this_session.discard(layer_id)
+        self._latest_snapshot_ids.pop(layer_id, None)
         self._scan_queue.pop(layer_id, None)
         if layer_id in self.debounce_timers:
             self.debounce_timers[layer_id].stop()
             del self.debounce_timers[layer_id]
+
+    def _on_layer_editing_started(self, layer_id: str):
+        """When user toggles editing on a layer, ensure a baseline snapshot exists."""
+        if not self.auto_enabled or not self.current_session_id:
+            return
+        proj = QgsProject.instance()
+        layer = proj.mapLayer(layer_id)
+        if isinstance(layer, QgsVectorLayer) and layer.isValid():
+            latest_id = self.db.get_latest_snapshot_id(layer_id)
+            if latest_id:
+                self._latest_snapshot_ids[layer_id] = latest_id
+            elif layer_id not in self._scan_queue:
+                self._schedule_scan(layer, trigger_type="INIT", summary="Editing Started")
 
     def _attach_layer_signals(self, layer: QgsVectorLayer):
         """Attach edit and modification signals to a vector layer."""
@@ -274,6 +298,10 @@ class CrashRecoveryDaemon(QObject):
             return
 
         try:
+            # Editing started - create baseline when user starts editing
+            if hasattr(layer, 'editingStarted'):
+                layer.editingStarted.connect(lambda lid=layer_id: self._on_layer_editing_started(lid))
+
             # Edit buffer signals (real-time drafting)
             if hasattr(layer, 'featureAdded'):
                 layer.featureAdded.connect(lambda fid, lid=layer_id: self._on_layer_edited(lid))
@@ -380,7 +408,7 @@ class CrashRecoveryDaemon(QObject):
 
         # Patches merge onto the latest snapshot; without a baseline they
         # would be silently dropped. Fall back to a full scan instead.
-        if not self.db.get_latest_snapshot_id(layer_id):
+        if layer_id not in self._latest_snapshot_ids:
             _log(f"No baseline for '{layer.name()}'; scheduling full scan "
                  f"instead of edit patch", Qgis.MessageLevel.Warning)
             if layer_id not in self._scan_queue:
@@ -416,13 +444,15 @@ class CrashRecoveryDaemon(QObject):
         })
 
     def _on_layer_committed(self, layer_id: str):
-        """After commit FIDs remap negative->positive; queue full rescan (chunked)."""
+        """After commit FIDs remap negative->positive; edits committed to disk."""
         self._dirty_layers.discard(layer_id)
         if not self.auto_enabled or not self.current_session_id:
             return
         proj = QgsProject.instance()
         layer = proj.mapLayer(layer_id)
-        if isinstance(layer, QgsVectorLayer) and layer.isValid():
+        # ponytail: Only rescan small layers (<= 5000 features). For large layers,
+        # committed changes are already safe on disk; rescanning 50k features locks GUI.
+        if isinstance(layer, QgsVectorLayer) and layer.isValid() and layer.featureCount() <= 5000:
             self._schedule_scan(layer, trigger_type="COMMIT", summary="Edits Committed")
 
     def _on_layer_before_rollback(self, layer_id: str):
@@ -603,9 +633,21 @@ class CrashRecoveryDaemon(QObject):
 
     def _schedule_scan(self, layer: QgsVectorLayer, trigger_type: str, summary: str):
         """Queue a chunked, non-blocking full-feature scan of the layer."""
+        if not layer or not layer.isValid():
+            return
         layer_id = layer.id()
         if layer_id in self._scan_queue:
             return  # already scanning
+
+        # ponytail: safety guard - if layer has more than MAX_FULL_SCAN_FEATURES,
+        # skip duplicating entire layer into SQLite to prevent freezing QGIS
+        feat_count = layer.featureCount()
+        if feat_count > MAX_FULL_SCAN_FEATURES:
+            _log(f"Layer '{layer.name()}' has {feat_count} features (> {MAX_FULL_SCAN_FEATURES}); "
+                 f"skipping full scan to prevent GUI freeze. Edit-buffer patches will still be protected.",
+                 Qgis.MessageLevel.Info)
+            return
+
         try:
             meta = self._capture_meta(layer)
             state = _ScanState(
@@ -617,12 +659,18 @@ class CrashRecoveryDaemon(QObject):
                 meta=meta,
             )
             self._scan_queue[layer_id] = state
+            if not self.scan_timer.isActive():
+                self.scan_timer.start()
             _log(f"Queued {trigger_type} scan of '{layer.name()}'")
         except RuntimeError:
             _log(f"Scan schedule failed for layer id {layer_id}", Qgis.MessageLevel.Warning)
 
     def _pump_scans(self):
         """Timer tick: advance every active scan by a bounded chunk, then yield to UI."""
+        if not self._scan_queue:
+            self.scan_timer.stop()
+            return
+
         budget = MAX_FEATURES_PER_TICK
         for layer_id in list(self._scan_queue.keys()):
             if budget <= 0:
@@ -649,6 +697,9 @@ class CrashRecoveryDaemon(QObject):
             if done and layer_id in self._scan_queue:
                 del self._scan_queue[layer_id]
                 self._finish_scan(state)
+
+        if not self._scan_queue:
+            self.scan_timer.stop()
 
     def _finish_scan(self, state: _ScanState):
         """Hand completed extraction to the worker thread for writing."""
@@ -709,24 +760,27 @@ class CrashRecoveryDaemon(QObject):
                 # Keep the UI responsive during long extractions
                 QApplication.processEvents()
 
-            snapshot_id = self.db.save_snapshot(
-                session_id=self.current_session_id,
-                project_id=meta["project_id"],
-                layer_id=meta["layer_id"],
-                layer_name=meta["layer_name"],
-                geom_type=meta["geom_type"],
-                crs_authid=meta["crs_authid"],
-                fields_schema=meta["fields_schema"],
-                features_data=features_data,
-                trigger_type=trigger_type,
-                summary=summary,
-                max_keep=meta["max_keep"],
-            )
-            if snapshot_id:
-                self.last_snapshot_times[layer_id] = now_ts
-                self._snapshotted_this_session.add(layer_id)
-                self.snapshotCreated.emit(snapshot_id, layer_id, trigger_type)
-            return snapshot_id
+            # Queue writing to the background worker thread instead of writing synchronously
+            self.last_snapshot_times[layer_id] = now_ts
+            self._snapshotted_this_session.add(layer_id)
+
+            self._submit_job({
+                "kind": "snapshot_full",
+                "session_id": self.current_session_id,
+                "project_id": meta["project_id"],
+                "layer_id": meta["layer_id"],
+                "layer_name": meta["layer_name"],
+                "geom_type": meta["geom_type"],
+                "crs_authid": meta["crs_authid"],
+                "fields_schema": meta["fields_schema"],
+                "features_data": features_data,
+                "trigger_type": trigger_type,
+                "summary": summary,
+                "max_keep": meta["max_keep"],
+                "retention_days": meta["retention_days"],
+                "max_db_mb": meta["max_db_mb"],
+            })
+            return 1
         except Exception as e:
             _log(f"Error snapshotting {layer.name()}: {e}", Qgis.MessageLevel.Critical)
             return None

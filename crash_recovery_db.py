@@ -39,6 +39,9 @@ class CrashRecoveryDB:
         conn.execute("PRAGMA journal_mode = WAL;")
         conn.execute("PRAGMA synchronous = NORMAL;")
         conn.execute("PRAGMA busy_timeout = 30000;")
+        conn.execute("PRAGMA cache_size = -8000;")
+        conn.execute("PRAGMA temp_store = MEMORY;")
+        conn.execute("PRAGMA mmap_size = 30000000000;")
         self._local.conn = conn
         return conn
 
@@ -144,7 +147,7 @@ class CrashRecoveryDB:
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_rp_timestamp ON restore_points(timestamp);")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_rp_pinned ON restore_points(is_pinned);")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_sessions_project ON sessions(project_id);")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_feat_snapshot ON features_snapshot(snapshot_id);")
+            cursor.execute("DROP INDEX IF EXISTS idx_feat_snapshot;")
             conn.commit()
 
     # --- Project & Session Tracking ---
@@ -625,25 +628,41 @@ class CrashRecoveryDB:
         Enforce max database file size. If exceeded, delete oldest unpinned snapshots until under limit.
         """
         max_bytes = max_size_mb * 1024 * 1024
-        curr_bytes = self.get_database_size_bytes()
-        if curr_bytes <= max_bytes:
-            return False
 
-        # Purge oldest 25 unpinned snapshots in loop until size is under limit
         with self._get_connection() as conn:
             cursor = conn.cursor()
-            while self.get_database_size_bytes() > max_bytes:
+
+            cursor.execute("PRAGMA page_size;")
+            page_size = cursor.fetchone()[0]
+
+            def get_estimated_size():
+                cursor.execute("PRAGMA page_count;")
+                page_count = cursor.fetchone()[0]
+                cursor.execute("PRAGMA freelist_count;")
+                freelist_count = cursor.fetchone()[0]
+                return (page_count - freelist_count) * page_size
+
+            # If even the estimated vacuumed size is within budget, do nothing
+            if get_estimated_size() <= max_bytes:
+                return False
+
+            # Delete oldest unpinned snapshots in chunks until estimated size is under limit
+            deleted_any = False
+            while get_estimated_size() > max_bytes:
                 cursor.execute("""
                     DELETE FROM restore_points WHERE id IN (
-                        SELECT id FROM restore_points WHERE is_pinned = 0 ORDER BY id ASC LIMIT 25
+                        SELECT id FROM restore_points WHERE is_pinned = 0 ORDER BY id ASC LIMIT 5
                     )
                 """)
                 if cursor.rowcount == 0:
                     break
                 conn.commit()
+                deleted_any = True
 
-        self.vacuum()
-        return True
+        if deleted_any:
+            self.vacuum()
+            return True
+        return False
 
     def clear_entire_database(self):
         """Wipe all tables, reset SQLite database completely, and vacuum."""

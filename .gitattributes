@@ -1,0 +1,17 @@
+# Exclude development, IDE, test, and temporary files from QGIS release archive
+.git* export-ignore
+.github export-ignore
+.superpowers export-ignore
+.trae export-ignore
+.agents export-ignore
+.vscode export-ignore
+.pytest_cache export-ignore
+.env export-ignore
+test export-ignore
+tests export-ignore
+Makefile export-ignore
+pylintrc export-ignore
+skills-lock.json export-ignore
+gap_differences_diagram_*.png export-ignore
+*.pyc export-ignore
+__pycache__ export-ignore

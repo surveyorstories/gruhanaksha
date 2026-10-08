@@ -69,26 +69,34 @@ PY_FILES = \
 	aligner.py \
 	atlas_export.py \
 	autosaveandbackup.py \
-	canvas_one.py \
+	crash_recovery_daemon.py \
+	crash_recovery_db.py \
+	crash_recovery_dialog.py \
+	crash_recovery_worker.py \
 	fmb.py \
 	freehand_adjuster.py \
 	Gruhanaksha_provider.py \
 	Gruhanaksha.py \
 	kmz.py \
+	layout_tools.py \
 	lpm_canvas.py \
 	marker_tool.py \
 	master.py \
 	pointinput.py \
 	polygon_adjuster.py \
 	polygon_splitter.py \
+	ppm_dialog.py \
+	presentation.py \
 	qt_compat.py \
 	svamitvappm_algorithm.py \
 	tools.py \
-	trim_and_extend.py 
+	topology_checker.py \
+	traverse_plotter.py \
+	trim_and_extend.py
 
 UI_FILES = 
 
-EXTRAS = metadata.txt LICENSE CHANGELOG.md .qgis-plugin-ci pb_tool.cfg pylintrc
+EXTRAS = metadata.txt LICENSE CHANGELOG.md symbology-style.db pb_tool.cfg
 
 EXTRA_DIRS = assets help i18n images scripts
 

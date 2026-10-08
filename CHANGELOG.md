@@ -1,6 +1,7 @@
-Release Notes 3.6.1
-    -bug fix in recovery module
-    - increased thickness in the splitter line
+Release Notes 3.6.2
+    - added clipboard paste in the print layout
+    - added excel importing in the print layout
+    - improved data recovery lag
     
     
     
